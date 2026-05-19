@@ -1,0 +1,106 @@
+"""Catalog cache — file-backed provider model catalog with TTL.
+
+Stores the unified catalog as JSON with a timestamp.
+Returns None when stale or missing (triggering a refresh).
+"""
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+import time
+from pathlib import Path
+
+import structlog
+
+from dragonlight_router.core.types import CatalogEntry
+
+logger = structlog.get_logger()
+
+
+class CatalogCache:
+    """File-backed catalog cache with TTL-based expiration."""
+
+    def __init__(self, cache_path: Path, ttl_hours: int = 24) -> None:
+        self._path = cache_path
+        self._ttl_s = ttl_hours * 3600.0
+
+    def get(self) -> dict[str, list[CatalogEntry]] | None:
+        """Load catalog from cache. Returns None if stale or missing."""
+        if self.is_stale():
+            return None
+
+        try:
+            text = self._path.read_text()
+            data = json.loads(text)
+            return self._deserialize(data.get("catalog", {}))
+        except (json.JSONDecodeError, OSError, KeyError) as exc:
+            logger.warning("catalog_cache_read_failed", error=str(exc))
+            return None
+
+    def set(self, catalog: dict[str, list[CatalogEntry]]) -> None:
+        """Atomically write catalog to cache with current timestamp."""
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+
+        payload = {
+            "timestamp": time.time(),
+            "catalog": self._serialize(catalog),
+        }
+
+        fd, tmp_path = tempfile.mkstemp(
+            dir=str(self._path.parent),
+            prefix=".catalog_cache_",
+            suffix=".tmp",
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(payload, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.rename(tmp_path, str(self._path))
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
+    def is_stale(self) -> bool:
+        """Check if the cache is stale (missing, corrupt, or expired)."""
+        if not self._path.exists():
+            return True
+
+        try:
+            text = self._path.read_text()
+            data = json.loads(text)
+            timestamp = data.get("timestamp", 0)
+            age = time.time() - timestamp
+            return age > self._ttl_s
+        except (json.JSONDecodeError, OSError):
+            return True
+
+    @staticmethod
+    def _serialize(catalog: dict[str, list[CatalogEntry]]) -> dict:
+        """Convert catalog to JSON-serializable dict."""
+        result = {}
+        for provider, entries in catalog.items():
+            result[provider] = [
+                {"model_id": e.model_id, "provider": e.provider, "created": e.created}
+                for e in entries
+            ]
+        return result
+
+    @staticmethod
+    def _deserialize(data: dict) -> dict[str, list[CatalogEntry]]:
+        """Convert JSON dict back to CatalogEntry objects."""
+        result: dict[str, list[CatalogEntry]] = {}
+        for provider, entries in data.items():
+            result[provider] = [
+                CatalogEntry(
+                    model_id=e["model_id"],
+                    provider=e["provider"],
+                    created=e.get("created"),
+                )
+                for e in entries
+            ]
+        return result

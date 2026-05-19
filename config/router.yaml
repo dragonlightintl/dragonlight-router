@@ -1,0 +1,85 @@
+state_dir: ./router_state
+catalog_ttl_hours: 24
+budget_flush_interval_s: 5
+default_top_n: 12
+max_consecutive_same_provider: 2
+
+providers:
+  - name: nvidia_nim
+    base_url: https://integrate.api.nvidia.com/v1
+    catalog_url: https://integrate.api.nvidia.com/v1/models
+    env_key: NVIDIA_NIM_API_KEY
+    model_prefix: "nvidia_nim/"
+    rate_limits:
+      rpm: 40
+      rpd: null
+      tpm: null
+
+  - name: groq
+    base_url: https://api.groq.com/openai/v1
+    catalog_url: https://api.groq.com/openai/v1/models
+    env_key: GROQ_API_KEY
+    model_prefix: "groq/"
+    rate_limits:
+      rpm: 30
+      rpd: 1000
+      tpm: 6000
+
+  - name: openrouter
+    base_url: https://openrouter.ai/api/v1
+    catalog_url: https://openrouter.ai/api/v1/models
+    env_key: OPENROUTER_API_KEY
+    model_prefix: "openrouter/"
+    rate_limits:
+      rpm: 20
+      rpd: 1000
+      tpm: null
+
+  - name: cerebras
+    base_url: https://api.cerebras.ai/v1
+    catalog_url: https://api.cerebras.ai/v1/models
+    env_key: CEREBRAS_API_KEY
+    model_prefix: "cerebras/"
+    rate_limits:
+      rpm: 30
+      rpd: 1700
+      tpm: 60000
+
+  - name: gemini
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    catalog_url: https://generativelanguage.googleapis.com/v1beta/openai/models
+    env_key: GEMINI_API_KEY
+    model_prefix: "gemini/"
+    rate_limits:
+      rpm: 10
+      rpd: 250
+      tpm: 250000
+
+  - name: mistral
+    base_url: https://api.mistral.ai/v1
+    catalog_url: https://api.mistral.ai/v1/models
+    env_key: MISTRAL_API_KEY
+    model_prefix: "mistral/"
+    rate_limits:
+      rpm: 2
+      rpd: 66000
+      tpm: 1000000
+
+  - name: ollama
+    base_url: http://localhost:11434/v1
+    catalog_url: http://localhost:11434/v1/models
+    model_prefix: "ollama/"
+    rate_limits:
+      rpm: 999
+      rpd: null
+      tpm: null
+
+  - name: anthropic
+    base_url: https://api.anthropic.com/v1
+    catalog_url: null
+    env_key: ANTHROPIC_API_KEY
+    model_prefix: "anthropic/"
+    rate_limits:
+      rpm: 10
+      rpd: 200
+      tpm: 100000

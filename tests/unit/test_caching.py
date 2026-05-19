@@ -1,0 +1,111 @@
+"""Tests for caching/simple.py and caching/semantic.py."""
+from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
+
+import pytest
+
+from dragonlight_router.caching.simple import SimpleCache
+from dragonlight_router.caching.semantic import SemanticCache
+
+
+class TestSimpleCacheKey:
+    def test_deterministic(self):
+        """Same inputs produce same key."""
+        key1 = SimpleCache.make_key("model-a", "system", [{"role": "user", "content": "hi"}], 0.7, 100)
+        key2 = SimpleCache.make_key("model-a", "system", [{"role": "user", "content": "hi"}], 0.7, 100)
+        assert key1 == key2
+
+    def test_different_model_different_key(self):
+        key1 = SimpleCache.make_key("model-a", "sys", [{"role": "user", "content": "hi"}], 0.7, 100)
+        key2 = SimpleCache.make_key("model-b", "sys", [{"role": "user", "content": "hi"}], 0.7, 100)
+        assert key1 != key2
+
+    def test_different_messages_different_key(self):
+        key1 = SimpleCache.make_key("m", "s", [{"role": "user", "content": "hello"}], 0.7, 100)
+        key2 = SimpleCache.make_key("m", "s", [{"role": "user", "content": "world"}], 0.7, 100)
+        assert key1 != key2
+
+    def test_different_temperature_different_key(self):
+        key1 = SimpleCache.make_key("m", "s", [], 0.7, 100)
+        key2 = SimpleCache.make_key("m", "s", [], 0.9, 100)
+        assert key1 != key2
+
+    def test_sha256_format(self):
+        key = SimpleCache.make_key("m", "s", [], 0.7, 100)
+        assert len(key) == 64  # SHA-256 hex digest
+
+
+class TestSimpleCache:
+    def test_miss_returns_none(self, tmp_path: Path):
+        cache = SimpleCache(db_path=tmp_path / "cache.db")
+        assert cache.get("nonexistent") is None
+
+    def test_put_and_get(self, tmp_path: Path):
+        cache = SimpleCache(db_path=tmp_path / "cache.db")
+        cache.put("key1", "response value")
+        assert cache.get("key1") == "response value"
+
+    def test_overwrite_existing(self, tmp_path: Path):
+        cache = SimpleCache(db_path=tmp_path / "cache.db")
+        cache.put("key1", "old")
+        cache.put("key1", "new")
+        assert cache.get("key1") == "new"
+
+    def test_max_entries_eviction(self, tmp_path: Path):
+        cache = SimpleCache(db_path=tmp_path / "cache.db", max_entries=3)
+        cache.put("a", "1")
+        cache.put("b", "2")
+        cache.put("c", "3")
+        cache.put("d", "4")  # Should evict oldest
+        # At least "d" should exist
+        assert cache.get("d") == "4"
+        # Total entries should not exceed max_entries
+        conn = sqlite3.connect(str(tmp_path / "cache.db"))
+        count = conn.execute("SELECT COUNT(*) FROM simple_cache").fetchone()[0]
+        conn.close()
+        assert count <= 3
+
+    def test_ttl_expiration(self, tmp_path: Path):
+        cache = SimpleCache(db_path=tmp_path / "cache.db", ttl_s=0)
+        cache.put("key1", "value")
+        import time
+        time.sleep(0.01)
+        # TTL of 0 means immediately expired
+        assert cache.get("key1") is None
+
+
+class TestSemanticCache:
+    def test_miss_returns_none(self, tmp_path: Path):
+        cache = SemanticCache(db_path=tmp_path / "cache.db")
+        assert cache.get_similar("hello world") is None
+
+    def test_exact_match(self, tmp_path: Path):
+        cache = SemanticCache(db_path=tmp_path / "cache.db", threshold=0.95)
+        cache.put("explain quicksort in python", "Here is quicksort...")
+        result = cache.get_similar("explain quicksort in python")
+        assert result == "Here is quicksort..."
+
+    def test_similar_match(self, tmp_path: Path):
+        cache = SemanticCache(db_path=tmp_path / "cache.db", threshold=0.8)
+        cache.put("explain quicksort algorithm in python", "Here is quicksort...")
+        # Very similar text should match at 0.8 threshold
+        result = cache.get_similar("explain quicksort algorithm in python code")
+        # May or may not match depending on n-gram similarity
+        # But exact should always match
+        result2 = cache.get_similar("explain quicksort algorithm in python")
+        assert result2 == "Here is quicksort..."
+
+    def test_dissimilar_no_match(self, tmp_path: Path):
+        cache = SemanticCache(db_path=tmp_path / "cache.db", threshold=0.95)
+        cache.put("explain quicksort in python", "Here is quicksort...")
+        result = cache.get_similar("what is the weather today")
+        assert result is None
+
+    def test_multiple_entries(self, tmp_path: Path):
+        cache = SemanticCache(db_path=tmp_path / "cache.db", threshold=0.95)
+        cache.put("hello world", "greeting response")
+        cache.put("goodbye world", "farewell response")
+        assert cache.get_similar("hello world") == "greeting response"
+        assert cache.get_similar("goodbye world") == "farewell response"

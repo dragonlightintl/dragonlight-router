@@ -3,7 +3,7 @@
 ## Development Setup
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/dragonlight-router
+git clone https://github.com/dragonlightintl/dragonlight-router
 cd dragonlight-router
 pip install -e ".[dev,server,cache]"
 ```

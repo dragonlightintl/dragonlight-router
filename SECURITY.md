@@ -4,7 +4,7 @@
 
 Please **do not** open a public GitHub issue for security vulnerabilities.
 
-Report privately via [GitHub Security Advisories](https://github.com/YOUR_USERNAME/dragonlight-router/security/advisories/new)
+Report privately via [GitHub Security Advisories](https://github.com/dragonlightintl/dragonlight-router/security/advisories/new)
 or email the maintainer directly.
 
 **Expected response time:** within 72 hours for acknowledgement.

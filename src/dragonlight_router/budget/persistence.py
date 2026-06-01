@@ -22,6 +22,8 @@ def save_budget_state(state: dict, path: Path) -> Result[None, StatePersistenceE
     Creates parent directories if needed. Writes to a .tmp file
     then renames to avoid partial writes on crash.
     """
+    assert isinstance(state, dict), "state must be a dictionary"
+    assert isinstance(path, Path), "path must be a Path object"
     path.parent.mkdir(parents=True, exist_ok=True)
 
     # Write to temp file in same directory (ensures same filesystem for rename)
@@ -55,6 +57,9 @@ def load_budget_state(path: Path) -> Result[dict | None, StatePersistenceError]:
     Returns Ok(dict) if successful, Ok(None) if missing/empty/corrupt (fresh start),
     or Err(StatePersistenceError) on unexpected read errors.
     """
+    assert isinstance(path, Path), "path must be a Path object"
+    if path.exists():
+        assert not path.is_dir(), "path must not be a directory"
     if not path.exists():
         return Ok(None)
 

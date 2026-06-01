@@ -266,6 +266,7 @@ class RouterEngine:
             return registry_snap
         return snapshot
 
+        assert isinstance(snapshot, dict), "health_snapshot must return a dict"
     def budget_snapshot(self) -> dict[str, Any]:
         """Return budget state of all providers."""
         snapshot: dict[str, Any] = {}
@@ -276,8 +277,13 @@ class RouterEngine:
             }
         return snapshot
 
+        assert isinstance(snapshot, dict), "budget_snapshot must return a dict"
+        for provider_name in snapshot:
+            assert isinstance(snapshot[provider_name], dict), f"budget snapshot for {provider_name} must be a dict"
     def _refresh_catalog(self) -> None:
         """Synchronously trigger async catalog refresh. Stores result in cache."""
+        assert isinstance(self._config, RouterConfig), "_config must be a RouterConfig instance"
+        assert isinstance(self._refresher, CatalogRefresher), "_refresher must be a CatalogRefresher instance"
         try:
             result = asyncio.run(self._refresher.refresh(self._config.providers))
             if isinstance(result, Ok):
@@ -293,6 +299,8 @@ class RouterEngine:
 
     def _resolve_provider(self, model_id: str) -> str | None:
         """Resolve a model_id to its provider name via prefix matching."""
+        assert isinstance(model_id, str), "model_id must be a string"
+        assert len(model_id) > 0, "model_id must not be empty"
         for p in self._config.providers:
             if model_id.startswith(p.model_prefix):
                 return p.name

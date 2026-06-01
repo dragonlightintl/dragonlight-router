@@ -8,7 +8,7 @@ type and E is the error type.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Generic, TypeVar, Union
+from typing import Generic, NoReturn, TypeVar, Union
 
 T = TypeVar("T")
 E = TypeVar("E")
@@ -17,38 +17,38 @@ E = TypeVar("E")
 @dataclass(frozen=True)
 class Ok(Generic[T]):
     """Successful result containing a value."""
-    
+
     value: T
-    
+
     def is_ok(self) -> bool:
         return True
-    
+
     def is_err(self) -> bool:
         return False
-    
-    def unwrap(self) -> T:
+
+    def unwrap(self: Ok[T]) -> T:
         return self.value
-    
-    def unwrap_err(self) -> E:
+
+    def unwrap_err(self: Ok[T]) -> NoReturn:
         raise AssertionError("Called unwrap_err on Ok value")
 
 
 @dataclass(frozen=True)
 class Err(Generic[E]):
     """Failed result containing an error."""
-    
+
     error: E
-    
+
     def is_ok(self) -> bool:
         return False
-    
+
     def is_err(self) -> bool:
         return True
-    
-    def unwrap(self) -> T:
+
+    def unwrap(self: Err[E]) -> NoReturn:
         raise AssertionError("Called unwrap on Err value")
-    
-    def unwrap_err(self) -> E:
+
+    def unwrap_err(self: Err[E]) -> E:
         return self.error
 
 

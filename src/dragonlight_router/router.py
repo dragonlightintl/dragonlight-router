@@ -40,6 +40,7 @@ class RouterEngine:
     """Central router — serves both daos-engine and factory consumers."""
 
     def __init__(self, config_path: Path | None = None, **overrides: Any) -> None:
+        assert config_path is None or isinstance(config_path, Path), "config_path must be a Path or None"
         config_result = load_config(config_path)
         if isinstance(config_result, Ok):
             self._config: RouterConfig = config_result.value
@@ -83,6 +84,10 @@ class RouterEngine:
         self._matrix = RoleMatrix(matrix_path=state_dir / "model_role_matrix.json")
         self._registry = BackendRegistry()
         self._provider_configs = {p.name: p for p in provider_configs}
+        assert isinstance(self._budget, BudgetTracker), "_budget must be a BudgetTracker instance"
+        assert isinstance(self._health, HealthTracker), "_health must be a HealthTracker instance"
+        assert isinstance(self._config, RouterConfig), "_config must be a RouterConfig instance"
+        assert isinstance(self._budget, BudgetTracker), "_budget must be a BudgetTracker instance"
 
     def select_models(
         self,
@@ -91,6 +96,9 @@ class RouterEngine:
         top_n: int = 12,
         exclude_providers: frozenset[str] | None = None,
     ) -> list[str]:
+        assert isinstance(role, str) and len(role) > 0, "role must be a non-empty string"
+        assert isinstance(top_n, int) and top_n >= 0, "top_n must be a non-negative integer"
+        assert exclude_providers is None or isinstance(exclude_providers, frozenset), "exclude_providers must be a frozenset or None"
         """Return ranked model IDs for a role. Factory's primary entry point."""
         self._matrix.reload_if_changed()
 
@@ -234,6 +242,11 @@ class RouterEngine:
         tokens_used: int = 0,
         latency_ms: float = 0.0,
     ) -> None:
+        assert isinstance(provider, str) and len(provider) > 0, "provider must be a non-empty string"
+        assert isinstance(model_id, str) and len(model_id) > 0, "model_id must be a non-empty string"
+        assert isinstance(success, bool), "success must be a boolean"
+        assert isinstance(tokens_used, int) and tokens_used >= 0, "tokens_used must be a non-negative integer"
+        assert isinstance(latency_ms, float) and latency_ms >= 0.0, "latency_ms must be a non-negative float"
         """Record request outcome for budget/health tracking."""
         if success:
             self._health.record_success(model_id, latency_ms)
@@ -243,6 +256,7 @@ class RouterEngine:
 
     def health_snapshot(self) -> dict[str, Any]:
         """Return health state of all tracked models."""
+        assert isinstance(self._registry, BackendRegistry), "_registry must be a BackendRegistry instance"
         # Combine registry health with health tracker data
         snapshot: dict[str, Any] = {}
         # Add data from the health tracker for all known models

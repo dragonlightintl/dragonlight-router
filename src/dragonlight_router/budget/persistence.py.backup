@@ -1,0 +1,62 @@
+"""Budget state persistence — atomic file I/O.
+
+Writes state via .tmp → rename pattern to prevent corruption.
+Reads return None for missing or corrupt files (fresh start).
+"""
+from __future__ import annotations
+
+import contextlib
+import json
+import os
+import tempfile
+from pathlib import Path
+
+import structlog
+
+logger = structlog.get_logger()
+
+
+def save_budget_state(state: dict, path: Path) -> None:
+    """Atomically write budget state to disk.
+
+    Creates parent directories if needed. Writes to a .tmp file
+    then renames to avoid partial writes on crash.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Write to temp file in same directory (ensures same filesystem for rename)
+    fd, tmp_path = tempfile.mkstemp(
+        dir=str(path.parent),
+        prefix=".budget_state_",
+        suffix=".tmp",
+    )
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(state, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.rename(tmp_path, str(path))
+    except (json.JSONDecodeError, OSError, TypeError):
+        # Clean up temp file on failure
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+        raise
+
+
+def load_budget_state(path: Path) -> dict | None:
+    """Load budget state from disk.
+
+    Returns None if the file is missing, empty, or corrupt.
+    This allows a fresh start without crashing.
+    """
+    if not path.exists():
+        return None
+
+    try:
+        text = path.read_text()
+        if not text.strip():
+            return None
+        return json.loads(text)
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("budget_state_load_failed", path=str(path), error=str(exc))
+        return None

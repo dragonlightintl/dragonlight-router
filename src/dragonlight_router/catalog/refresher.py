@@ -12,6 +12,8 @@ import structlog
 
 from dragonlight_router.config.schema import ProviderSchema
 from dragonlight_router.core.types import CatalogEntry
+from dragonlight_router.core.errors import CatalogRefreshError
+from dragonlight_router.result import Result, Ok, Err
 
 logger = structlog.get_logger()
 
@@ -24,7 +26,7 @@ class CatalogRefresher:
 
     async def refresh(
         self, providers: list[ProviderSchema]
-    ) -> dict[str, list[CatalogEntry]]:
+    ) -> Result[dict[str, list[CatalogEntry]], CatalogRefreshError]:
         """Refresh catalogs from all providers concurrently.
 
         Returns partial results — providers that fail are logged but skipped.
@@ -33,7 +35,7 @@ class CatalogRefresher:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         catalog: dict[str, list[CatalogEntry]] = {}
-        for provider, result in zip(providers, results):
+        for provider, result in zip(providers, results, strict=True):
             if isinstance(result, Exception):
                 logger.warning(
                     "catalog_refresh_failed",
@@ -43,7 +45,7 @@ class CatalogRefresher:
                 continue
             catalog[provider.name] = result
 
-        return catalog
+        return Ok(catalog)
 
     async def _fetch_provider(self, provider: ProviderSchema) -> list[CatalogEntry]:
         """Fetch model list from a single provider."""

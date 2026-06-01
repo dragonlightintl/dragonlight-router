@@ -4,7 +4,7 @@ All routes operate on a shared RouterEngine instance.
 """
 from __future__ import annotations
 
-from pathlib import Path
+import json
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -18,7 +18,7 @@ async def select_handler(request: Request) -> JSONResponse:
 
     try:
         body = await request.json()
-    except Exception:
+    except json.JSONDecodeError:
         return JSONResponse({"error": "invalid JSON body"}, status_code=400)
 
     role = body.get("role")
@@ -52,7 +52,7 @@ async def record_handler(request: Request) -> JSONResponse:
 
     try:
         body = await request.json()
-    except Exception:
+    except json.JSONDecodeError:
         return JSONResponse({"error": "invalid JSON body"}, status_code=400)
 
     provider = body.get("provider")
@@ -93,12 +93,13 @@ async def catalog_handler(request: Request) -> JSONResponse:
     """GET /v1/catalog — catalog status."""
     engine: RouterEngine = request.app.state.engine
 
-    catalog = engine._catalog.get()
+    catalog_result = engine._catalog.get()
     stale = engine._catalog.is_stale()
 
     model_count = 0
     providers: list[str] = []
-    if catalog:
+    if isinstance(catalog_result, Ok):
+        catalog = catalog_result.value
         providers = list(catalog.keys())
         model_count = sum(len(entries) for entries in catalog.values())
 
@@ -118,15 +119,23 @@ async def catalog_refresh_handler(request: Request) -> JSONResponse:
 
     refresher = CatalogRefresher()
     try:
-        catalog = await refresher.refresh(engine._config.providers)
-        engine._catalog.set(catalog)
-        model_count = sum(len(entries) for entries in catalog.values())
-        return JSONResponse({
-            "status": "ok",
-            "providers_refreshed": list(catalog.keys()),
-            "model_count": model_count,
-        })
-    except Exception as exc:
+        result = await refresher.refresh(engine._config.providers)
+        if isinstance(result, Ok):
+            catalog = result.value
+            engine._catalog.set(catalog)
+            model_count = sum(len(entries) for entries in catalog.values())
+            return JSONResponse({
+                "status": "ok",
+                "providers_refreshed": list(catalog.keys()),
+                "model_count": model_count,
+            })
+        else:
+            # Refresh failed
+            return JSONResponse(
+                {"status": "error", "error": result.error.message},
+                status_code=500,
+            )
+    except (OSError, ValueError, LookupError) as exc:
         return JSONResponse(
             {"status": "error", "error": str(exc)},
             status_code=500,

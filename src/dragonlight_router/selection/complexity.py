@@ -43,24 +43,24 @@ def estimate_complexity(order: DispatchOrder) -> ComplexityEstimate:
     # OPUS gates
     if order.intent_category in _OPUS_INTENTS:
         signals.append(f"intent_category={order.intent_category} requires OPUS")
-        return ComplexityEstimate(tier=BackendTier.OPUS, confidence=0.9, signals=signals)
+        return ComplexityEstimate(tier=BackendTier.COMPLEX, confidence=0.9, signals=signals)
 
     # SONNET gates
     if order.intent_category in _SONNET_INTENTS:
         signals.append(f"intent_category={order.intent_category} requires SONNET")
-        tier = BackendTier.SONNET
+        tier = BackendTier.MODERATE
         confidence = 0.85
 
     if order.requires_tool_use:
         signals.append("requires_tool_use → SONNET minimum")
         if tier.value in ("local", "haiku"):
-            tier = BackendTier.SONNET
+            tier = BackendTier.MODERATE
             confidence = 0.85
 
     if order.requires_long_context or order.context_tokens >= _LARGE_CONTEXT_THRESHOLD:
         signals.append(f"large_context ({order.context_tokens} tokens) → SONNET minimum")
         if tier.value in ("local", "haiku"):
-            tier = BackendTier.SONNET
+            tier = BackendTier.MODERATE
             confidence = 0.8
 
     # If still LOCAL or HAIKU, check message characteristics
@@ -70,11 +70,11 @@ def estimate_complexity(order: DispatchOrder) -> ComplexityEstimate:
             signals.append(f"short_message ({msg_len} chars) + low context → LOCAL")
         elif order.context_tokens >= _MEDIUM_CONTEXT_THRESHOLD:
             signals.append(f"medium_context ({order.context_tokens} tokens) → HAIKU")
-            tier = BackendTier.HAIKU
+            tier = BackendTier.SIMPLE
             confidence = 0.7
         else:
             signals.append(f"moderate_message ({msg_len} chars) → HAIKU")
-            tier = BackendTier.HAIKU
+            tier = BackendTier.SIMPLE
             confidence = 0.7
 
     if not signals:

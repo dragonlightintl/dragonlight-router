@@ -5,6 +5,7 @@ Returns None when stale or missing (triggering a refresh).
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import tempfile
@@ -13,7 +14,8 @@ from pathlib import Path
 
 import structlog
 
-from dragonlight_router.core.types import CatalogEntry
+from dragonlight_router.core.types import CatalogEntry, Err, Ok, Result
+from dragonlight_router.core.errors import StaleCatalogError
 
 logger = structlog.get_logger()
 
@@ -25,18 +27,51 @@ class CatalogCache:
         self._path = cache_path
         self._ttl_s = ttl_hours * 3600.0
 
-    def get(self) -> dict[str, list[CatalogEntry]] | None:
-        """Load catalog from cache. Returns None if stale or missing."""
+    def get(self) -> Result[dict[str, list[CatalogEntry]], StaleCatalogError]:
+        """Load catalog from cache. Returns Err if stale, missing, or corrupt."""
         if self.is_stale():
-            return None
+            # Calculate age for the error
+            age = 0
+            if self._path.exists():
+                try:
+                    text = self._path.read_text()
+                    data = json.loads(text)
+                    timestamp = data.get("timestamp", 0)
+                    age = int(time.time() - timestamp)
+                except (json.JSONDecodeError, OSError):
+                    age = int(self._ttl_s)  # Max age if we can't read timestamp
+            
+            return Err(StaleCatalogError(
+                provider="unified_cache",
+                max_age_seconds=int(self._ttl_s),
+                age_seconds=age,
+                message="Catalog cache is stale or missing"
+            ))
 
         try:
             text = self._path.read_text()
             data = json.loads(text)
-            return self._deserialize(data.get("catalog", {}))
+            catalog = self._deserialize(data.get("catalog", {}))
+            return Ok(catalog)
         except (json.JSONDecodeError, OSError, KeyError) as exc:
             logger.warning("catalog_cache_read_failed", error=str(exc))
-            return None
+            # Calculate age for error context
+            age = 0
+            if self._path.exists():
+                try:
+                    text = self._path.read_text()
+                    data = json.loads(text)
+                    timestamp = data.get("timestamp", 0)
+                    age = int(time.time() - timestamp)
+                except (json.JSONDecodeError, OSError):
+                    age = int(self._ttl_s)
+            
+            return Err(StaleCatalogError(
+                provider="unified_cache",
+                max_age_seconds=int(self._ttl_s),
+                age_seconds=age,
+                message=f"Failed to read catalog cache: {exc}"
+            ))
 
     def set(self, catalog: dict[str, list[CatalogEntry]]) -> None:
         """Atomically write catalog to cache with current timestamp."""
@@ -58,11 +93,9 @@ class CatalogCache:
                 f.flush()
                 os.fsync(f.fileno())
             os.rename(tmp_path, str(self._path))
-        except Exception:
-            try:
+        except (json.JSONDecodeError, OSError, ValueError):
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
-            except OSError:
-                pass
             raise
 
     def is_stale(self) -> bool:

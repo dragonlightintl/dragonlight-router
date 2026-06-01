@@ -13,6 +13,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
+import aiohttp
 import structlog
 
 from dragonlight_router.budget.tracker import BudgetTracker
@@ -21,14 +22,12 @@ from dragonlight_router.catalog.refresher import CatalogRefresher
 from dragonlight_router.config.loader import load_config
 from dragonlight_router.config.schema import RouterConfig
 from dragonlight_router.core.registry import BackendRegistry
-from dragonlight_router.core.types import CatalogEntry, ModelScore, ProviderConfig
+from dragonlight_router.core.types import ModelScore, ProviderConfig
 from dragonlight_router.health.tracker import HealthTracker
 from dragonlight_router.roles.matrix import RoleMatrix
 from dragonlight_router.selection.interleave import interleave_providers
 from dragonlight_router.selection.scoring import (
-    compute_budget_score,
     compute_composite_score,
-    compute_health_score,
 )
 
 logger = structlog.get_logger()
@@ -41,7 +40,13 @@ class RouterEngine:
     """Central router — serves both daos-engine and factory consumers."""
 
     def __init__(self, config_path: Path | None = None, **overrides: Any) -> None:
-        self._config: RouterConfig = load_config(config_path)
+        config_result = load_config(config_path)
+        if isinstance(config_result, Ok):
+            self._config: RouterConfig = config_result.value
+        else:
+            # Config loading failed - log the error and use defaults
+            logger.error("config_load_failed", error=config_result.error.message)
+            self._config: RouterConfig = RouterConfig()
 
         # Apply overrides
         if overrides:
@@ -97,19 +102,49 @@ class RouterEngine:
         # Get live catalog for filtering — refresh if stale
         if self._catalog.is_stale():
             self._refresh_catalog()
-        catalog = self._catalog.get()
+        catalog_result = self._catalog.get()
         live_models: set[str] = set()
         fetched_providers: set[str] = set()
-        if catalog:
+        if isinstance(catalog_result, Ok):
+            catalog = catalog_result.value
             for provider_name, entries in catalog.items():
                 fetched_providers.add(provider_name)
                 for entry in entries:
                     live_models.add(entry.model_id)
+        # If catalog_result is Err, we proceed with empty live_models/fetched_providers
+        # This will cause all candidates to be filtered out, triggering a refresh on next call
 
-        # Score each candidate
-        scored: list[ModelScore] = []
+        # Filter and score candidates
+        filtered = self._filter_by_catalog(
+            candidates, exclude_providers, live_models, fetched_providers
+        )
+        scored = self._score_candidates(filtered)
+        return self._build_ranked_list(scored, top_n)
+
+    def _filter_by_catalog(
+        self,
+        candidates: list[tuple[str, int]],
+        exclude_providers: frozenset[str] | None,
+        live_models: set[str],
+        fetched_providers: set[str],
+    ) -> list[tuple[str, int, str | None]]:
+        """Filter candidates by provider exclusion and catalog membership.
+
+        Precondition:
+            - candidates is a list of (model_id, rank) tuples
+            - live_models and fetched_providers are sets of strings
+        Postcondition:
+            - Returns list of (model_id, rank, provider) tuples that passed filters
+        """
+        assert isinstance(candidates, list), "candidates must be a list"
+        assert all(
+            isinstance(item, tuple) and len(item) == 2 for item in candidates
+        ), "each candidate must be a (model_id, rank) tuple"
+        assert isinstance(live_models, set), "live_models must be a set"
+        assert isinstance(fetched_providers, set), "fetched_providers must be a set"
+
+        filtered: list[tuple[str, int, str | None]] = []
         for model_id, rank in candidates:
-            # Determine provider from model_id prefix
             provider = self._resolve_provider(model_id)
 
             # Exclude providers if requested
@@ -120,6 +155,27 @@ class RouterEngine:
             if provider in fetched_providers and model_id not in live_models:
                 continue
 
+            filtered.append((model_id, rank, provider))
+        return filtered
+
+    def _score_candidates(
+        self,
+        filtered: list[tuple[str, int, str | None]],
+    ) -> list[ModelScore]:
+        """Score filtered candidates using budget, health, and rank.
+
+        Precondition:
+            - filtered is a list of (model_id, rank, provider) tuples
+        Postcondition:
+            - Returns list of ModelScore objects sorted by composite score descending
+        """
+        assert isinstance(filtered, list), "filtered must be a list"
+        assert all(
+            isinstance(item, tuple) and len(item) == 3 for item in filtered
+        ), "each item must be a (model_id, rank, provider) tuple"
+
+        scored: list[ModelScore] = []
+        for model_id, rank, provider in filtered:
             # Compute scores
             budget_score = self._budget.score(provider) if provider else 100.0
             health_score = self._health.score(model_id)
@@ -130,26 +186,44 @@ class RouterEngine:
                 health_score=health_score,
             )
 
-            scored.append(ModelScore(
-                model_id=model_id,
-                provider=provider or "unknown",
-                rank=rank,
-                budget_score=budget_score,
-                health_score=health_score,
-                composite=composite,
-            ))
-
+            scored.append(
+                ModelScore(
+                    model_id=model_id,
+                    provider=provider or "unknown",
+                    rank=rank,
+                    budget_score=budget_score,
+                    health_score=health_score,
+                    composite=composite,
+                )
+            )
         # Sort by composite score descending
         scored.sort(key=lambda m: m.composite, reverse=True)
+        return scored
+
+    def _build_ranked_list(
+        self, scored: list[ModelScore], top_n: int
+    ) -> list[str]:
+        """Interleave scored candidates and return top_n model IDs.
+
+        Precondition:
+            - scored is a list of ModelScore objects
+            - top_n is a non-negative integer
+        Postcondition:
+            - Returns list of model_id strings of length min(top_n, len(scored))
+        """
+        assert isinstance(scored, list), "scored must be a list"
+        assert all(
+            isinstance(item, ModelScore) for item in scored
+        ), "each item must be a ModelScore"
+        assert isinstance(top_n, int) and top_n >= 0, "top_n must be a non-negative integer"
 
         # Interleave providers
-        scored = interleave_providers(
+        interleaved = interleave_providers(
             scored,
             max_consecutive=self._config.max_consecutive_same_provider,
         )
-
         # Return top_n model IDs
-        return [m.model_id for m in scored[:top_n]]
+        return [m.model_id for m in interleaved[:top_n]]
 
     def record_request(
         self,
@@ -191,11 +265,16 @@ class RouterEngine:
     def _refresh_catalog(self) -> None:
         """Synchronously trigger async catalog refresh. Stores result in cache."""
         try:
-            catalog = asyncio.run(self._refresher.refresh(self._config.providers))
-            if catalog:
-                self._catalog.set(catalog)
-                logger.info("catalog_refreshed", providers=list(catalog.keys()))
-        except Exception as exc:
+            result = asyncio.run(self._refresher.refresh(self._config.providers))
+            if isinstance(result, Ok):
+                catalog = result.value
+                if catalog:
+                    self._catalog.set(catalog)
+                    logger.info("catalog_refreshed", providers=list(catalog.keys()))
+            else:
+                # Refresh failed - log the error but don't crash
+                logger.warning("catalog_refresh_failed", error=result.error.message)
+        except (TimeoutError, aiohttp.ClientError) as exc:
             logger.warning("catalog_refresh_failed", error=str(exc))
 
     def _resolve_provider(self, model_id: str) -> str | None:

@@ -23,7 +23,7 @@ def _make_config(name: str = "test_backend", provider: str = "groq") -> BackendC
         name=name,
         provider=provider,
         model="llama-3.3-70b",
-        tier=BackendTier.HAIKU,
+        tier=BackendTier.SIMPLE,
         base_url="https://api.groq.com/openai/v1",
         env_key="GROQ_API_KEY",
         capabilities=BackendCapabilities(128_000, True, True, True, True),

@@ -70,6 +70,7 @@ class TestRecordRequest:
     def test_unknown_provider_no_error(self):
         bt = BudgetTracker(providers=[_provider("groq")])
         bt.record_request("unknown")  # Should not raise
+        assert bt.score("unknown") == 100.0
 
 
 class TestHasCapacity:

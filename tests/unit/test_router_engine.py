@@ -129,11 +129,21 @@ class TestRecordRequest:
         engine = RouterEngine(config_path=config_path)
         # Should not raise
         engine.record_request("groq", "groq_llama70b", success=True, tokens_used=100, latency_ms=50.0)
+        # After success, health score should be high
+        snapshot = engine.health_snapshot()
+        assert "groq" in snapshot
+        assert "groq_llama70b" in snapshot["groq"]
+        assert snapshot["groq"]["groq_llama70b"]["score"] >= 80.0
 
     def test_record_failure(self, tmp_path: Path):
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
         engine.record_request("groq", "groq_llama70b", success=False)
+        # After failure, health score should be reduced
+        snapshot = engine.health_snapshot()
+        assert "groq" in snapshot
+        assert "groq_llama70b" in snapshot["groq"]
+        assert snapshot["groq"]["groq_llama70b"]["score"] < 100.0
 
     def test_failure_affects_health_score(self, tmp_path: Path):
         config_path = _setup_config(tmp_path)

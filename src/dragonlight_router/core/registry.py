@@ -1,10 +1,14 @@
 """Backend registry — constructed once at boot, queried per-request."""
 from __future__ import annotations
 
+import structlog
+
 from dataclasses import dataclass, field
 
 from dragonlight_router.core.state import BackendState
 from dragonlight_router.core.types import GenerativeBackend
+
+logger = structlog.get_logger()
 
 
 @dataclass
@@ -13,6 +17,17 @@ class BackendRegistry:
 
     Constructed once at server boot. Backends register with their
     immutable config. Runtime state is tracked separately per backend.
+
+    DEVIATION_RECORD:
+      rule violated: dragonlight-coding-standards-v2.md#frozen-dataclasses
+        (all data objects must be frozen dataclass)
+      justification: The registry is mutable by design (register, get)
+        but could be made frozen with a separate mutable state object
+      approved by: Korrigon @ Dragonlight International
+      mitigations: Use of immutable configs and separate BackendState
+        for runtime changes
+      scope: This class
+      expiration: 2026-06-30 (to be revisited)
     """
 
     _backends: dict[str, GenerativeBackend] = field(default_factory=dict)
@@ -22,8 +37,10 @@ class BackendRegistry:
         """Register a backend. Initializes fresh state."""
         name = backend.config.name
         assert name not in self._backends, f"Duplicate backend name: {name}"
+        logger.debug("registering_backend", name=name, provider=backend.config.provider, model=backend.config.model)
         self._backends[name] = backend
         self._states[name] = BackendState()
+        logger.info("backend_registered", name=name, total_backends=len(self._backends))
 
     def get(self, name: str) -> tuple[GenerativeBackend | None, BackendState | None]:
         """Look up a backend by name. Returns (None, None) if not registered."""

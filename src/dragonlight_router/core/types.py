@@ -2,12 +2,33 @@
 
 All configuration and request/response types are frozen dataclasses.
 Mutable runtime state lives in state.py.
+
+Canonical Result type for fallible operations.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from enum import Enum, unique
-from typing import AsyncIterator, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable, Generic, TypeVar, Union
+
+T = TypeVar('T')
+E = TypeVar('E')
+
+
+@dataclass(frozen=True)
+class Ok(Generic[T]):
+    """Successful result containing a value."""
+    value: T
+
+
+@dataclass(frozen=True)
+class Err(Generic[E]):
+    """Failed result containing an error."""
+    error: E
+
+
+Result = Union[Ok[T], Err[E]]
 
 
 @unique
@@ -15,9 +36,9 @@ class BackendTier(Enum):
     """Capability tiers — abstract, not provider-specific."""
 
     LOCAL = "local"
-    HAIKU = "haiku"
-    SONNET = "sonnet"
-    OPUS = "opus"
+    SIMPLE = "simple"
+    MODERATE = "moderate"
+    COMPLEX = "complex"
 
 
 @unique

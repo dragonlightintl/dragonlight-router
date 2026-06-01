@@ -50,9 +50,7 @@ class CircuitBreaker:
 
         Returns True if CLOSED or if cooldown has elapsed (transitions to HALF_OPEN).
         """
-        if self._state == CircuitState.CLOSED:
-            result = True
-        elif self._state == CircuitState.HALF_OPEN:
+        if self._state == CircuitState.CLOSED or self._state == CircuitState.HALF_OPEN:
             result = True
         else:
             # OPEN — check if cooldown elapsed

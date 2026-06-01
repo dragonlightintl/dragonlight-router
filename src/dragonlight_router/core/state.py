@@ -5,12 +5,12 @@ One instance per registered backend.
 """
 from __future__ import annotations
 
-import structlog
-
 import datetime as dt
 import time
 from collections import deque
 from dataclasses import dataclass, field
+
+import structlog
 
 from dragonlight_router.core.types import BackendStatus
 

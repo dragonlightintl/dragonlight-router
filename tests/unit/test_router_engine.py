@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import yaml
 
-from dragonlight_router.core.types import CatalogEntry
+from dragonlight_router.core.types import CatalogEntry, RequestOutcome
 from dragonlight_router.router import RouterEngine, get_router
 
 
@@ -128,7 +128,13 @@ class TestRecordRequest:
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
         # Should not raise
-        engine.record_request("groq", "groq_llama70b", success=True, tokens_used=100, latency_ms=50.0)
+        engine.record_request(RequestOutcome(
+            provider="groq",
+            model_id="groq_llama70b",
+            success=True,
+            tokens_used=100,
+            latency_ms=50.0,
+        ))
         # After success, health score should be high
         snapshot = engine.health_snapshot()
         assert "groq" in snapshot
@@ -138,7 +144,11 @@ class TestRecordRequest:
     def test_record_failure(self, tmp_path: Path):
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
-        engine.record_request("groq", "groq_llama70b", success=False)
+        engine.record_request(RequestOutcome(
+            provider="groq",
+            model_id="groq_llama70b",
+            success=False,
+        ))
         # After failure, health score should be reduced
         snapshot = engine.health_snapshot()
         assert "groq" in snapshot
@@ -149,9 +159,21 @@ class TestRecordRequest:
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
         # Record multiple failures
-        engine.record_request("groq", "groq_llama70b", success=False)
-        engine.record_request("groq", "groq_llama70b", success=False)
-        engine.record_request("groq", "groq_llama70b", success=False)
+        engine.record_request(RequestOutcome(
+            provider="groq",
+            model_id="groq_llama70b",
+            success=False,
+        ))
+        engine.record_request(RequestOutcome(
+            provider="groq",
+            model_id="groq_llama70b",
+            success=False,
+        ))
+        engine.record_request(RequestOutcome(
+            provider="groq",
+            model_id="groq_llama70b",
+            success=False,
+        ))
         # The model should be penalized in selection
         result = engine.select_models("coding")
         # groq_llama70b should no longer be first (circuit open = score 0)
@@ -161,7 +183,12 @@ class TestRecordRequest:
     def test_success_affects_budget(self, tmp_path: Path):
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
-        engine.record_request("groq", "groq_llama70b", success=True, tokens_used=500)
+        engine.record_request(RequestOutcome(
+            provider="groq",
+            model_id="groq_llama70b",
+            success=True,
+            tokens_used=500,
+        ))
         # Budget should reflect the request
         snapshot = engine.budget_snapshot()
         assert "groq" in snapshot

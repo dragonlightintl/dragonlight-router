@@ -11,9 +11,9 @@ import httpx
 import structlog
 
 from dragonlight_router.config.schema import ProviderSchema
-from dragonlight_router.core.types import CatalogEntry
 from dragonlight_router.core.errors import CatalogRefreshError
-from dragonlight_router.result import Result, Ok, Err
+from dragonlight_router.core.types import CatalogEntry
+from dragonlight_router.result import Ok, Result
 
 logger = structlog.get_logger()
 

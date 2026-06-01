@@ -22,8 +22,9 @@ from dragonlight_router.catalog.refresher import CatalogRefresher
 from dragonlight_router.config.loader import load_config
 from dragonlight_router.config.schema import RouterConfig
 from dragonlight_router.core.registry import BackendRegistry
-from dragonlight_router.core.types import ModelScore, ProviderConfig
+from dragonlight_router.core.types import ModelScore, ProviderConfig, RequestOutcome
 from dragonlight_router.health.tracker import HealthTracker
+from dragonlight_router.result import Ok
 from dragonlight_router.roles.matrix import RoleMatrix
 from dragonlight_router.selection.interleave import interleave_providers
 from dragonlight_router.selection.scoring import (
@@ -233,26 +234,19 @@ class RouterEngine:
         # Return top_n model IDs
         return [m.model_id for m in interleaved[:top_n]]
 
-    def record_request(
-        self,
-        provider: str,
-        model_id: str,
-        *,
-        success: bool,
-        tokens_used: int = 0,
-        latency_ms: float = 0.0,
-    ) -> None:
-        assert isinstance(provider, str) and len(provider) > 0, "provider must be a non-empty string"
-        assert isinstance(model_id, str) and len(model_id) > 0, "model_id must be a non-empty string"
-        assert isinstance(success, bool), "success must be a boolean"
-        assert isinstance(tokens_used, int) and tokens_used >= 0, "tokens_used must be a non-negative integer"
-        assert isinstance(latency_ms, float) and latency_ms >= 0.0, "latency_ms must be a non-negative float"
+    def record_request(self, outcome: RequestOutcome) -> None:
+        assert isinstance(outcome, RequestOutcome), "outcome must be a RequestOutcome"
+        assert isinstance(outcome.provider, str) and len(outcome.provider) > 0, "outcome.provider must be a non-empty string"
+        assert isinstance(outcome.model_id, str) and len(outcome.model_id) > 0, "outcome.model_id must be a non-empty string"
+        assert isinstance(outcome.success, bool), "outcome.success must be a boolean"
+        assert isinstance(outcome.tokens_used, int) and outcome.tokens_used >= 0, "outcome.tokens_used must be a non-negative integer"
+        assert isinstance(outcome.latency_ms, float) and outcome.latency_ms >= 0.0, "outcome.latency_ms must be a non-negative float"
         """Record request outcome for budget/health tracking."""
-        if success:
-            self._health.record_success(model_id, latency_ms)
+        if outcome.success:
+            self._health.record_success(outcome.model_id, outcome.latency_ms)
         else:
-            self._health.record_error(model_id)
-        self._budget.record_request(provider, tokens_used)
+            self._health.record_error(outcome.model_id)
+        self._budget.record_request(outcome.provider, outcome.tokens_used)
 
     def health_snapshot(self) -> dict[str, Any]:
         """Return health state of all tracked models."""

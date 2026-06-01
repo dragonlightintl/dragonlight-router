@@ -10,8 +10,8 @@ from collections import defaultdict
 
 import structlog
 
-from dragonlight_router.core.types import Result, Ok, Err
 from dragonlight_router.core.errors import ModelNotFoundError
+from dragonlight_router.core.types import Ok, Result
 from dragonlight_router.health.circuit_breaker import CircuitBreaker
 
 logger = structlog.get_logger()

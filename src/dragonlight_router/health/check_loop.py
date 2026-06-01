@@ -6,6 +6,7 @@ based on error count and circuit state. Handles model retirement on 404.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 import structlog
 
@@ -46,10 +47,8 @@ class HealthCheckLoop:
         if self._task is None:
             return
         self._task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await self._task
-        except asyncio.CancelledError:
-            pass
         self._task = None
 
     async def _run_loop(self) -> None:

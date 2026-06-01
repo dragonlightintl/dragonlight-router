@@ -9,7 +9,8 @@ import json
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from dragonlight_router.router import RouterEngine
+from dragonlight_router.result import Ok
+from dragonlight_router.router import RequestOutcome, RouterEngine
 
 
 async def select_handler(request: Request) -> JSONResponse:
@@ -69,11 +70,13 @@ async def record_handler(request: Request) -> JSONResponse:
     latency_ms = body.get("latency_ms", 0.0)
 
     engine.record_request(
-        provider,
-        model_id,
-        success=success,
-        tokens_used=tokens_used,
-        latency_ms=latency_ms,
+        RequestOutcome(
+            provider=provider,
+            model_id=model_id,
+            success=success,
+            tokens_used=tokens_used,
+            latency_ms=latency_ms,
+        )
     )
 
     return JSONResponse({"status": "ok"})

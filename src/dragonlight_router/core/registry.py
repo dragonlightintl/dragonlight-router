@@ -1,9 +1,9 @@
 """Backend registry — constructed once at boot, queried per-request."""
 from __future__ import annotations
 
-import structlog
-
 from dataclasses import dataclass, field
+
+import structlog
 
 from dragonlight_router.core.state import BackendState
 from dragonlight_router.core.types import GenerativeBackend

@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from enum import Enum, unique
-from typing import Protocol, runtime_checkable, Generic, TypeVar, Union
+from typing import Generic, Protocol, TypeVar, Union, runtime_checkable
 
 T = TypeVar('T')
 E = TypeVar('E')
@@ -197,6 +197,17 @@ class CatalogEntry:
     model_id: str
     provider: str
     created: int | None = None
+
+
+@dataclass(frozen=True)
+class RequestOutcome:
+    """Immutable record of a request outcome for budget/health tracking."""
+    
+    provider: str
+    model_id: str
+    success: bool
+    tokens_used: int = 0
+    latency_ms: float = 0.0
 
 
 @runtime_checkable

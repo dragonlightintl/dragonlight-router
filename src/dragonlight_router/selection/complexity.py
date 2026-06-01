@@ -36,6 +36,8 @@ def estimate_complexity(order: DispatchOrder) -> ComplexityEstimate:
 
     Returns ComplexityEstimate with tier, confidence, and reasoning signals.
     """
+    # Precondition
+    assert order is not None, "order must not be None"
     signals: list[str] = []
     tier = BackendTier.LOCAL
     confidence = 0.8
@@ -80,4 +82,8 @@ def estimate_complexity(order: DispatchOrder) -> ComplexityEstimate:
     if not signals:
         signals.append("default tier assignment")
 
-    return ComplexityEstimate(tier=tier, confidence=confidence, signals=signals)
+    result = ComplexityEstimate(tier=tier, confidence=confidence, signals=signals)
+    assert isinstance(result.tier, BackendTier), "tier must be a BackendTier"
+    assert 0.0 <= result.confidence <= 1.0, "confidence must be between 0.0 and 1.0"
+    assert isinstance(result.signals, list), "signals must be a list"
+    return result

@@ -14,8 +14,8 @@ from pathlib import Path
 
 import structlog
 
-from dragonlight_router.core.types import CatalogEntry, Err, Ok, Result
 from dragonlight_router.core.errors import StaleCatalogError
+from dragonlight_router.core.types import CatalogEntry, Err, Ok, Result
 
 logger = structlog.get_logger()
 

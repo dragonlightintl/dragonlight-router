@@ -1,19 +1,23 @@
 from __future__ import annotations
+
+import asyncio
+import contextlib
+
 import aiohttp
+import structlog
+
+from dragonlight_router.core.state import BackendState
+from dragonlight_router.core.types import BackendStatus, GenerativeBackend
+from dragonlight_router.health.circuit_breaker import CircuitBreaker, CircuitState
+
 """Health check loop — periodic backend probing.
 
 Uses CircuitBreaker for each tracked model. Provides health scores
 based on error count and circuit state. Handles model retirement on 404.
 """
 
-import asyncio
-import contextlib
 
-import structlog
 
-from dragonlight_router.core.state import BackendState
-from dragonlight_router.core.types import BackendStatus, GenerativeBackend
-from dragonlight_router.health.circuit_breaker import CircuitBreaker, CircuitState
 
 logger = structlog.get_logger()
 
@@ -72,10 +76,9 @@ class HealthCheckLoop:
         breaker = self._breakers[name]
 
         # Check if circuit is open — if so, skip probing (but allow half-open after cooldown)
-        if not breaker.allow_request():
+        if not breaker.allow_request() and breaker.state != CircuitState.HALF_OPEN:
             # In half-open state, we allow one probe request
-            if breaker.state != CircuitState.HALF_OPEN:
-                return
+            return
 
         try:
             # Perform a lightweight probe (e.g., GET /v1/models or a simple completion)
@@ -89,7 +92,7 @@ class HealthCheckLoop:
             state.status = BackendStatus.AVAILABLE
             state.consecutive_errors = 0
             logger.debug("health_check_success", backend=name)
-        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+        except (TimeoutError, aiohttp.ClientError) as exc:
             # Record failure
             breaker.record_error()
             state.consecutive_errors += 1

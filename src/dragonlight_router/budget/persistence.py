@@ -4,13 +4,13 @@ Writes state via .tmp → rename pattern to prevent corruption.
 Reads return None for missing or corrupt files (fresh start).
 """
 from __future__ import annotations
-from typing import Any
 
 import contextlib
 import json
 import os
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import structlog
 

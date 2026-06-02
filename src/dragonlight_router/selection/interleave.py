@@ -25,7 +25,7 @@ def interleave_providers(
     if len(scored_models) <= 1:
         return list(scored_models)
 
-    providers = set(m.provider for m in scored_models)
+    providers = {m.provider for m in scored_models}
     if len(providers) <= 1:
         return list(scored_models)
 
@@ -57,7 +57,7 @@ def interleave_providers(
             if m.provider == provider:
                 consecutive += 1
                 if consecutive > max_consecutive:
-                    assert False, f"provider {provider} appears more than {max_consecutive} times consecutively"
+                    raise AssertionError(f"provider {provider} appears more than {max_consecutive} times consecutively")
             else:
                 consecutive = 0
 

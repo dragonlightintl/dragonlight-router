@@ -1,8 +1,8 @@
 """Backend registry — constructed once at boot, queried per-request."""
 from __future__ import annotations
-from typing import Any
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import structlog
 
@@ -38,7 +38,12 @@ class BackendRegistry:
         """Register a backend. Initializes fresh state."""
         name = backend.config.name
         assert name not in self._backends, f"Duplicate backend name: {name}"
-        logger.debug("registering_backend", name=name, provider=backend.config.provider, model=backend.config.model)
+        logger.debug(
+            "registering_backend",
+            name=name,
+            provider=backend.config.provider,
+            model=backend.config.model,
+        )
         self._backends[name] = backend
         self._states[name] = BackendState()
         logger.info("backend_registered", name=name, total_backends=len(self._backends))

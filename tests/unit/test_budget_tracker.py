@@ -30,32 +30,32 @@ class TestBudgetTrackerInit:
 
     def test_empty_providers(self):
         bt = BudgetTracker(providers=[])
-        assert bt.score("unknown") == 100.0
+        assert bt.score("unknown").unwrap() == 100.0
 
 
 class TestBudgetScore:
     def test_full_capacity_is_100(self):
         bt = BudgetTracker(providers=[_provider("groq", rpm=30, rpd=14400)])
-        assert bt.score("groq") == pytest.approx(100.0)
+        assert bt.score("groq").unwrap() == pytest.approx(100.0)
 
     def test_score_decreases_with_requests(self):
         bt = BudgetTracker(providers=[_provider("groq", rpm=30, rpd=14400)])
         for _ in range(15):
             bt.record_request("groq")
-        score = bt.score("groq")
+        score = bt.score("groq").unwrap()
+        assert score > 0.0
         assert score < 100.0
         assert score > 0.0
-
     def test_unknown_provider_returns_100(self):
         bt = BudgetTracker(providers=[_provider("groq")])
-        assert bt.score("unknown") == 100.0
+        assert bt.score("unknown").unwrap() == 100.0
 
     def test_unlimited_rpd_none(self):
         """None rpd_limit means unlimited — only RPM matters."""
         bt = BudgetTracker(providers=[_provider("groq", rpm=10, rpd=None)])
         for _ in range(5):
             bt.record_request("groq")
-        score = bt.score("groq")
+        score = bt.score("groq").unwrap()
         assert score == pytest.approx(50.0)
 
 
@@ -65,12 +65,12 @@ class TestRecordRequest:
         bt.record_request("groq")
         bt.record_request("groq")
         # RPM: 98/100, RPD: 998/1000 → min(0.98, 0.998) * 100 = 98.0
-        assert bt.score("groq") == pytest.approx(98.0)
+        assert bt.score("groq").unwrap() == pytest.approx(98.0)
 
     def test_unknown_provider_no_error(self):
         bt = BudgetTracker(providers=[_provider("groq")])
         bt.record_request("unknown")  # Should not raise
-        assert bt.score("unknown") == 100.0
+        assert bt.score("unknown").unwrap() == 100.0
 
 
 class TestHasCapacity:

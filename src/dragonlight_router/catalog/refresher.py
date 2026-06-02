@@ -45,6 +45,7 @@ class CatalogRefresher:
                 continue
             catalog[provider.name] = result
 
+        assert not isinstance(result, Exception)  # For type checker
         return Ok(catalog)
 
     async def _fetch_provider(self, provider: ProviderSchema) -> list[CatalogEntry]:

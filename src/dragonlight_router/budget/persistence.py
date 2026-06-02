@@ -4,6 +4,7 @@ Writes state via .tmp → rename pattern to prevent corruption.
 Reads return None for missing or corrupt files (fresh start).
 """
 from __future__ import annotations
+from typing import Any
 
 import contextlib
 import json
@@ -19,7 +20,7 @@ from dragonlight_router.result import Err, Ok, Result
 logger = structlog.get_logger()
 
 
-def save_budget_state(state: dict, path: Path) -> Result[None, StatePersistenceError]:
+def save_budget_state(state: dict[str, Any], path: Path) -> Result[None, StatePersistenceError]:
     """Atomically write budget state to disk.
 
     Creates parent directories if needed. Writes to a .tmp file
@@ -54,7 +55,7 @@ def save_budget_state(state: dict, path: Path) -> Result[None, StatePersistenceE
         ))
 
 
-def load_budget_state(path: Path) -> Result[dict | None, StatePersistenceError]:
+def load_budget_state(path: Path) -> Result[dict[str, Any] | None, StatePersistenceError]:
     """Load budget state from disk.
 
     Returns Ok(dict) if successful, Ok(None) if missing/empty/corrupt (fresh start),

@@ -1,5 +1,6 @@
 """Backend registry — constructed once at boot, queried per-request."""
 from __future__ import annotations
+from typing import Any
 
 from dataclasses import dataclass, field
 
@@ -55,9 +56,9 @@ class BackendRegistry:
             for name in self._backends
         ]
 
-    def health_snapshot(self) -> dict[str, dict]:
+    def health_snapshot(self) -> dict[str, dict[str, Any]]:
         """Return a health snapshot for observability."""
-        snapshot: dict[str, dict] = {}
+        snapshot: dict[str, dict[str, Any]] = {}
         for name, backend, state in self.all_backends():
             snapshot[name] = {
                 "provider": backend.config.provider,

@@ -1,9 +1,10 @@
+from __future__ import annotations
+import aiohttp
 """Health check loop — periodic backend probing.
 
 Uses CircuitBreaker for each tracked model. Provides health scores
 based on error count and circuit state. Handles model retirement on 404.
 """
-from __future__ import annotations
 
 import asyncio
 import contextlib
@@ -88,7 +89,7 @@ class HealthCheckLoop:
             state.status = BackendStatus.AVAILABLE
             state.consecutive_errors = 0
             logger.debug("health_check_success", backend=name)
-        except Exception as exc:
+        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
             # Record failure
             breaker.record_error()
             state.consecutive_errors += 1

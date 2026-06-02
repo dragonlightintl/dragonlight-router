@@ -4,11 +4,12 @@ Deterministic cache for exact request matches. Uses a composite key
 of model_id + system_prompt + messages + temperature + max_tokens.
 """
 from __future__ import annotations
-from typing import Any, Optional
+
 import hashlib
 import json
 import time
 from pathlib import Path
+from typing import Any
 
 from dragonlight_router.caching.store import get_connection, init_simple_cache_schema
 
@@ -28,7 +29,7 @@ class SimpleCache:
         self._conn = get_connection(db_path)
         init_simple_cache_schema(self._conn)
 
-    def get(self, key: str) -> Optional[str]:
+    def get(self, key: str) -> str | None:
         """Retrieve a cached response by key. Returns None if missing or expired."""
         row = self._conn.execute(
             "SELECT value, created_at FROM simple_cache WHERE key = ?",

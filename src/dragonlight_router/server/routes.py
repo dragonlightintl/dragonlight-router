@@ -4,11 +4,13 @@ All routes operate on a shared RouterEngine instance.
 """
 from __future__ import annotations
 
-from pathlib import Path
+import json
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from dragonlight_router.result import Ok
+from dragonlight_router.core.types import RequestOutcome
 from dragonlight_router.router import RouterEngine
 
 
@@ -18,7 +20,7 @@ async def select_handler(request: Request) -> JSONResponse:
 
     try:
         body = await request.json()
-    except Exception:
+    except json.JSONDecodeError:
         return JSONResponse({"error": "invalid JSON body"}, status_code=400)
 
     role = body.get("role")
@@ -34,9 +36,11 @@ async def select_handler(request: Request) -> JSONResponse:
     # Compute scores for response
     scores = []
     for model_id in models:
-        health_score = engine._health.score(model_id)
+        health_result = engine._health.score(model_id)
+        health_score = health_result.value if hasattr(health_result, "value") else 100.0
         provider = engine._resolve_provider(model_id)
-        budget_score = engine._budget.score(provider) if provider else 100.0
+        budget_result = engine._budget.score(provider) if provider else Ok(100.0)
+        budget_score = budget_result.value if hasattr(budget_result, "value") else 100.0
         scores.append({
             "model_id": model_id,
             "health_score": round(health_score, 1),
@@ -52,7 +56,7 @@ async def record_handler(request: Request) -> JSONResponse:
 
     try:
         body = await request.json()
-    except Exception:
+    except json.JSONDecodeError:
         return JSONResponse({"error": "invalid JSON body"}, status_code=400)
 
     provider = body.get("provider")
@@ -69,11 +73,13 @@ async def record_handler(request: Request) -> JSONResponse:
     latency_ms = body.get("latency_ms", 0.0)
 
     engine.record_request(
-        provider,
-        model_id,
-        success=success,
-        tokens_used=tokens_used,
-        latency_ms=latency_ms,
+        RequestOutcome(
+            provider=provider,
+            model_id=model_id,
+            success=success,
+            tokens_used=tokens_used,
+            latency_ms=latency_ms,
+        )
     )
 
     return JSONResponse({"status": "ok"})
@@ -93,12 +99,13 @@ async def catalog_handler(request: Request) -> JSONResponse:
     """GET /v1/catalog — catalog status."""
     engine: RouterEngine = request.app.state.engine
 
-    catalog = engine._catalog.get()
+    catalog_result = engine._catalog.get()
     stale = engine._catalog.is_stale()
 
     model_count = 0
     providers: list[str] = []
-    if catalog:
+    if isinstance(catalog_result, Ok):
+        catalog = catalog_result.value
         providers = list(catalog.keys())
         model_count = sum(len(entries) for entries in catalog.values())
 
@@ -118,15 +125,23 @@ async def catalog_refresh_handler(request: Request) -> JSONResponse:
 
     refresher = CatalogRefresher()
     try:
-        catalog = await refresher.refresh(engine._config.providers)
-        engine._catalog.set(catalog)
-        model_count = sum(len(entries) for entries in catalog.values())
-        return JSONResponse({
-            "status": "ok",
-            "providers_refreshed": list(catalog.keys()),
-            "model_count": model_count,
-        })
-    except Exception as exc:
+        result = await refresher.refresh(engine._config.providers)
+        if isinstance(result, Ok):
+            catalog = result.value
+            engine._catalog.set(catalog)
+            model_count = sum(len(entries) for entries in catalog.values())
+            return JSONResponse({
+                "status": "ok",
+                "providers_refreshed": list(catalog.keys()),
+                "model_count": model_count,
+            })
+        else:
+            # Refresh failed
+            return JSONResponse(
+                {"status": "error", "error": result.error.message},
+                status_code=500,
+            )
+    except (OSError, ValueError, LookupError) as exc:
         return JSONResponse(
             {"status": "error", "error": str(exc)},
             status_code=500,

@@ -95,6 +95,7 @@ class ProviderConfig:
     rpm_limit: int
     rpd_limit: int | None
     tpm_limit: int | None
+    daily_token_cap: int | None
 
 
 @dataclass(frozen=True)

@@ -6,6 +6,7 @@ entrypoint for the CLI script.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from starlette.applications import Starlette
 from starlette.routing import Route
@@ -20,7 +21,7 @@ from dragonlight_router.server.routes import (
 )
 
 
-def create_app(config_path: Path | None = None, **overrides) -> Starlette:
+def create_app(config_path: Path | None = None, **overrides: Any) -> Starlette:
     """Create and configure the Starlette application.
 
     Accepts a config_path for testing; uses default resolution otherwise.

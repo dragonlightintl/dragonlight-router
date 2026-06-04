@@ -5,6 +5,10 @@ and health state into a single comparable float.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+from enum import Enum, unique
+from typing import List, Optional, Tuple
+
 
 def compute_composite_score(rank: int, budget_score: float, health_score: float) -> float:
     """Weighted composite: rank 60%, budget 25%, health 15%.

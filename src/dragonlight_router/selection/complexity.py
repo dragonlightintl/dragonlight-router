@@ -36,6 +36,8 @@ def estimate_complexity(order: DispatchOrder) -> ComplexityEstimate:
 
     Returns ComplexityEstimate with tier, confidence, and reasoning signals.
     """
+    # Precondition
+    assert order is not None, "order must not be None"
     signals: list[str] = []
     tier = BackendTier.LOCAL
     confidence = 0.8
@@ -43,24 +45,24 @@ def estimate_complexity(order: DispatchOrder) -> ComplexityEstimate:
     # OPUS gates
     if order.intent_category in _OPUS_INTENTS:
         signals.append(f"intent_category={order.intent_category} requires OPUS")
-        return ComplexityEstimate(tier=BackendTier.OPUS, confidence=0.9, signals=signals)
+        return ComplexityEstimate(tier=BackendTier.COMPLEX, confidence=0.9, signals=signals)
 
     # SONNET gates
     if order.intent_category in _SONNET_INTENTS:
         signals.append(f"intent_category={order.intent_category} requires SONNET")
-        tier = BackendTier.SONNET
+        tier = BackendTier.MODERATE
         confidence = 0.85
 
     if order.requires_tool_use:
         signals.append("requires_tool_use → SONNET minimum")
         if tier.value in ("local", "haiku"):
-            tier = BackendTier.SONNET
+            tier = BackendTier.MODERATE
             confidence = 0.85
 
     if order.requires_long_context or order.context_tokens >= _LARGE_CONTEXT_THRESHOLD:
         signals.append(f"large_context ({order.context_tokens} tokens) → SONNET minimum")
         if tier.value in ("local", "haiku"):
-            tier = BackendTier.SONNET
+            tier = BackendTier.MODERATE
             confidence = 0.8
 
     # If still LOCAL or HAIKU, check message characteristics
@@ -70,14 +72,18 @@ def estimate_complexity(order: DispatchOrder) -> ComplexityEstimate:
             signals.append(f"short_message ({msg_len} chars) + low context → LOCAL")
         elif order.context_tokens >= _MEDIUM_CONTEXT_THRESHOLD:
             signals.append(f"medium_context ({order.context_tokens} tokens) → HAIKU")
-            tier = BackendTier.HAIKU
+            tier = BackendTier.SIMPLE
             confidence = 0.7
         else:
             signals.append(f"moderate_message ({msg_len} chars) → HAIKU")
-            tier = BackendTier.HAIKU
+            tier = BackendTier.SIMPLE
             confidence = 0.7
 
     if not signals:
         signals.append("default tier assignment")
 
-    return ComplexityEstimate(tier=tier, confidence=confidence, signals=signals)
+    result = ComplexityEstimate(tier=tier, confidence=confidence, signals=signals)
+    assert isinstance(result.tier, BackendTier), "tier must be a BackendTier"
+    assert 0.0 <= result.confidence <= 1.0, "confidence must be between 0.0 and 1.0"
+    assert isinstance(result.signals, list), "signals must be a list"
+    return result

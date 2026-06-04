@@ -24,9 +24,9 @@ from dragonlight_router.core.types import (
 class TestBackendTier:
     def test_values(self):
         assert BackendTier.LOCAL.value == "local"
-        assert BackendTier.HAIKU.value == "haiku"
-        assert BackendTier.SONNET.value == "sonnet"
-        assert BackendTier.OPUS.value == "opus"
+        assert BackendTier.SIMPLE.value == "haiku"
+        assert BackendTier.MODERATE.value == "sonnet"
+        assert BackendTier.COMPLEX.value == "opus"
 
     def test_all_members(self):
         assert len(BackendTier) == 4
@@ -96,7 +96,7 @@ class TestBackendConfig:
             name="test",
             provider="groq",
             model="llama-3.3-70b",
-            tier=BackendTier.HAIKU,
+            tier=BackendTier.SIMPLE,
             base_url="https://api.groq.com/openai/v1",
             env_key="GROQ_API_KEY",
             capabilities=BackendCapabilities(128_000, True, True, True, True),
@@ -111,7 +111,7 @@ class TestBackendConfig:
             name="test",
             provider="groq",
             model="llama-3.3-70b",
-            tier=BackendTier.HAIKU,
+            tier=BackendTier.SIMPLE,
             base_url="https://api.groq.com/openai/v1",
             env_key=None,
             capabilities=BackendCapabilities(128_000, True, True, True, True),
@@ -181,7 +181,7 @@ class TestEngineResponse:
         resp = EngineResponse(
             content="result",
             backend_used="groq_llama70b",
-            backend_tier=BackendTier.HAIKU,
+            backend_tier=BackendTier.SIMPLE,
             tokens_in=100,
             tokens_out=500,
             estimated_cost_usd=0.0,
@@ -189,7 +189,7 @@ class TestEngineResponse:
             was_fallback=False,
             fallback_chain=[],
         )
-        assert resp.backend_tier == BackendTier.HAIKU
+        assert resp.backend_tier == BackendTier.SIMPLE
         assert resp.latency_ms == 1234.5
 
 
@@ -229,11 +229,11 @@ class TestCatalogEntry:
 class TestComplexityEstimate:
     def test_fields(self):
         est = ComplexityEstimate(
-            tier=BackendTier.SONNET,
+            tier=BackendTier.MODERATE,
             confidence=0.85,
             signals=["large_context(50000)", "requires_tools"],
         )
-        assert est.tier == BackendTier.SONNET
+        assert est.tier == BackendTier.MODERATE
         assert len(est.signals) == 2
 
 

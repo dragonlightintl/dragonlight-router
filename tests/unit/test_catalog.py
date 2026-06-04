@@ -14,7 +14,8 @@ from dragonlight_router.core.types import CatalogEntry
 class TestCatalogCache:
     def test_empty_cache_returns_none(self, tmp_path: Path):
         cache = CatalogCache(cache_path=tmp_path / "catalog.json", ttl_hours=24)
-        assert cache.get() is None
+        result = cache.get()
+        assert isinstance(result, Err) or result.unwrap_or(None) is None
 
     def test_set_and_get(self, tmp_path: Path):
         cache = CatalogCache(cache_path=tmp_path / "catalog.json", ttl_hours=24)
@@ -24,9 +25,9 @@ class TestCatalogCache:
         }
         cache.set(catalog)
         result = cache.get()
-        assert result is not None
-        assert "groq" in result
-        assert result["groq"][0].model_id == "llama-70b"
+        assert isinstance(result, Ok), f"Expected Ok, got {result}"
+        assert "groq" in result.unwrap()
+        assert result.unwrap()["groq"][0].model_id == "llama-70b"
 
     def test_stale_cache_returns_none(self, tmp_path: Path):
         cache = CatalogCache(cache_path=tmp_path / "catalog.json", ttl_hours=0)
@@ -35,7 +36,8 @@ class TestCatalogCache:
         # TTL of 0 means immediately stale
         time.sleep(0.01)
         assert cache.is_stale() is True
-        assert cache.get() is None
+        result = cache.get()
+        assert isinstance(result, Err) or result.unwrap_or(None) is None
 
     def test_fresh_cache_not_stale(self, tmp_path: Path):
         cache = CatalogCache(cache_path=tmp_path / "catalog.json", ttl_hours=24)
@@ -51,4 +53,5 @@ class TestCatalogCache:
         path = tmp_path / "catalog.json"
         path.write_text("not valid json {{")
         cache = CatalogCache(cache_path=path, ttl_hours=24)
-        assert cache.get() is None
+        result = cache.get()
+        assert isinstance(result, Err) or result.unwrap_or(None) is None

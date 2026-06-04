@@ -35,27 +35,27 @@ class TestComplexityEstimation:
     def test_tool_use_sonnet(self):
         """Tool use required → at least SONNET."""
         result = estimate_complexity(_order(requires_tool_use=True))
-        assert result.tier in (BackendTier.SONNET, BackendTier.OPUS)
+        assert result.tier in (BackendTier.MODERATE, BackendTier.COMPLEX)
 
     def test_large_context_sonnet(self):
         """Large context (>8k tokens) → SONNET."""
         result = estimate_complexity(_order(context_tokens=10000))
-        assert result.tier in (BackendTier.SONNET, BackendTier.OPUS)
+        assert result.tier in (BackendTier.MODERATE, BackendTier.COMPLEX)
 
     def test_long_context_flag(self):
         """Explicit long context flag → SONNET or above."""
         result = estimate_complexity(_order(requires_long_context=True))
-        assert result.tier in (BackendTier.SONNET, BackendTier.OPUS)
+        assert result.tier in (BackendTier.MODERATE, BackendTier.COMPLEX)
 
     def test_session_lifecycle_opus(self):
         """session_lifecycle intent → OPUS."""
         result = estimate_complexity(_order(intent_category="session_lifecycle"))
-        assert result.tier == BackendTier.OPUS
+        assert result.tier == BackendTier.COMPLEX
 
     def test_engineering_build_sonnet(self):
         """Engineering build → SONNET."""
         result = estimate_complexity(_order(intent_category="engineering_build"))
-        assert result.tier == BackendTier.SONNET
+        assert result.tier == BackendTier.MODERATE
 
     def test_returns_complexity_estimate(self):
         """Return type is ComplexityEstimate."""
@@ -70,4 +70,4 @@ class TestComplexityEstimation:
             operator_message="Can you explain how the function works?",
             context_tokens=2000,
         ))
-        assert result.tier in (BackendTier.HAIKU, BackendTier.SONNET)
+        assert result.tier in (BackendTier.SIMPLE, BackendTier.MODERATE)

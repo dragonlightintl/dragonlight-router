@@ -17,10 +17,15 @@ def interleave_providers(
     Preserves score ordering where possible. If only one provider exists,
     returns as-is (can't interleave).
     """
+    # Precondition assertions
+    assert isinstance(scored_models, list), "scored_models must be a list"
+    assert all(isinstance(m, ModelScore) for m in scored_models), "all elements in scored_models must be ModelScore instances"
+    assert isinstance(max_consecutive, int) and max_consecutive >= 0, "max_consecutive must be a non-negative integer"
+
     if len(scored_models) <= 1:
         return list(scored_models)
 
-    providers = set(m.provider for m in scored_models)
+    providers = {m.provider for m in scored_models}
     if len(providers) <= 1:
         return list(scored_models)
 
@@ -42,11 +47,31 @@ def interleave_providers(
             result.extend(remaining)
             break
 
+    # Postcondition assertions
+    assert len(result) == len(scored_models), "interleaved result must have same length as input"
+    assert all(isinstance(m, ModelScore) for m in result), "all elements in result must be ModelScore instances"
+    # Check the consecutive constraint
+    for provider in providers:
+        consecutive = 0
+        for m in result:
+            if m.provider == provider:
+                consecutive += 1
+                if consecutive > max_consecutive:
+                    raise AssertionError(f"provider {provider} appears more than {max_consecutive} times consecutively")
+            else:
+                consecutive = 0
+
     return result
 
 
 def _can_place(result: list[ModelScore], provider: str, max_consecutive: int) -> bool:
     """Check if adding this provider would exceed max_consecutive."""
+    # Precondition assertions
+    assert isinstance(result, list), "result must be a list"
+    assert all(isinstance(m, ModelScore) for m in result), "all elements in result must be ModelScore instances"
+    assert isinstance(provider, str), "provider must be a string"
+    assert isinstance(max_consecutive, int) and max_consecutive >= 0, "max_consecutive must be a non-negative integer"
+
     if not result:
         return True
 

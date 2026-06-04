@@ -10,8 +10,12 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from dragonlight_router.result import Ok
+<<<<<<< HEAD
 from dragonlight_router.core.types import RequestOutcome
 from dragonlight_router.router import RouterEngine
+=======
+from dragonlight_router.router import RequestOutcome, RouterEngine
+>>>>>>> delta-spec-waves
 
 
 async def select_handler(request: Request) -> JSONResponse:

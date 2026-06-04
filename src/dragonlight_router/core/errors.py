@@ -28,3 +28,30 @@ class StatePersistenceError:
     path: str
     message: str
     operation: str  # "read" | "write"
+
+
+@dataclass(frozen=True)
+class ProviderNotFoundError:
+    """Requested provider is not configured or not available."""
+
+    provider: str
+    message: str = "Provider not found"
+
+
+@dataclass(frozen=True)
+class ModelNotFoundError:
+    """Requested model is not available in the catalog for the given provider."""
+
+    provider: str
+    model: str
+    message: str = "Model not found"
+
+
+@dataclass(frozen=True)
+class StaleCatalogError:
+    """Catalog data is stale and needs refreshing."""
+
+    provider: str
+    max_age_seconds: int
+    age_seconds: int
+    message: str = "Catalog is stale"

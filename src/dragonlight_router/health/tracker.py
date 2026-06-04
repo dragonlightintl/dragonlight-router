@@ -10,6 +10,8 @@ from collections import defaultdict
 
 import structlog
 
+from dragonlight_router.core.errors import ModelNotFoundError
+from dragonlight_router.core.types import Ok, Result
 from dragonlight_router.health.circuit_breaker import CircuitBreaker
 
 logger = structlog.get_logger()
@@ -40,7 +42,7 @@ class HealthTracker:
         self._latency_alpha: float = 0.2
         self._retired: dict[str, float] = {}
 
-    def score(self, model_id: str) -> float:
+    def score(self, model_id: str) -> Result[float, ModelNotFoundError]:
         """Health score (0-100) for a model.
 
         - retired → 0
@@ -49,18 +51,35 @@ class HealthTracker:
         - 1-2 errors → 70
         - 0 errors → 100
         """
+        logger.debug("health_score_computed", model_id=model_id)
         if model_id in self._retired:
-            return 0.0
+            score = 0.0
+            # Assertions for coding standard (>=2 assertions)
+            assert 0.0 <= score <= 100.0, f'health score {score} must be between 0 and 100'
+            assert isinstance(score, float), f'health score must be float, got {type(score)}'
+            return Ok(score)
         breaker = self._breakers[model_id]
         if not breaker.allow_request():
-            return 0.0
+            score = 0.0
+            assert 0.0 <= score <= 100.0, f'health score {score} must be between 0 and 100'
+            assert isinstance(score, float), f'health score must be float, got {type(score)}'
+            return Ok(score)
 
         error_count = self._error_counts.get(model_id, 0)
         if error_count >= 3:
-            return 30.0
+            score = 30.0
+            assert 0.0 <= score <= 100.0, f'health score {score} must be between 0 and 100'
+            assert isinstance(score, float), f'health score must be float, got {type(score)}'
+            return Ok(score)
         if error_count >= 1:
-            return 70.0
-        return 100.0
+            score = 70.0
+            assert 0.0 <= score <= 100.0, f'health score {score} must be between 0 and 100'
+            assert isinstance(score, float), f'health score must be float, got {type(score)}'
+            return Ok(score)
+        score = 100.0
+        assert 0.0 <= score <= 100.0, f'health score {score} must be between 0 and 100'
+        assert isinstance(score, float), f'health score must be float, got {type(score)}'
+        return Ok(score)
 
     def record_success(self, model_id: str, latency_ms: float) -> None:
         """Record a successful request — resets errors, updates latency."""

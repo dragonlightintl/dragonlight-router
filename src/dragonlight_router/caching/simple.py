@@ -9,6 +9,7 @@ import hashlib
 import json
 import time
 from pathlib import Path
+from typing import Any
 
 from dragonlight_router.caching.store import get_connection, init_simple_cache_schema
 
@@ -38,7 +39,7 @@ class SimpleCache:
         if row is None:
             return None
 
-        value, created_at = row
+        value, created_at = row  # type: tuple[str, float]
         if time.time() - created_at > self._ttl_s:
             # Expired — delete and return None
             self._conn.execute("DELETE FROM simple_cache WHERE key = ?", (key,))
@@ -65,7 +66,7 @@ class SimpleCache:
     def make_key(
         model_id: str,
         system_prompt: str,
-        messages: list[dict],
+        messages: list[dict[str, Any]],
         temperature: float,
         max_tokens: int,
     ) -> str:

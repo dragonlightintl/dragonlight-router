@@ -10,24 +10,18 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
 
 import structlog
-
-from dragonlight_router.core.errors import StatePersistenceError
-from dragonlight_router.result import Err, Ok, Result
 
 logger = structlog.get_logger()
 
 
-def save_budget_state(state: dict[str, Any], path: Path) -> Result[None, StatePersistenceError]:
+def save_budget_state(state: dict, path: Path) -> None:
     """Atomically write budget state to disk.
 
     Creates parent directories if needed. Writes to a .tmp file
     then renames to avoid partial writes on crash.
     """
-    assert isinstance(state, dict), "state must be a dictionary"
-    assert isinstance(path, Path), "path must be a Path object"
     path.parent.mkdir(parents=True, exist_ok=True)
 
     # Write to temp file in same directory (ensures same filesystem for rename)
@@ -42,40 +36,27 @@ def save_budget_state(state: dict[str, Any], path: Path) -> Result[None, StatePe
             f.flush()
             os.fsync(f.fileno())
         os.rename(tmp_path, str(path))
-        return Ok(None)
-    except (json.JSONDecodeError, OSError, TypeError) as exc:
+    except (json.JSONDecodeError, OSError, TypeError):
         # Clean up temp file on failure
         with contextlib.suppress(OSError):
             os.unlink(tmp_path)
-        logger.error("budget_state_save_failed", path=str(path), error=str(exc))
-        return Err(StatePersistenceError(
-            path=str(path),
-            message=f"Failed to save budget state: {exc}",
-            operation="write"
-        ))
+        raise
 
 
-def load_budget_state(path: Path) -> Result[dict[str, Any] | None, StatePersistenceError]:
+def load_budget_state(path: Path) -> dict | None:
     """Load budget state from disk.
 
-    Returns Ok(dict) if successful, Ok(None) if missing/empty/corrupt (fresh start),
-    or Err(StatePersistenceError) on unexpected read errors.
+    Returns None if the file is missing, empty, or corrupt.
+    This allows a fresh start without crashing.
     """
-    assert isinstance(path, Path), "path must be a Path object"
-    if path.exists():
-        assert not path.is_dir(), "path must not be a directory"
     if not path.exists():
-        return Ok(None)
+        return None
 
     try:
         text = path.read_text()
         if not text.strip():
-            return Ok(None)
-        return Ok(json.loads(text))
+            return None
+        return json.loads(text)
     except (json.JSONDecodeError, OSError) as exc:
         logger.warning("budget_state_load_failed", path=str(path), error=str(exc))
-        return Err(StatePersistenceError(
-            path=str(path),
-            message=f"Failed to load budget state: {exc}",
-            operation="read"
-        ))
+        return None

@@ -10,7 +10,11 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 
+import structlog
+
 from dragonlight_router.core.types import BackendStatus
+
+logger = structlog.get_logger()
 
 
 def invariant(condition: bool, message: str) -> None:
@@ -32,6 +36,18 @@ class BackendState:
     Tracks rate limit consumption, error history, and circuit breaker state.
     One instance per registered backend. Not frozen — mutated by the router
     on every dispatch and every response.
+
+    DEVIATION_RECORD:
+      rule violated: dragonlight-coding-standards-v2.md#frozen-dataclasses
+        (all data objects must be frozen dataclass)
+      justification: Runtime state must be mutable to track changing
+        backend health, error counts, and circuit breaker state
+      approved by: Korrigon @ Dragonlight International
+      mitigations: All mutations are encapsulated in methods with
+        invariants, and the state is not exposed outside the health
+        tracker
+      scope: This class
+      expiration: 2026-06-30 (to be revisited)
     """
 
     status: BackendStatus = BackendStatus.AVAILABLE
@@ -121,7 +137,7 @@ class BackendState:
         if now >= self.day_reset_at:
             self.requests_today = 0
             self.tokens_today = 0
-            tomorrow = dt.datetime.now(dt.timezone.utc).replace(
+            tomorrow = dt.datetime.now(dt.UTC).replace(
                 hour=0, minute=0, second=0, microsecond=0,
             ) + dt.timedelta(days=1)
             self.day_reset_at = tomorrow.timestamp()

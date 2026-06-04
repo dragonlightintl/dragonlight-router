@@ -11,9 +11,7 @@ import httpx
 import structlog
 
 from dragonlight_router.config.schema import ProviderSchema
-from dragonlight_router.core.errors import CatalogRefreshError
 from dragonlight_router.core.types import CatalogEntry
-from dragonlight_router.result import Ok, Result
 
 logger = structlog.get_logger()
 
@@ -26,7 +24,7 @@ class CatalogRefresher:
 
     async def refresh(
         self, providers: list[ProviderSchema]
-    ) -> Result[dict[str, list[CatalogEntry]], CatalogRefreshError]:
+    ) -> dict[str, list[CatalogEntry]]:
         """Refresh catalogs from all providers concurrently.
 
         Returns partial results — providers that fail are logged but skipped.
@@ -45,8 +43,7 @@ class CatalogRefresher:
                 continue
             catalog[provider.name] = result
 
-        assert not isinstance(result, Exception)  # For type checker
-        return Ok(catalog)
+        return catalog
 
     async def _fetch_provider(self, provider: ProviderSchema) -> list[CatalogEntry]:
         """Fetch model list from a single provider."""

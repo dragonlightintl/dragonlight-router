@@ -11,7 +11,6 @@ import os
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
 
 import structlog
 
@@ -46,7 +45,7 @@ class CatalogCache:
                     age = int(time.time() - timestamp)
                 except (json.JSONDecodeError, OSError):
                     age = int(self._ttl_s)  # Max age if we can't read timestamp
-
+            
             return Err(StaleCatalogError(
                 provider="unified_cache",
                 max_age_seconds=int(self._ttl_s),
@@ -78,7 +77,7 @@ class CatalogCache:
                     age = int(time.time() - timestamp)
                 except (json.JSONDecodeError, OSError):
                     age = int(self._ttl_s)
-
+            
             return Err(StaleCatalogError(
                 provider="unified_cache",
                 max_age_seconds=int(self._ttl_s),
@@ -137,7 +136,7 @@ class CatalogCache:
         return result
 
     @staticmethod
-    def _serialize(catalog: dict[str, list[CatalogEntry]]) -> dict[str, list[dict[str, Any]]]:
+    def _serialize(catalog: dict[str, list[CatalogEntry]]) -> dict:
         """Convert catalog to JSON-serializable dict."""
         result = {}
         for provider, entries in catalog.items():
@@ -148,7 +147,7 @@ class CatalogCache:
         return result
 
     @staticmethod
-    def _deserialize(data: dict[str, list[dict[str, Any]]]) -> dict[str, list[CatalogEntry]]:
+    def _deserialize(data: dict) -> dict[str, list[CatalogEntry]]:
         """Convert JSON dict back to CatalogEntry objects."""
         result: dict[str, list[CatalogEntry]] = {}
         for provider, entries in data.items():

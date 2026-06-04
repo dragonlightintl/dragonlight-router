@@ -15,14 +15,14 @@ class TestRouterConfigDefaults:
     def test_default_config_loads(self):
         """Loading with no path returns sensible defaults."""
         config = load_config(config_path=None)
-        assert isinstance(config, RouterConfig)
-        assert config.default_top_n == 12
-        assert config.max_consecutive_same_provider == 2
-        assert config.catalog_ttl_hours == 24
+        assert isinstance(config, Ok), f"Expected Ok, got {config}"
+        assert config.unwrap().default_top_n == 12
+        assert config.unwrap().max_consecutive_same_provider == 2
+        assert config.unwrap().catalog_ttl_hours == 24
 
     def test_default_state_dir(self):
         config = load_config(config_path=None)
-        assert config.state_dir == Path("./router_state")
+        assert config.unwrap().state_dir == Path("./router_state")
 
 
 class TestConfigFromYAML:
@@ -45,15 +45,15 @@ class TestConfigFromYAML:
         config_path = tmp_path / "router.yaml"
         config_path.write_text(yaml.dump(config_data))
         config = load_config(config_path=config_path)
-        assert config.catalog_ttl_hours == 12
-        assert config.default_top_n == 8
-        assert len(config.providers) == 1
-        assert config.providers[0].name == "groq"
-        assert config.providers[0].rate_limits.rpm == 30
+        assert config.unwrap().catalog_ttl_hours == 12
+        assert config.unwrap().default_top_n == 8
+        assert len(config.unwrap().providers) == 1
+        assert config.unwrap().providers[0].name == "groq"
+        assert config.unwrap().providers[0].rate_limits.rpm == 30
 
     def test_missing_file_returns_defaults(self, tmp_path: Path):
         config = load_config(config_path=tmp_path / "missing.yaml")
-        assert isinstance(config, RouterConfig)
+        assert isinstance(config, Ok), f"Expected Ok, got {config}"
         assert config.providers == []
 
 

@@ -44,6 +44,7 @@ def create_app(config_path: Path | None = None, **overrides: Any) -> Starlette:
 def main() -> None:
     """CLI entrypoint — run the server with uvicorn."""
     import os
+
     import uvicorn
 
     app = create_app()

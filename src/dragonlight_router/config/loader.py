@@ -44,6 +44,6 @@ def _load_from_yaml(path: Path) -> RouterConfig:
         text = path.read_text()
         data = yaml.safe_load(text) or {}
         return RouterConfig(**data)
-    except Exception as exc:
+    except (yaml.YAMLError, OSError) as exc:
         logger.error("config_load_failed", path=str(path), error=str(exc))
         raise

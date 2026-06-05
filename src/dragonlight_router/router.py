@@ -24,7 +24,7 @@ from dragonlight_router.config.schema import RouterConfig
 from dragonlight_router.core.registry import BackendRegistry
 from dragonlight_router.core.types import ModelScore, ProviderConfig, RequestOutcome
 from dragonlight_router.health.tracker import HealthTracker
-from dragonlight_router.result import Ok
+from dragonlight_router.result import Ok, Err
 from dragonlight_router.roles.matrix import RoleMatrix
 from dragonlight_router.selection.interleave import interleave_providers
 from dragonlight_router.selection.scoring import (
@@ -43,16 +43,13 @@ class RouterEngine:
     def __init__(self, config_path: Path | None = None, **overrides: Any) -> None:
         assert config_path is None or isinstance(config_path, Path), "config_path must be a Path or None"
         config_result = load_config(config_path)
-<<<<<<< HEAD
-        self._config: RouterConfig = config_result.value if isinstance(config_result, Ok) else RouterConfig()
-=======
         if isinstance(config_result, Ok):
-            self._config: RouterConfig = config_result.value
+            config = config_result.value
         else:
             # Config loading failed - log the error and use defaults
             logger.error("config_load_failed", error=config_result.error.message)
-            self._config: RouterConfig = RouterConfig()
->>>>>>> delta-spec-waves
+            config = RouterConfig()
+        self._config: RouterConfig = config
 
         # Apply overrides
         if overrides:
@@ -75,6 +72,7 @@ class RouterEngine:
                 rpm_limit=p.rate_limits.rpm,
                 rpd_limit=p.rate_limits.rpd,
                 tpm_limit=p.rate_limits.tpm,
+                daily_token_cap=p.rate_limits.daily_token_cap,
             )
             for p in self._config.providers
         ]
@@ -189,17 +187,11 @@ class RouterEngine:
 
         scored: list[ModelScore] = []
         for model_id, rank, provider in filtered:
-<<<<<<< HEAD
-            # Compute scores (unwrap Result types with fallback values)
-            budget_result = self._budget.score(provider) if provider else Ok(100.0)
-            health_result = self._health.score(model_id)
-            budget_score = budget_result.value if hasattr(budget_result, "value") else 100.0
-            health_score = health_result.value if hasattr(health_result, "value") else 100.0
-=======
             # Compute scores
-            budget_score = self._budget.score(provider) if provider else 100.0
-            health_score = self._health.score(model_id)
->>>>>>> delta-spec-waves
+            budget_result = self._budget.score(provider) if provider else Ok(100.0)
+            budget_score = budget_result.value if isinstance(budget_result, Ok) else 100.0
+            health_result = self._health.score(model_id)
+            health_score = health_result.value if isinstance(health_result, Ok) else 100.0
 
             composite = compute_composite_score(
                 rank=rank,

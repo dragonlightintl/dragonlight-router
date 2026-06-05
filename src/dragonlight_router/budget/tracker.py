@@ -30,10 +30,15 @@ class BudgetTracker:
         self._providers: dict[str, ProviderConfig] = {p.name: p for p in providers}
         self._rpm_windows: dict[str, deque[float]] = defaultdict(deque)
         self._rpd_counts: dict[str, int] = defaultdict(int)
+        self._tpm_windows: dict[str, deque[tuple[float, int]]] = defaultdict(deque)
+        self._daily_token_counts: dict[str, int] = defaultdict(int)
         self._day_reset_at: float = self._next_day_boundary()
 
     def score(self, provider_name: str) -> Result[float, ProviderNotFoundError]:
-        """Budget availability score (0-100) for a provider."""
+        """Budget availability score (0-100) for a provider.
+        
+        Considers RPM, RPD, TPM, and daily token cap limits.
+        """
         provider = self._providers.get(provider_name)
         if provider is None:
             logger.debug("provider_not_found", provider=provider_name)
@@ -45,9 +50,19 @@ class BudgetTracker:
         rpd_remaining: int | None = None
         rpd_limit: int | None = provider.rpd_limit
 
+        tpm_remaining = self._tpm_remaining(provider_name)
+        tpm_limit: int | None = provider.tpm_limit
+
+        daily_token_remaining: int | None = None
+        daily_token_limit: int | None = provider.daily_token_cap
+
         if rpd_limit is not None:
             self._maybe_reset_daily()
             rpd_remaining = max(0, rpd_limit - self._rpd_counts[provider_name])
+
+        if daily_token_limit is not None:
+            self._maybe_reset_daily()
+            daily_token_remaining = max(0, daily_token_limit - self._daily_token_counts[provider_name])
 
         rpm_ratio = rpm_remaining / rpm_limit if rpm_limit > 0 else 1.0
 
@@ -56,17 +71,28 @@ class BudgetTracker:
         else:
             rpd_ratio = rpd_remaining / rpd_limit
 
+        tpm_ratio = tpm_remaining / tpm_limit if tpm_limit is not None and tpm_limit > 0 else 1.0
+
+        if daily_token_remaining is None or daily_token_limit is None or daily_token_limit == 0:
+            daily_token_ratio = 1.0
+        else:
+            daily_token_ratio = daily_token_remaining / daily_token_limit
+
         # Assertions for coding standard (>=2 assertions)
         assert 0.0 <= rpm_ratio <= 1.0, f"rpm_ratio out of bounds: {rpm_ratio}"
         assert 0.0 <= rpd_ratio <= 1.0, f"rpd_ratio out of bounds: {rpd_ratio}"
+        assert 0.0 <= tpm_ratio <= 1.0, f"tpm_ratio out of bounds: {tpm_ratio}"
+        assert 0.0 <= daily_token_ratio <= 1.0, f"daily_token_ratio out of bounds: {daily_token_ratio}"
 
-        return Ok(min(rpm_ratio, rpd_ratio) * 100.0)
+        return Ok(min(rpm_ratio, rpd_ratio, tpm_ratio, daily_token_ratio) * 100.0)
 
     def record_request(self, provider_name: str, tokens_used: int = 0) -> None:
         """Record that a request was dispatched."""
         now = time.time()
         self._rpm_windows[provider_name].append(now)
         self._rpd_counts[provider_name] += 1
+        self._tpm_windows[provider_name].append((now, tokens_used))
+        self._daily_token_counts[provider_name] += tokens_used
 
     def has_capacity(self, provider_name: str) -> bool:
         """Quick check: does this provider have RPM and RPD headroom?"""
@@ -108,6 +134,7 @@ class BudgetTracker:
         now = time.time()
         if now >= self._day_reset_at:
             self._rpd_counts.clear()
+            self._daily_token_counts.clear()
             self._day_reset_at = self._next_day_boundary()
 
     @staticmethod
@@ -120,5 +147,29 @@ class BudgetTracker:
 
     def _tpm_remaining(self, provider_name: str) -> int:
         """Remaining TPM in the current minute window."""
-        # Placeholder: TPM tracking not yet implemented (see TM-012).
-        return 0
+        provider = self._providers.get(provider_name)
+        invariant(
+            provider is not None,
+            f"_tpm_remaining called for unknown provider: {provider_name}",
+        )
+        assert provider is not None, f"_tpm_remaining called for unknown provider: {provider_name}"
+        limit = provider.tpm_limit
+        if limit is None or limit <= 0:
+            return 1
+        now = time.time()
+        cutoff = now - 60.0
+        window = self._tpm_windows.get(provider_name, deque())
+        # Remove outdated entries
+        while window and window[0][0] < cutoff:
+            window.popleft()
+        # Sum tokens used in the window
+        tokens_used = sum(tokens for _, tokens in window)
+        return max(0, limit - tokens_used)
+
+    def _daily_token_remaining(self, provider_name: str) -> int:
+        """Remaining daily token cap for the provider."""
+        provider = self._providers.get(provider_name)
+        if provider is None or provider.daily_token_cap is None:
+            return 0
+        self._maybe_reset_daily()
+        return max(0, provider.daily_token_cap - self._daily_token_counts[provider_name])

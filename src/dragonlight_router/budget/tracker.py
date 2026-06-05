@@ -3,6 +3,7 @@
 Tracks RPM (requests per minute) via a sliding window of timestamps,
 and RPD (requests per day) via a simple counter with daily reset.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -27,6 +28,10 @@ class BudgetTracker:
     """Tracks rate limit budget for all configured providers."""
 
     def __init__(self, providers: list[ProviderConfig]) -> None:
+        assert isinstance(providers, list), "providers must be a list"
+        assert all(
+            isinstance(p, ProviderConfig) for p in providers
+        ), "all providers must be ProviderConfig instances"
         self._providers: dict[str, ProviderConfig] = {p.name: p for p in providers}
         self._rpm_windows: dict[str, deque[float]] = defaultdict(deque)
         self._rpd_counts: dict[str, int] = defaultdict(int)
@@ -36,9 +41,10 @@ class BudgetTracker:
 
     def score(self, provider_name: str) -> Result[float, ProviderNotFoundError]:
         """Budget availability score (0-100) for a provider.
-        
+
         Considers RPM, RPD, TPM, and daily token cap limits.
         """
+        assert isinstance(provider_name, str), "provider_name must be a string"
         provider = self._providers.get(provider_name)
         if provider is None:
             logger.debug("provider_not_found", provider=provider_name)
@@ -88,6 +94,8 @@ class BudgetTracker:
 
     def record_request(self, provider_name: str, tokens_used: int = 0) -> None:
         """Record that a request was dispatched."""
+        assert isinstance(provider_name, str), "provider_name must be a string"
+        assert isinstance(tokens_used, int) and tokens_used >= 0, f"tokens_used must be a non-negative integer, got {tokens_used}"
         now = time.time()
         self._rpm_windows[provider_name].append(now)
         self._rpd_counts[provider_name] += 1
@@ -96,6 +104,7 @@ class BudgetTracker:
 
     def has_capacity(self, provider_name: str) -> bool:
         """Quick check: does this provider have RPM and RPD headroom?"""
+        assert isinstance(provider_name, str), "provider_name must be a string"
         provider = self._providers.get(provider_name)
         if provider is None:
             return True
@@ -119,7 +128,9 @@ class BudgetTracker:
         window = self._rpm_windows.get(provider_name, deque())
         while window and window[0] < cutoff:
             window.popleft()
-        return max(0, limit - len(window))
+        remaining = max(0, limit - len(window))
+        assert remaining >= 0, f"Remaining RPM must be non-negative, got {remaining}"
+        return remaining
 
     def _rpd_remaining(self, provider_name: str) -> int:
         """Remaining RPD in the current day."""
@@ -127,7 +138,9 @@ class BudgetTracker:
         if provider is None or provider.rpd_limit is None:
             return 0
         self._maybe_reset_daily()
-        return max(0, provider.rpd_limit - self._rpd_counts[provider_name])
+        remaining = max(0, provider.rpd_limit - self._rpd_counts[provider_name])
+        assert remaining >= 0, f"Remaining RPD must be non-negative, got {remaining}"
+        return remaining
 
     def _maybe_reset_daily(self) -> None:
         """Reset daily counters if a day boundary has passed."""
@@ -136,6 +149,7 @@ class BudgetTracker:
             self._rpd_counts.clear()
             self._daily_token_counts.clear()
             self._day_reset_at = self._next_day_boundary()
+        assert self._day_reset_at > now, f"Day reset time must be in the future, got {self._day_reset_at}"
 
     @staticmethod
     def _next_day_boundary() -> float:
@@ -143,7 +157,9 @@ class BudgetTracker:
         tomorrow = dt.datetime.now(dt.UTC).replace(
             hour=0, minute=0, second=0, microsecond=0,
         ) + dt.timedelta(days=1)
-        return tomorrow.timestamp()
+        result = tomorrow.timestamp()
+        assert result > time.time(), f"Next day boundary must be in the future, got {result}"
+        return result
 
     def _tpm_remaining(self, provider_name: str) -> int:
         """Remaining TPM in the current minute window."""
@@ -164,7 +180,9 @@ class BudgetTracker:
             window.popleft()
         # Sum tokens used in the window
         tokens_used = sum(tokens for _, tokens in window)
-        return max(0, limit - tokens_used)
+        remaining = max(0, limit - tokens_used)
+        assert remaining >= 0, f"Remaining TPM must be non-negative, got {remaining}"
+        return remaining
 
     def _daily_token_remaining(self, provider_name: str) -> int:
         """Remaining daily token cap for the provider."""
@@ -172,4 +190,6 @@ class BudgetTracker:
         if provider is None or provider.daily_token_cap is None:
             return 0
         self._maybe_reset_daily()
-        return max(0, provider.daily_token_cap - self._daily_token_counts[provider_name])
+        remaining = max(0, provider.daily_token_cap - self._daily_token_counts[provider_name])
+        assert remaining >= 0, f"Remaining daily token cap must be non-negative, got {remaining}"
+        return remaining

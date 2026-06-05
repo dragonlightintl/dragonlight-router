@@ -9,13 +9,9 @@ import json
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from dragonlight_router.result import Ok
-<<<<<<< HEAD
-from dragonlight_router.core.types import RequestOutcome
 from dragonlight_router.router import RouterEngine
-=======
-from dragonlight_router.router import RequestOutcome, RouterEngine
->>>>>>> delta-spec-waves
+from dragonlight_router.core.types import RequestOutcome
+from dragonlight_router.result import Ok, Err
 
 
 async def select_handler(request: Request) -> JSONResponse:
@@ -41,10 +37,10 @@ async def select_handler(request: Request) -> JSONResponse:
     scores = []
     for model_id in models:
         health_result = engine._health.score(model_id)
-        health_score = health_result.value if hasattr(health_result, "value") else 100.0
+        health_score = health_result.value if isinstance(health_result, Ok) else 100.0
         provider = engine._resolve_provider(model_id)
         budget_result = engine._budget.score(provider) if provider else Ok(100.0)
-        budget_score = budget_result.value if hasattr(budget_result, "value") else 100.0
+        budget_score = budget_result.value if isinstance(budget_result, Ok) else 100.0
         scores.append({
             "model_id": model_id,
             "health_score": round(health_score, 1),
@@ -126,6 +122,7 @@ async def catalog_refresh_handler(request: Request) -> JSONResponse:
 
     # Import refresher
     from dragonlight_router.catalog.refresher import CatalogRefresher
+    from dragonlight_router.result import Ok
 
     refresher = CatalogRefresher()
     try:
@@ -141,12 +138,12 @@ async def catalog_refresh_handler(request: Request) -> JSONResponse:
             })
         else:
             # Refresh failed
-            return JSONResponse(
-                {"status": "error", "error": result.error.message},
-                status_code=500,
-            )
+            return JSONResponse({
+                "status": "error",
+                "error": result.error.message
+            }, status_code=500)
     except (OSError, ValueError, LookupError) as exc:
-        return JSONResponse(
-            {"status": "error", "error": str(exc)},
-            status_code=500,
-        )
+        return JSONResponse({
+            "status": "error",
+            "error": str(exc)
+        }, status_code=500)

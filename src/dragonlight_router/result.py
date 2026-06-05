@@ -21,15 +21,19 @@ class Ok(Generic[T]):
     value: T
 
     def is_ok(self) -> bool:
+        """Return True because this is an Ok."""
         return True
 
     def is_err(self) -> bool:
+        """Return False because this is not an Err."""
         return False
 
     def unwrap(self: Ok[T]) -> T:
+        """Return the contained value."""
         return self.value
 
     def unwrap_err(self: Ok[T]) -> NoReturn:
+        """Raise AssertionError because this is an Ok value."""
         raise AssertionError("Called unwrap_err on Ok value")
 
 
@@ -40,15 +44,19 @@ class Err(Generic[E]):
     error: E
 
     def is_ok(self) -> bool:
+        """Return False because this is not an Ok."""
         return False
 
     def is_err(self) -> bool:
+        """Return True because this is an Err."""
         return True
 
     def unwrap(self: Err[E]) -> NoReturn:
+        """Raise AssertionError because this is an Err value."""
         raise AssertionError("Called unwrap on Err value")
 
     def unwrap_err(self: Err[E]) -> E:
+        """Return the contained error."""
         return self.error
 
 
@@ -57,29 +65,52 @@ Result = Union[Ok[T], Err[E]]
 
 def ok(value: T) -> Ok[T]:
     """Create an Ok result."""
-    return Ok(value)
+    result = Ok(value)
+    assert isinstance(result, Ok), "ok must return an Ok instance"
+    assert result.value == value, "ok must preserve the value"
+    return result
 
 
 def err(error: E) -> Err[E]:
     """Create an Err result."""
-    return Err(error)
+    result = Err(error)
+    assert isinstance(result, Err), "err must return an Err instance"
+    assert result.error == error, "err must preserve the error"
+    return result
 
 
 def is_ok(result: Result[T, E]) -> bool:
     """Check if result is Ok."""
-    return result.is_ok()
+    assert result is not None, "result must not be None"
+    ok_result = result.is_ok()
+    assert isinstance(ok_result, bool), "is_ok must return a bool"
+    return ok_result
 
 
 def is_err(result: Result[T, E]) -> bool:
     """Check if result is Err."""
-    return result.is_err()
+    assert result is not None, "result must not be None"
+    err_result = result.is_err()
+    assert isinstance(err_result, bool), "is_err must return a bool"
+    return err_result
 
 
 def unwrap(result: Result[T, E]) -> T:
     """Extract value from Ok result, panic on Err."""
-    return result.unwrap()
+    assert result is not None, "result must not be None"
+    if result.is_ok():
+        value = result.unwrap()
+        # We cannot assert much about T without knowing it, but we can check it's not None if T is known? Skip.
+        return value
+    else:
+        raise AssertionError("Called unwrap on Err value")
 
 
 def unwrap_err(result: Result[T, E]) -> E:
     """Extract error from Err result, panic on Ok."""
-    return result.unwrap_err()
+    assert result is not None, "result must not be None"
+    if result.is_err():
+        error = result.unwrap_err()
+        return error
+    else:
+        raise AssertionError("Called unwrap_err on Ok value")

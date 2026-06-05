@@ -136,9 +136,9 @@ class CatalogCache:
         return result
 
     @staticmethod
-    def _serialize(catalog: dict[str, list[CatalogEntry]]) -> dict:
+    def _serialize(catalog: dict[str, list[CatalogEntry]]) -> dict[str, list[dict]]:
         """Convert catalog to JSON-serializable dict."""
-        result = {}
+        result: dict[str, list[dict]] = {}
         for provider, entries in catalog.items():
             result[provider] = [
                 {"model_id": e.model_id, "provider": e.provider, "created": e.created}
@@ -147,7 +147,7 @@ class CatalogCache:
         return result
 
     @staticmethod
-    def _deserialize(data: dict) -> dict[str, list[CatalogEntry]]:
+    def _deserialize(data: dict[str, list[dict]]) -> dict[str, list[CatalogEntry]]:
         """Convert JSON dict back to CatalogEntry objects."""
         result: dict[str, list[CatalogEntry]] = {}
         for provider, entries in data.items():

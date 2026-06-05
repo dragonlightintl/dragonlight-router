@@ -1,23 +1,23 @@
 # Dragonlight Router — Implementation Delta & Remediation Plan
 
-**Delta ID:** dragonlight-router-delta-v0.2.0-2026-05-30  
+**Delta ID:** dragonlight-router-delta-v0.2.0-2026-06-03  
 **Spec Baseline:** live-spec-v0.2.0-2026-05-30  
-**Auditor:** Hermes Agent (Korrigon @ Dragonlight International)
+**Auditor:** Hermes Agent (Code Profile)  
 
 ---
 
 ## Executive Summary
 
-The dragonlight-router currently delivers **~35% of live-spec acceptance criteria** and complies with **~48% of coding standards**. Test coverage is **37.77%** against an 80% gate. This document identifies 47 specific remediation items across 24 tasks, organized into 8 parallel execution waves.
+The dragonlight-router currently delivers **~25%** of live-spec acceptance criteria and complies with **~50%** of coding standards. Test coverage is **40%** against an 80% gate. This document identifies 55 specific remediation items across 24 tasks, organized into 8 parallel execution waves.
 
 | Metric | Current | Target | Gap |
 |--------|---------|--------|-----|
-| Spec Parity | 35% | 100% | 65% |
-| Standards Compliance | 48% | 100% | 52% |
-| Test Coverage | 37.77% | 80%+ | 42.23% |
-| Critical Blockers | 7 | 0 | 7 |
-| Total Remediation Items | 47 | 0 | 47 |
-| Estimated Agent Hours | — | 28 | — |
+| Spec Parity | 25% | 100% | 75% |
+| Standards Compliance | 50% | 100% | 50% |
+| Test Coverage | 40% | 80%+ | 40% |
+| Critical Blockers | 12 | 0 | 12 |
+| Total Remediation Items | 55 | 0 | 55 |
+| Estimated Agent Hours | — | 35 | — |
 
 ---
 
@@ -38,8 +38,9 @@ The live-spec defines 12 task modules. Only 3 have partial implementations; 9 ha
 | TM-009 | HTTP API Dispatch Endpoints | ⚠️ PARTIAL | 3/8 | 37% |
 | TM-010 | RouterEngine.dispatch() graft | ❌ NOT_STARTED | 1/4 | 25% |
 | TM-011 | Integration Tests — cascade dispatch pipeline | ❌ NOT_STARTED | 0/5 | 0% |
-| TM-012 | BudgetTracker TPM + Daily Token Cap | ⚠️ PARTIAL | 2/6 | 33% |
+| TM-012 | BudgetTracker TPM + Daily Token Cap | ❌ NOT_STARTED | 0/6 | 0% |
 
+### Key Findings
 ### Key Findings
 
 1. **The entire dispatch path is missing.** `dispatch/cascade.py` does not exist. The MBR→CBR→LBR cascade has zero implementation.
@@ -47,16 +48,21 @@ The live-spec defines 12 task modules. Only 3 have partial implementations; 9 ha
 3. **MBR, CBR, LBR stages don't exist.** `selection/mbr.py`, `selection/cbr.py`, `selection/lbr.py` are absent.
 4. **Context trust tier filtering (DIAN CECHT) is absent.** PII boundary enforcement is unimplemented.
 5. **Health check loop is missing.** No periodic backend probing.
-6. **BudgetTracker lacks TPM and daily token cap.** Only RPM/RPD tracked.
+6. **BudgetTracker lacks TPM and daily token cap.** Only RPM/RPD tracked (TPM/token cap implementation was reverted during merge conflict resolution).
 7. **RouterEngine.dispatch() doesn't exist.** Only `select_models()` is implemented.
+### What Works Today
 
 ### What Works Today
 
-- ✅ `select_models()` — returns ranked model IDs
-- ✅ Budget scoring (RPM/RPD), Health tracking + circuit breaker, Catalog caching + TTL
+- ✅ `select_models()` — returns ranked model IDs (basic v0.1 functionality)
+- ✅ Budget scoring (RPM/RPD only), Health tracking + circuit breaker, Catalog caching + TTL
 - ✅ Role matrix hot-reload, Provider interleaving, HTTP endpoints (select/record/health)
-- ✅ Structured logging (7/24 modules), All frozen dataclasses in core/types.py
+- ✅ Structured logging (improved coverage)
 - ✅ Typed error dataclasses, BackendState invariant() function
+- ✅ Specific exception handling in config loader and catalog cache (no more bare `except Exception`)
+- ✅ Safe Result unwrapping in router score method
+- ✅ Improved config loading error handling
+
 
 ---
 

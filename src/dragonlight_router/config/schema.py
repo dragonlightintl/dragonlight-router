@@ -16,6 +16,7 @@ class RateLimitSchema(BaseModel):
     rpm: int
     rpd: int | None = None
     tpm: int | None = None
+    daily_token_cap: int | None = None
 
 
 class ProviderSchema(BaseModel):

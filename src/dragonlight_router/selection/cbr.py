@@ -6,24 +6,25 @@ Filters model candidates based on cost-effectiveness and budget constraints.
 from __future__ import annotations
 
 import structlog
-from typing import Dict, List
 
+from dragonlight_router.budget.tracker import BudgetTracker
 from dragonlight_router.core.types import BackendConfig, BackendCostProfile, DispatchOrder
+from dragonlight_router.result import Err, Ok, Result
 
 logger = structlog.get_logger(__name__)
 
 
-def filter_by_cost_efficiency(
-    candidates: List[BackendConfig],
-    budget_scores: Dict[str, float],
+def filter_by_cost(
+    candidates: list[BackendConfig],
     order: DispatchOrder,
-) -> List[BackendConfig]:
-    """Filter candidates based on cost efficiency given available budget.
+    budget_tracker: BudgetTracker,
+) -> list[BackendConfig]:
+    """Filter candidates based on cost effectiveness given available budget.
 
     Args:
         candidates: List of backend configurations from MBR stage.
-        budget_scores: Mapping of provider name to budget score (0-100).
         order: Dispatch order (may contain context for cost adjustment).
+        budget_tracker: Budget tracker to get budget scores for providers.
 
     Returns:
         List of candidates that pass cost balancing checks.
@@ -33,22 +34,43 @@ def filter_by_cost_efficiency(
     assert all(
         isinstance(c, BackendConfig) for c in candidates
     ), "all candidates must be BackendConfig instances"
-    assert isinstance(budget_scores, dict), "budget_scores must be a dict"
-    assert all(
-        isinstance(k, str) and isinstance(v, (int, float)) for k, v in budget_scores.items()
-    ), "budget_scores must map str to float/int"
     assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
+    assert isinstance(budget_tracker, BudgetTracker), "budget_tracker must be BudgetTracker instance"
 
     logger.debug(
-        "filtering candidates by cost efficiency",
+        "filtering candidates by cost",
         candidate_count=len(candidates),
         intent_category=order.intent_category,
         context_tokens=order.context_tokens,
     )
 
-    # If no candidates or no budget data, return as-is (let later stages handle)
-    if not candidates or not budget_scores:
-        logger.debug("no candidates or budget data, returning as-is")
+    # If no candidates, return as-is
+    if not candidates:
+        logger.debug("no candidates, returning as-is")
+        return candidates
+
+    # Get budget scores for each candidate's provider
+    budget_scores: dict[str, float] = {}
+    for candidate in candidates:
+        provider = candidate.provider
+        # If we haven't computed the score for this provider yet, do so
+        if provider not in budget_scores:
+            score_result = budget_tracker.score(provider)
+            if isinstance(score_result, Ok):
+                budget_scores[provider] = score_result.value
+            else:
+                # If provider not found, treat as 0 score (will be filtered out if median > 0)
+                budget_scores[provider] = 0.0
+
+    logger.debug(
+        "budget scores retrieved",
+        provider_count=len(budget_scores),
+        scores=budget_scores,
+    )
+
+    # If no budget data, return as-is (let later stages handle)
+    if not any(budget_scores.values()):
+        logger.debug("no budget data, returning as-is")
         return candidates
 
     # For each candidate, compute a cost efficiency score
@@ -57,8 +79,8 @@ def filter_by_cost_efficiency(
     # Since we don't have a reference, we'll use the inverse of cost: higher cost -> lower efficiency.
     # We'll then keep candidates with efficiency above a threshold (e.g., median).
 
-    efficiencies: List[float] = []
-    provider_to_efficiency: Dict[str, float] = {}
+    efficiencies: list[float] = []
+    provider_to_efficiency: dict[str, float] = {}
 
     for candidate in candidates:
         provider = candidate.provider
@@ -89,7 +111,7 @@ def filter_by_cost_efficiency(
         median_efficiency = (sorted_eff[n // 2 - 1] + sorted_eff[n // 2]) / 2.0
 
     # Filter: keep candidates with efficiency >= median
-    filtered: List[BackendConfig] = []
+    filtered: list[BackendConfig] = []
     for candidate in candidates:
         provider = candidate.provider
         efficiency = provider_to_efficiency.get(provider, 0.0)
@@ -107,9 +129,9 @@ def filter_by_cost_efficiency(
 
 
 def filter_by_absolute_cost(
-    candidates: List[BackendConfig],
+    candidates: list[BackendConfig],
     max_cost_per_mtok: float,
-) -> List[BackendConfig]:
+) -> list[BackendConfig]:
     """Filter candidates that exceed an absolute cost threshold.
 
     Args:
@@ -132,7 +154,7 @@ def filter_by_absolute_cost(
         max_cost_per_mtok=max_cost_per_mtok,
     )
 
-    filtered: List[BackendConfig] = []
+    filtered: list[BackendConfig] = []
     for candidate in candidates:
         cost_profile: BackendCostProfile = candidate.cost
         avg_cost = (cost_profile.input_per_mtok + cost_profile.output_per_mtok) / 2.0

@@ -7,6 +7,7 @@ and RPD (requests per day) via a simple counter with daily reset.
 from __future__ import annotations
 
 import datetime as dt
+import sys
 import time
 from collections import defaultdict, deque
 

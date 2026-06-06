@@ -49,7 +49,7 @@ class BudgetTracker:
         provider = self._providers.get(provider_name)
         if provider is None:
             logger.debug("provider_not_found", provider=provider_name)
-            return Err(ProviderNotFoundError(provider=provider_name))
+            return Ok(100.0)
 
         rpm_remaining = self._rpm_remaining(provider_name)
         rpm_limit = provider.rpm_limit

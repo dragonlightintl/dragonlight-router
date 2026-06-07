@@ -149,6 +149,7 @@ class DispatchOrder:
     persona: str | None = None
     request_id: int | None = None
     stream_id: str | None = None
+    context_trust_tier: str | None = None
 
 @dataclass(frozen=True)
 class EngineResponse:

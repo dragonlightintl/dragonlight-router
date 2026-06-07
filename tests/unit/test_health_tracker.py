@@ -4,12 +4,15 @@ from __future__ import annotations
 import pytest
 
 from dragonlight_router.health.tracker import HealthTracker
+from dragonlight_router.core.types import Ok
 
 
 class TestHealthTrackerInit:
     def test_fresh_model_score_100(self):
         ht = HealthTracker()
-        assert ht.score("some-model") == pytest.approx(100.0)
+        result = ht.score("some-model")
+        assert isinstance(result, Ok)
+        assert result.value == pytest.approx(100.0)
 
     def test_fresh_model_is_available(self):
         ht = HealthTracker()
@@ -21,7 +24,9 @@ class TestRecordSuccess:
         ht = HealthTracker()
         ht.record_error("m1")
         ht.record_success("m1", latency_ms=50.0)
-        assert ht.score("m1") == pytest.approx(100.0)
+        result = ht.score("m1")
+        assert isinstance(result, Ok)
+        assert result.value == pytest.approx(100.0)
 
     def test_tracks_latency(self):
         ht = HealthTracker()
@@ -36,13 +41,17 @@ class TestRecordError:
     def test_one_error_score_70(self):
         ht = HealthTracker()
         ht.record_error("m1")
-        assert ht.score("m1") == pytest.approx(70.0)
+        result = ht.score("m1")
+        assert isinstance(result, Ok)
+        assert result.value == pytest.approx(70.0)
 
     def test_two_errors_score_70(self):
         ht = HealthTracker()
         ht.record_error("m1")
         ht.record_error("m1")
-        assert ht.score("m1") == pytest.approx(70.0)
+        result = ht.score("m1")
+        assert isinstance(result, Ok)
+        assert result.value == pytest.approx(70.0)
 
     def test_three_errors_trips_circuit_score_zero(self):
         """3 errors trips the circuit breaker → score goes to 0."""
@@ -51,7 +60,9 @@ class TestRecordError:
         ht.record_error("m1")
         ht.record_error("m1")
         # Circuit is now open, so score = 0
-        assert ht.score("m1") == pytest.approx(0.0)
+        result = ht.score("m1")
+        assert isinstance(result, Ok)
+        assert result.value == pytest.approx(0.0)
 
     def test_circuit_opens_at_three(self):
         ht = HealthTracker()
@@ -65,7 +76,9 @@ class TestRecordError:
         ht.record_error("m1")
         ht.record_error("m1")
         ht.record_error("m1")
-        assert ht.score("m1") == pytest.approx(0.0)
+        result = ht.score("m1")
+        assert isinstance(result, Ok)
+        assert result.value == pytest.approx(0.0)
 
 
 class TestIsAvailable:

@@ -7,7 +7,7 @@ from typing import Any
 import structlog
 
 from dragonlight_router.core.state import BackendState
-from dragonlight_router.core.types import GenerativeBackend
+from dragonlight_router.core.types import GenerativeBackend, BackendTier, BackendConfig
 
 logger = structlog.get_logger()
 
@@ -60,6 +60,21 @@ class BackendRegistry:
             (name, self._backends[name], self._states[name])
             for name in self._backends
         ]
+
+    def get_by_tier(self, tier: BackendTier) -> list[BackendConfig]:
+        """Get all backends matching the specified tier.
+        
+        Args:
+            tier: The BackendTier to filter by.
+            
+        Returns:
+            List of BackendConfig objects for backends in the specified tier.
+        """
+        result = []
+        for name, backend, state in self.all_backends():
+            if backend.config.tier == tier:
+                result.append(backend.config)
+        return result
 
     def health_snapshot(self) -> dict[str, dict[str, Any]]:
         """Return a health snapshot for observability."""

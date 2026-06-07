@@ -22,9 +22,10 @@ from dragonlight_router.catalog.refresher import CatalogRefresher
 from dragonlight_router.config.loader import load_config
 from dragonlight_router.config.schema import RouterConfig
 from dragonlight_router.core.registry import BackendRegistry
-from dragonlight_router.core.types import ModelScore, ProviderConfig, RequestOutcome
+from dragonlight_router.core.types import ModelScore, ProviderConfig, RequestOutcome, DispatchOrder, EngineResponse
+from dragonlight_router.dispatch.cascade import route
 from dragonlight_router.health.tracker import HealthTracker
-from dragonlight_router.result import Ok, Err
+from dragonlight_router.result import Ok, Err, Result
 from dragonlight_router.roles.matrix import RoleMatrix
 from dragonlight_router.selection.interleave import interleave_providers
 from dragonlight_router.selection.scoring import (
@@ -303,6 +304,23 @@ class RouterEngine:
             if model_id.startswith(p.model_prefix):
                 return p.name
         return None
+
+    def dispatch(self, order: DispatchOrder) -> Result[EngineResponse, Exception]:
+        """Execute full cascade dispatch for engine-style consumers."""
+        assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
+        
+        # Convert RouterConfig to dict for the dispatch function
+        config_dict = self._config.model_dump()
+        
+        # Run the full dispatch pipeline
+        from dragonlight_router.dispatch.cascade import dispatch as cascade_dispatch
+        return cascade_dispatch(
+            order=order,
+            registry=self._registry,
+            budget_tracker=self._budget,
+            health_tracker=self._health,
+            config=config_dict,
+        )
 
 
 def get_router(

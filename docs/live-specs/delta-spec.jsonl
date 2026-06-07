@@ -20,11 +20,5 @@
     "total_remediation_items": 45,
     "estimated_agent_hours": 25
   },
-  "completed_tasks": [
-    "RT-003",
-    "RT-012",
-    "RT-013",
-    "RT-014",
-    "RT-015"
-  ]
+  "completed_tasks": ["TM-001", "TM-002", "TM-003", "TM-004", "TM-005", "TM-007", "TM-009", "TM-010", "TM-011", "TM-012"]
 }

@@ -10,7 +10,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from dragonlight_router.router import RouterEngine
-from dragonlight_router.core.types import RequestOutcome
+from dragonlight_router.core.types import RequestOutcome, DispatchOrder, EngineResponse, DispatchFailure
 from dragonlight_router.result import Ok, Err
 
 
@@ -147,3 +147,72 @@ async def catalog_refresh_handler(request: Request) -> JSONResponse:
             "status": "error",
             "error": str(exc)
         }, status_code=500)
+
+
+async def dispatch_handler(request: Request) -> JSONResponse:
+    """POST /v1/dispatch — execute the MBR→CBR→LBR cascade and return EngineResponse."""
+    engine: RouterEngine = request.app.state.engine
+
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+
+    # Validate required fields for DispatchOrder
+    required_fields = ["intent_category", "specific_intent", "operator_message", "context_tokens"]
+    for field in required_fields:
+        if field not in body:
+            return JSONResponse(
+                {"error": f"missing required field: {field}"},
+                status_code=400,
+            )
+
+    # Construct DispatchOrder from body
+    order = DispatchOrder(
+        intent_category=body["intent_category"],
+        specific_intent=body["specific_intent"],
+        operator_message=body["operator_message"],
+        system_prompt=body.get("system_prompt", ""),
+        context_tokens=int(body["context_tokens"]),
+        requires_tool_use=body.get("requires_tool_use", False),
+        requires_long_context=body.get("requires_long_context", False),
+        persona=body.get("persona"),
+        request_id=body.get("request_id"),
+        stream_id=body.get("stream_id"),
+        context_trust_tier=body.get("context_trust_tier"),
+    )
+
+    # Execute dispatch via RouterEngine.dispatch (implemented in TM-010)
+    try:
+        dispatch_result = engine.dispatch(order)
+        if isinstance(dispatch_result, Ok):
+            engine_response = dispatch_result.value
+            return JSONResponse({
+                "content": engine_response.content,
+                "backend_used": engine_response.backend_used,
+                "backend_tier": engine_response.backend_tier.value,
+                "tokens_in": engine_response.tokens_in,
+                "tokens_out": engine_response.tokens_out,
+                "estimated_cost_usd": engine_response.estimated_cost_usd,
+                "latency_ms": engine_response.latency_ms,
+                "was_fallback": engine_response.was_fallback,
+                "fallback_chain": engine_response.fallback_chain,
+            })
+        else:
+            # Dispatch failed - return DispatchFailure as JSON
+            error = dispatch_result.error
+            if isinstance(error, DispatchFailure):
+                return JSONResponse({
+                    "message": error.message,
+                    "attempted_backends": error.attempted_backends,
+                    "error_details": error.error_details,
+                }, status_code=500)
+            else:
+                # Other exception
+                return JSONResponse({
+                    "message": str(error),
+                    "attempted_backends": [],
+                    "error_details": {"error_type": type(error).__name__}
+                }, status_code=500)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)

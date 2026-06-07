@@ -6,7 +6,7 @@ import time
 import pytest
 from hypothesis import given, strategies as st
 
-from dragonlight_router.core.types import ProviderConfig
+from dragonlight_router.core.types import ProviderConfig, Ok
 from dragonlight_router.budget.tracker import BudgetTracker
 
 
@@ -38,32 +38,42 @@ class TestBudgetTrackerInit:
 
     def test_empty_providers(self):
         bt = BudgetTracker(providers=[])
-        assert bt.score("unknown").unwrap() == 100.0
+        result = bt.score("unknown")
+        assert isinstance(result, Ok)
+        assert result.value == 100.0
 
 
 class TestBudgetScore:
     def test_full_capacity_is_100(self):
         bt = BudgetTracker(providers=[_provider("groq", rpm=30, rpd=14400)])
-        assert bt.score("groq").unwrap() == pytest.approx(100.0)
+        result = bt.score("groq")
+        assert isinstance(result, Ok)
+        assert result.value == pytest.approx(100.0)
 
     def test_score_decreases_with_requests(self):
         bt = BudgetTracker(providers=[_provider("groq", rpm=30, rpd=14400)])
         for _ in range(15):
             bt.record_request("groq")
-        score = bt.score("groq").unwrap()
+        result = bt.score("groq")
+        assert isinstance(result, Ok)
+        score = result.value
         assert score > 0.0
         assert score < 100.0
 
     def test_unknown_provider_returns_100(self):
         bt = BudgetTracker(providers=[_provider("groq")])
-        assert bt.score("unknown").unwrap() == 100.0
+        result = bt.score("unknown")
+        assert isinstance(result, Ok)
+        assert result.value == 100.0
 
     def test_unlimited_rpd_none(self):
         """None rpd_limit means unlimited — only RPM matters."""
         bt = BudgetTracker(providers=[_provider("groq", rpm=10, rpd=None)])
         for _ in range(5):
             bt.record_request("groq")
-        score = bt.score("groq").unwrap()
+        result = bt.score("groq")
+        assert isinstance(result, Ok)
+        score = result.value
         assert score == pytest.approx(50.0)
 
 
@@ -73,20 +83,26 @@ class TestRecordRequest:
         bt.record_request("groq")
         bt.record_request("groq")
         # RPM: 98/100, RPD: 998/1000 → min(0.98, 0.998) * 100 = 98.0
-        assert bt.score("groq").unwrap() == pytest.approx(98.0)
+        result = bt.score("groq")
+        assert isinstance(result, Ok)
+        assert result.value == pytest.approx(98.0)
 
     def test_records_tokens(self):
         bt = BudgetTracker(providers=[_provider("groq", rpm=100, rpd=1000, tpm=500, daily_token_cap=10000)])
         bt.record_request("groq", tokens_used=100)
         bt.record_request("groq", tokens_used=200)
         # RPM: 98/100, RPD: 998/1000, TPM: 200/500 → 60% remaining, daily: 9700/10000 → 97%
-        # min(0.98, 0.998, 0.6, 0.97) = 0.6 → 60.0
-        assert bt.score("groq").unwrap() == pytest.approx(60.0)
+        # min(0.98, 0.998, 0.4, 0.97) = 0.4 → 40.0
+        result = bt.score("groq")
+        assert isinstance(result, Ok)
+        assert result.value == pytest.approx(40.0)
 
     def test_unknown_provider_no_error(self):
         bt = BudgetTracker(providers=[_provider("groq")])
         bt.record_request("unknown")  # Should not raise
-        assert bt.score("unknown").unwrap() == 100.0
+        result = bt.score("unknown")
+        assert isinstance(result, Ok)
+        assert result.value == 100.0
 
 
 class TestHasCapacity:
@@ -131,8 +147,9 @@ class TestSlidingWindow:
         # TPM remaining should be 90 (limit 100 - 10 used in last minute)
         assert bt._tpm_remaining("groq") == 90
         # Score should reflect TPM usage
-        score = bt.score("groq").unwrap()
-        assert score == pytest.approx(90.0)  # RPM and RPD still unlimited
+        result = bt.score("groq")
+        assert isinstance(result, Ok)
+        assert result.value == pytest.approx(90.0)  # RPM and RPD still unlimited
 
     def test_tpm_window_accumulates_within_minute(self):
         bt = BudgetTracker(providers=[_provider("groq", rpm=100, rpd=1000, tpm=100)])
@@ -166,7 +183,9 @@ class TestDailyTokenCap:
         bt.record_request("groq", tokens_used=10000)
         bt.record_request("groq", tokens_used=10000)
         # Score should be based on RPM/RPD only
-        assert bt.score("groq").unwrap() == pytest.approx(98.0)  # 2 requests out of 100 RPM
+        result = bt.score("groq")
+        assert isinstance(result, Ok)
+        assert result.value == pytest.approx(98.0)  # 2 requests out of 100 RPM
 
     def test_daily_token_cap_tracking(self):
         bt = BudgetTracker(providers=[_provider("groq", rpm=10000, rpd=10000, daily_token_cap=1000)])
@@ -182,7 +201,9 @@ class TestDailyTokenCap:
         bt.record_request("groq", tokens_used=10)
         assert bt._daily_token_remaining("groq") == 15
         # Score should reflect daily token usage
-        score = bt.score("groq").unwrap()
+        result = bt.score("groq")
+        assert isinstance(result, Ok)
+        score = result.value
         # RPM and RPD are unlimited (large limits), so score is based on daily token cap
         # 15/1000 = 0.015 -> 1.5%
         assert score == pytest.approx(1.5)
@@ -193,7 +214,9 @@ class TestDailyTokenCap:
         bt.record_request("groq", tokens_used=1000000)
         # Should still have full capacity for RPM/RPD
         assert bt.has_capacity("groq") is True
-        score = bt.score("groq").unwrap()
+        result = bt.score("groq")
+        assert isinstance(result, Ok)
+        score = result.value
         # RPM: 99/100, RPD: 99/100 -> 99%
         assert score == pytest.approx(99.0)
 
@@ -219,17 +242,18 @@ class TestScoreWithAllLimits:
             tpm=1000,    # TPM limit
             daily_token_cap=10000  # daily token cap
         )])
-        # Use 5 RPM (50% remaining), 50 RPD (50% remaining), 500 TPM (50% remaining), 5000 tokens (50% remaining)
+        # Use 5 RPM (50% remaining), 5 RPD (95% remaining), 500 TPM (50% remaining), 500 daily tokens (95% remaining)
         for i in range(5):
-            bt.record_request("groq", tokens_used=1000)
-        # Each request: 1000 tokens, 5 requests -> 5000 tokens
+            bt.record_request("groq", tokens_used=100)
+        # Each request: 100 tokens, 5 requests -> 500 tokens
         # RPM: 5 used -> 5 remaining -> 0.5
         # RPD: 5 used -> 95 remaining -> 0.95
-        # TPM: 5000 used -> 5000 remaining -> 0.5
-        # Daily: 5000 used -> 5000 remaining -> 0.5
+        # TPM: 500 used -> 500 remaining -> 0.5
+        # Daily: 500 used -> 9500 remaining -> 0.95
         # min = 0.5 -> score 50.0
-        score = bt.score("groq").unwrap()
-        assert score == pytest.approx(50.0)
+        result = bt.score("groq")
+        assert isinstance(result, Ok)
+        assert result.value == pytest.approx(50.0)
 
     def test_score_zero_when_any_limit_exhausted(self):
         bt = BudgetTracker(providers=[_provider(
@@ -242,7 +266,9 @@ class TestScoreWithAllLimits:
         # Exhaust RPM
         for _ in range(10):
             bt.record_request("groq", tokens_used=1)
-        assert bt.score("groq").unwrap() == 0.0
+        result = bt.score("groq")
+        assert isinstance(result, Ok)
+        assert result.value == 0.0
 
         # Reset and exhaust RPD
         bt = BudgetTracker(providers=[_provider(
@@ -254,7 +280,9 @@ class TestScoreWithAllLimits:
         )])
         for _ in range(10):
             bt.record_request("groq", tokens_used=1)
-        assert bt.score("groq").unwrap() == 0.0
+        result = bt.score("groq")
+        assert isinstance(result, Ok)
+        assert result.value == 0.0
 
         # Reset and exhaust TPM
         bt = BudgetTracker(providers=[_provider(
@@ -265,7 +293,9 @@ class TestScoreWithAllLimits:
             daily_token_cap=10000
         )])
         bt.record_request("groq", tokens_used=10)  # exactly at limit
-        assert bt.score("groq").unwrap() == 0.0  # TPM remaining 0 -> ratio 0
+        result = bt.score("groq")
+        assert isinstance(result, Ok)
+        assert result.value == 0.0  # TPM remaining 0 -> ratio 0
 
         # Reset and exhaust daily token cap
         bt = BudgetTracker(providers=[_provider(
@@ -276,7 +306,9 @@ class TestScoreWithAllLimits:
             daily_token_cap=10
         )])
         bt.record_request("groq", tokens_used=10)
-        assert bt.score("groq").unwrap() == 0.0
+        result = bt.score("groq")
+        assert isinstance(result, Ok)
+        assert result.value == 0.0
 
 
 class TestPropertyTests:
@@ -300,11 +332,6 @@ class TestPropertyTests:
         for tokens_used, _ in requests:
             bt.record_request("test", tokens_used=tokens_used)
         result = bt.score("test")
-        assert result.is_ok()
-        score = result.unwrap()
+        assert isinstance(result, Ok)
+        score = result.value
         assert 0.0 <= score <= 100.0
-
-
-# Note: The existing test file had a TestSlidingWindow class for RPM only.
-# We've extended it to include TPM tests above.
-# We'll keep the original RPM sliding window test and add TPM ones.

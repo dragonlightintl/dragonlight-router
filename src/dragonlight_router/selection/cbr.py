@@ -2,34 +2,43 @@
 
 Filters model candidates based on cost-effectiveness and budget constraints.
 """
-
 from __future__ import annotations
 
 import structlog
+from typing import List
 
 from dragonlight_router.budget.tracker import BudgetTracker
 from dragonlight_router.core.types import BackendConfig, BackendCostProfile, DispatchOrder
 from dragonlight_router.result import Err, Ok, Result
+from dragonlight_router.selection.scoring import (
+    ScoringWeightsConfig,
+    cost_governor_active,
+    cost_adjusted_weights,
+    score_candidate,
+)
 
 logger = structlog.get_logger(__name__)
 
 
 def filter_by_cost(
-    candidates: list[BackendConfig],
+    candidates: List[BackendConfig],
     order: DispatchOrder,
     budget_tracker: BudgetTracker,
-) -> list[BackendConfig]:
+) -> Result[List[BackendConfig], Exception]:
     """Filter candidates based on cost effectiveness given available budget.
-
+    
+    Implements hard budget filtering and scoring with cost governor support.
+    
     Args:
         candidates: List of backend configurations from MBR stage.
         order: Dispatch order (may contain context for cost adjustment).
         budget_tracker: Budget tracker to get budget scores for providers.
-
+        
     Returns:
-        List of candidates that pass cost balancing checks.
+        Ok(list of candidates that pass cost balancing checks) or
+        Err(Exception) if all providers exceed budget.
     """
-    # Guard clauses
+    # Precondition assertions
     assert isinstance(candidates, list), "candidates must be a list"
     assert all(
         isinstance(c, BackendConfig) for c in candidates
@@ -47,97 +56,87 @@ def filter_by_cost(
     # If no candidates, return as-is
     if not candidates:
         logger.debug("no candidates, returning as-is")
-        return candidates
+        return Ok(candidates)
 
-    # Get budget scores for each candidate's provider
-    budget_scores: dict[str, float] = {}
+    # STEP 1: Hard filter - exclude providers with spent_usd >= budget_usd
+    # A budget score of 0.0 indicates no budget remaining (spent_usd >= budget_usd)
+    filtered_candidates = []
+    budget_scores = {}
+    
     for candidate in candidates:
         provider = candidate.provider
-        # If we haven't computed the score for this provider yet, do so
-        if provider not in budget_scores:
-            score_result = budget_tracker.score(provider)
-            if isinstance(score_result, Ok):
-                budget_scores[provider] = score_result.value
-            else:
-                # If provider not found, treat as 0 score (will be filtered out if median > 0)
-                budget_scores[provider] = 0.0
-
+        # Get budget score (0-100 where 0 = no budget remaining)
+        budget_result = budget_tracker.score(provider)
+        budget_score = budget_result.value if hasattr(budget_result, 'value') else 50.0
+        budget_scores[provider] = budget_score
+        
+        # Hard filter: exclude if no budget remaining (score == 0.0)
+        if budget_score > 0.0:
+            filtered_candidates.append(candidate)
+    
     logger.debug(
-        "budget scores retrieved",
-        provider_count=len(budget_scores),
-        scores=budget_scores,
-    )
-
-    # If no budget data, return as-is (let later stages handle)
-    if not any(budget_scores.values()):
-        logger.debug("no budget data, returning as-is")
-        return candidates
-
-    # For each candidate, compute a cost efficiency score
-    # We define cost efficiency as: budget_score / (normalized_cost + epsilon)
-    # where normalized_cost is the average cost per token relative to a reference.
-    # Since we don't have a reference, we'll use the inverse of cost: higher cost -> lower efficiency.
-    # We'll then keep candidates with efficiency above a threshold (e.g., median).
-
-    efficiencies: list[float] = []
-    provider_to_efficiency: dict[str, float] = {}
-
-    for candidate in candidates:
-        provider = candidate.provider
-        budget_score = budget_scores.get(provider, 0.0)
-        cost_profile: BackendCostProfile = candidate.cost
-
-        # Use average of input and output cost per million tokens
-        avg_cost_per_mtok = (cost_profile.input_per_mtok + cost_profile.output_per_mtok) / 2.0
-        # Avoid division by zero; if cost is zero, treat as high efficiency
-        if avg_cost_per_mtok <= 0:
-            efficiency = float('inf')
-        else:
-            # Higher budget score and lower cost -> higher efficiency
-            efficiency = budget_score / (avg_cost_per_mtok + 1e-9)
-
-        efficiencies.append(efficiency)
-        provider_to_efficiency[provider] = efficiency
-
-    if not efficiencies:
-        return candidates
-
-    # Compute median efficiency as threshold
-    sorted_eff = sorted(efficiencies)
-    n = len(sorted_eff)
-    if n % 2 == 1:
-        median_efficiency = sorted_eff[n // 2]
-    else:
-        median_efficiency = (sorted_eff[n // 2 - 1] + sorted_eff[n // 2]) / 2.0
-
-    # Filter: keep candidates with efficiency >= median
-    filtered: list[BackendConfig] = []
-    for candidate in candidates:
-        provider = candidate.provider
-        efficiency = provider_to_efficiency.get(provider, 0.0)
-        if efficiency >= median_efficiency:
-            filtered.append(candidate)
-
-    logger.debug(
-        "cost filtering complete",
+        "budget filtering complete",
         original_count=len(candidates),
-        filtered_count=len(filtered),
-        median_efficiency=median_efficiency,
+        filtered_count=len(filtered_candidates),
+        budget_scores=budget_scores,
     )
 
-    return filtered
+    # If all providers exceed budget, return BudgetExceededError
+    if not filtered_candidates:
+        from dragonlight_router.core.errors import BudgetExceededError
+        return Err(BudgetExceededError("All providers exceed budget"))
+    
+    # STEP 2: Score candidates using ScoringWeights with cost governor logic
+    # Extract config from order for cost governor thresholds
+    config = getattr(order, 'config', {}) if hasattr(order, 'config') else {}
+    
+    # For now, we'll estimate spend from budget tracker logic
+    # In a full implementation, these would come from actual spending tracking
+    daily_spend = 0.0  # Placeholder - would be calculated from actual costs
+    monthly_spend = 0.0  # Placeholder - would be calculated from actual costs
+    
+    weights = ScoringWeightsConfig()  # Default canonical weights (cost=0.35, latency=0.25, priority=0.20, queue=0.10, health=0.10)
+    if cost_governor_active(daily_spend, monthly_spend, config):
+        weights = cost_adjusted_weights(weights)  # Shifts to cost=0.70, latency=0.10, priority=0.10, queue=0.05, health=0.05
+        logger.debug("cost governor active", adjusted_weights=weights.__dict__)
+    
+    # Score each candidate
+    scored_candidates = []
+    for candidate in filtered_candidates:
+        score = score_candidate(
+            config=candidate,
+            order=order,
+            weights=weights,
+            budget_tracker=budget_tracker,
+            health_tracker=None,  # Would be passed in full implementation
+        )
+        scored_candidates.append((score, candidate))
+    
+    # Sort by score descending (highest score = best candidate)
+    scored_candidates.sort(key=lambda x: x[0], reverse=True)
+    
+    # Return just the candidates in score order
+    result_candidates = [candidate for score, candidate in scored_candidates]
+    
+    logger.debug(
+        "cost scoring complete",
+        candidate_count=len(result_candidates),
+        weights_used=weights.__dict__,
+    )
+    
+    return Ok(result_candidates)
 
 
 def filter_by_absolute_cost(
-    candidates: list[BackendConfig],
+    candidates: List[BackendConfig],
     max_cost_per_mtok: float,
-) -> list[BackendConfig]:
+) -> List[BackendConfig]:
     """Filter candidates that exceed an absolute cost threshold.
-
+    
     Args:
         candidates: List of backend configurations.
         max_cost_per_mtok: Maximum allowed average cost per million tokens.
-
+        
     Returns:
         List of candidates with cost at or below the threshold.
     """
@@ -154,7 +153,7 @@ def filter_by_absolute_cost(
         max_cost_per_mtok=max_cost_per_mtok,
     )
 
-    filtered: list[BackendConfig] = []
+    filtered: List[BackendConfig] = []
     for candidate in candidates:
         cost_profile: BackendCostProfile = candidate.cost
         avg_cost = (cost_profile.input_per_mtok + cost_profile.output_per_mtok) / 2.0

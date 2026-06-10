@@ -6,7 +6,7 @@ and health state into a single comparable float.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum, unique
+from enum import Enum
 from typing import List, Optional, Tuple
 
 from dragonlight_router.core.types import BackendConfig, DispatchOrder
@@ -30,7 +30,6 @@ def compute_composite_score(rank: int, budget_score: float, health_score: float)
     return result
 
 
-@unique
 class ScoringWeights(Enum):
     """Canonical scoring weights for the dispatch path (MBR→CBR→LBR cascade).
 

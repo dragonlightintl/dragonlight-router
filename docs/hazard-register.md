@@ -1,0 +1,297 @@
+# Dragonlight Router -- Hazard Register
+
+**Document ID:** QA-026  
+**Standard:** FMEA (Failure Mode and Effects Analysis)  
+**Scope:** Dragonlight Router cascade dispatch pipeline  
+**Created:** 2026-06-16  
+**Owner:** Dragonlight Engineering  
+**Review cadence:** Every release, or when architecture changes  
+
+---
+
+## Methodology
+
+This register uses FMEA methodology adapted for LLM routing infrastructure. Each hazard is assessed on two axes:
+
+- **Severity** -- consequence magnitude if the failure occurs  
+  - Critical: data breach, financial loss >$100, complete service outage  
+  - High: degraded trust guarantees, financial loss $10-100, extended partial outage  
+  - Medium: suboptimal routing, minor cost overrun, brief availability loss  
+  - Low: cosmetic, logging-only, no operator-visible impact  
+
+- **Likelihood** -- probability of occurrence given current architecture  
+  - High: expected to occur under normal operating conditions or common edge cases  
+  - Medium: plausible under stress, misconfiguration, or adversarial input  
+  - Low: requires unlikely coincidence or sophisticated attack  
+
+- **Risk Score** -- Severity x Likelihood matrix:
+
+|                | Likelihood: High | Likelihood: Medium | Likelihood: Low |
+|----------------|-------------------|--------------------|-----------------|
+| Severity: Critical | **CRITICAL**   | **HIGH**           | **MEDIUM**      |
+| Severity: High     | **HIGH**       | **HIGH**           | **MEDIUM**      |
+| Severity: Medium   | **MEDIUM**     | **MEDIUM**         | **LOW**         |
+| Severity: Low      | **LOW**        | **LOW**            | **LOW**         |
+
+---
+
+## Hazard Register
+
+### HAZ-001 -- Context Sent to Wrong Trust Tier Provider
+
+| Field | Detail |
+|-------|--------|
+| **ID** | HAZ-001 |
+| **Category** | Data |
+| **Description** | Operator context (system prompts, behavioral rules, persona definitions, conversation history) is dispatched to a provider whose trust tier is insufficient. This occurs if `_tier_to_provider_trust()` in `dispatch/cascade.py` maps a backend tier incorrectly, or if `filter_context_for_provider()` in `selection/context_filter.py` fails to strip sensitive fields for SEMI_TRUSTED or UNTRUSTED providers. The `DispatchOrder.context_trust_tier` field is accepted from the request body but not enforced in the cascade -- the tier is derived solely from `BackendConfig.tier`, meaning a caller-specified trust requirement can be silently ignored. |
+| **Severity** | Critical |
+| **Likelihood** | Medium |
+| **Risk Score** | **HIGH** |
+| **Current Mitigation** | `context_filter.py` implements a four-tier dispatch (`TRUSTED`, `SEMI_TRUSTED`, `UNTRUSTED`, `LOCAL`) with field-level redaction: SEMI_TRUSTED strips behavioral rules and redacts persona fields; UNTRUSTED returns task-only context. `cascade.py` maps each `BackendTier` to a `ProviderTrustTier` via `_tier_to_provider_trust()`. Unknown tiers default to `UNTRUSTED`. |
+| **Residual Risk** | The `context_trust_tier` field on `DispatchOrder` is accepted but not used in routing decisions -- a caller requesting elevated trust enforcement gets no guarantee. The tier mapping is hardcoded with no runtime validation that the mapping matches the actual provider's data handling agreement. If a new `BackendTier` is added without updating the mapping, the `dict.get()` fallback to `UNTRUSTED` is safe, but the silent default could mask a configuration error. SEMI_TRUSTED filtering uses string-match-based field exclusion (`"behavioral_rules"`) which is brittle if context field names change. |
+| **Owner** | `selection/context_filter.py`, `dispatch/cascade.py` |
+
+---
+
+### HAZ-002 -- Budget Enforcement Race Condition
+
+| Field | Detail |
+|-------|--------|
+| **ID** | HAZ-002 |
+| **Category** | Cost |
+| **Description** | Concurrent dispatch requests can pass budget checks simultaneously before either records its spend, causing aggregate spend to exceed configured limits. `BudgetTracker` in `budget/tracker.py` uses in-memory `defaultdict` structures with no locking. Two requests checking `has_capacity()` at the same instant both see headroom, both proceed, and both call `record_request()` after completion -- by which time the budget is overspent. |
+| **Severity** | High |
+| **Likelihood** | Medium |
+| **Risk Score** | **HIGH** |
+| **Current Mitigation** | The CBR stage in `dispatch/cascade.py` calls `_compute_aggregate_spend()` and `filter_by_cost()` which check budget scores before dispatch. The cost governor in `selection/scoring.py` shifts scoring weights when daily or monthly thresholds are crossed (70% cost weight). Budget state is persisted atomically via `budget/persistence.py` (tmp-rename pattern). |
+| **Residual Risk** | All budget checks are non-atomic check-then-act. No mutex or semaphore protects the check-dispatch-record sequence. Under concurrent load, N requests can all pass budget checks before any records spend. The `monthly_spend_usd()` method extrapolates from daily spend (daily * 30), which compounds estimation error. The daily reset boundary (`_maybe_reset_daily()`) clears all counters atomically at UTC midnight, creating a brief window where a burst of requests could all pass against a fresh zero-spend state. |
+| **Owner** | `budget/tracker.py`, `dispatch/cascade.py` |
+
+---
+
+### HAZ-003 -- Cascade Exhaustion (Total Availability Loss)
+
+| Field | Detail |
+|-------|--------|
+| **ID** | HAZ-003 |
+| **Category** | Availability |
+| **Description** | All backends in the cascade are exhausted during fallback, returning a `DispatchFailure` to the caller. This occurs when every candidate fails generation in `_handle_fallback_chain()` in `dispatch/cascade.py`. A correlated failure (e.g., a shared upstream dependency, DNS resolution failure, or coordinated provider outage) can trip all circuit breakers simultaneously, leaving zero available backends for subsequent requests during the cooldown window. |
+| **Severity** | Critical |
+| **Likelihood** | Low |
+| **Risk Score** | **MEDIUM** |
+| **Current Mitigation** | The cascade in `dispatch/cascade.py` tries every candidate in ranked order before returning failure. MBR in `selection/mbr.py` implements graceful tier upgrade (tries requested tier, then next tier up). Circuit breakers in `health/circuit_breaker.py` use configurable thresholds (default: 3 errors in 120s window) and cooldown (default: 60s). HALF_OPEN state allows probe requests to test recovery. Health tracker in `health/tracker.py` provides per-model scoring and retirement. LOCAL backends bypass circuit breaker and rate limit checks entirely. |
+| **Residual Risk** | No cached-response fallback exists -- when all backends are exhausted, the router returns a 500 error with no degraded-mode content. Circuit breaker cooldowns are fixed (60s default) with no backoff, so all breakers can re-open simultaneously and re-close simultaneously (flapping). The HALF_OPEN probe allows exactly one request through, but if that request also fails, the circuit re-opens for another full cooldown. There is no mechanism to notify the operator or upstream caller that the router is in a degraded state before a request is attempted. |
+| **Owner** | `dispatch/cascade.py`, `health/circuit_breaker.py`, `health/tracker.py` |
+
+---
+
+### HAZ-004 -- Silent Fallback to Lower-Capability Provider
+
+| Field | Detail |
+|-------|--------|
+| **ID** | HAZ-004 |
+| **Category** | Quality |
+| **Description** | When the primary provider fails, the cascade falls back to a lower-ranked (potentially lower-capability) provider without explicit caller awareness at decision time. The `EngineResponse` reports `was_fallback=True` and `fallback_chain` after the fact, but the caller has no opportunity to reject the fallback before the lower-capability response is generated and returned. MBR's `_enforce_no_downgrade()` prevents tier downgrades within the MBR stage, but the cascade can fall back across the full ranked list produced by CBR/LBR, which may include backends at the same tier but with significantly different capability profiles. |
+| **Severity** | Medium |
+| **Likelihood** | High |
+| **Risk Score** | **MEDIUM** |
+| **Current Mitigation** | `EngineResponse` includes `was_fallback: bool` and `fallback_chain: list[str]` so the caller can detect fallback after the fact. MBR enforces a no-downgrade invariant via `_enforce_no_downgrade()` in `selection/mbr.py` (every candidate must be at or above the requested tier). Degraded backends receive a 0.5 score penalty in `_apply_degraded_penalty()` in `dispatch/cascade.py`, deprioritizing them in the ranked list. |
+| **Residual Risk** | No pre-dispatch fallback policy mechanism exists (e.g., "fail rather than fall back" or "notify before fallback"). Backends at the same tier can have very different capability profiles (e.g., two MODERATE backends where one supports tool use and one does not). The capability filter in `mbr.py` checks `supports_tool_use`, `max_context_tokens`, and `supports_system_prompts`, but does not check qualitative capability differences (e.g., reasoning depth, code quality). The fallback chain is logged after completion, not streamed as it happens. |
+| **Owner** | `dispatch/cascade.py`, `selection/mbr.py` |
+
+---
+
+### HAZ-005 -- Provider Rate Limit Violation and Account Suspension
+
+| Field | Detail |
+|-------|--------|
+| **ID** | HAZ-005 |
+| **Category** | Cost / Availability |
+| **Description** | The router exceeds a provider's API rate limits (RPM, RPD, TPM), causing 429 responses, temporary throttling, or account-level suspension. The `BudgetTracker` in `budget/tracker.py` uses in-memory sliding windows for RPM and TPM tracking, which are lost on process restart. The LBR stage filters by a median-score threshold rather than hard capacity checks, meaning a provider at 51% capacity in a two-provider pool still passes filtering. |
+| **Severity** | High |
+| **Likelihood** | Medium |
+| **Risk Score** | **HIGH** |
+| **Current Mitigation** | `BudgetTracker` tracks RPM via sliding window (60s), RPD via daily counter, TPM via sliding window, and daily token cap. `has_capacity()` checks all four dimensions. LBR in `selection/lbr.py` filters candidates by median budget score. The server's `RateLimitMiddleware` in `server/middleware.py` enforces per-IP inbound rate limiting (token bucket, default 60 req/min). Budget state is persisted to disk via `budget/persistence.py`. |
+| **Residual Risk** | Budget tracking is in-memory and resets on restart -- a process crash and restart clears all sliding windows, allowing immediate burst against providers that were near their limits. The LBR median-threshold approach does not enforce hard per-provider limits (a provider at 10% remaining capacity still routes if it is above median). The `_tpm_remaining()` calculation relies on estimated token counts (message length / 4), not actual provider-reported usage. Provider-side rate limits may differ from configured limits if the provider changes them without config update. The `_maybe_reset_daily()` boundary creates a step-function reset at UTC midnight. |
+| **Owner** | `budget/tracker.py`, `selection/lbr.py`, `server/middleware.py` |
+
+---
+
+### HAZ-006 -- API Key Exposure in Logs or Error Messages
+
+| Field | Detail |
+|-------|--------|
+| **ID** | HAZ-006 |
+| **Category** | Security |
+| **Description** | API keys loaded from environment variables (via `BackendConfig.env_key`) could be included in log output, error messages, or HTTP responses. The `OpenAICompatibleBackend` in `adapters/_openai_compat.py` reads `os.environ.get(config.env_key)` and stores it as `self._api_key`. If an exception during `generate()` includes the request URL (which does not contain the key, since auth is header-based) or the headers dict in its traceback, the Bearer token could appear in structured logs. The error re-raise pattern (`raise RuntimeError(f"... API error: {e}") from e`) preserves the original exception chain, which may contain header details. |
+| **Severity** | Critical |
+| **Likelihood** | Low |
+| **Risk Score** | **MEDIUM** |
+| **Current Mitigation** | API keys are passed in HTTP headers (`Authorization: Bearer ...`), not in URLs or request bodies. The `_build_auth_headers()` method constructs headers programmatically without logging them. Error handling in `_openai_compat.py` wraps provider exceptions in `RuntimeError` with a descriptive message, and `structlog` is used throughout (structured logging avoids accidental string interpolation of sensitive objects). The router does not include raw exception tracebacks in HTTP responses -- errors are returned as structured JSON via `_format_error_response()` and `_format_dispatch_failure()` in `server/routes.py`. |
+| **Residual Risk** | No explicit secret-scrubbing processor is configured on the structlog pipeline. If `exc_info=True` is passed to a logger call (as it is in `dispatch_handler()` and `catalog_refresh_handler()`), the full traceback -- including any captured locals that reference the `headers` dict -- could be written to log output. The `_api_key` attribute is a plain string on the adapter instance, accessible from any code with a reference to the adapter object. No audit of log output has been performed to verify that no downstream log processor or sink captures header values. |
+| **Owner** | `adapters/_openai_compat.py`, `server/routes.py` |
+
+---
+
+### HAZ-007 -- Prompt Injection Affecting Routing Decisions
+
+| Field | Detail |
+|-------|--------|
+| **ID** | HAZ-007 |
+| **Category** | Security |
+| **Description** | Malicious content in `operator_message` or `system_prompt` fields could influence routing behavior if these fields are used in complexity estimation or trust tier determination. The `estimate_complexity()` function in `selection/mbr.py` determines the backend tier based on `context_tokens`, `requires_tool_use`, and `requires_long_context` -- all of which are numeric/boolean fields from the request body, not derived from message content. However, prompt content passes through `_sanitize_prompt()` in `server/routes.py` and then directly into the chosen provider's API, meaning an injected prompt could cause the provider to return content that, if used in a feedback loop, could affect subsequent routing. |
+| **Severity** | High |
+| **Likelihood** | Low |
+| **Risk Score** | **MEDIUM** |
+| **Current Mitigation** | `_sanitize_prompt()` in `server/routes.py` strips null bytes and control characters (preserving newlines, carriage returns, tabs), truncates to 100K characters. Routing decisions in MBR/CBR/LBR are based on structured fields (`context_tokens`, `requires_tool_use`, `intent_category`), not on message content. Context filtering in `context_filter.py` limits what context reaches each provider based on trust tier, preventing untrusted providers from seeing behavioral rules or persona definitions. Input validation in `_validate_dispatch_request()` enforces type checks and length limits on all fields. |
+| **Residual Risk** | No semantic analysis of prompt content is performed -- adversarial prompts that stay within the length and character constraints pass through unmodified. The `intent_category` and `specific_intent` fields are caller-supplied strings with no validation against an allowed set, meaning a caller could submit arbitrary intent values that affect MBR scoring or logging. If the router is ever extended to use LLM-generated output to influence routing (e.g., response-quality-based re-routing), prompt injection becomes a direct routing manipulation vector. The sanitizer does not detect or mitigate known prompt injection patterns (e.g., "ignore previous instructions"). |
+| **Owner** | `server/routes.py`, `selection/mbr.py` |
+
+---
+
+### HAZ-008 -- Stale Catalog Routing to Deprecated Models
+
+| Field | Detail |
+|-------|--------|
+| **ID** | HAZ-008 |
+| **Category** | Quality / Availability |
+| **Description** | The router dispatches requests to models that have been deprecated, renamed, or removed by the provider. The `CatalogCache` in `catalog/cache.py` uses a file-backed cache with a configurable TTL (default: 24 hours). If the cache is not refreshed and a provider deprecates a model, the router continues routing to it until the next successful refresh. The `CatalogRefresher` in `catalog/refresher.py` fetches model lists from provider `/v1/models` endpoints, but this is not invoked automatically -- it requires an explicit `POST /v1/catalog/refresh` call or external trigger. |
+| **Severity** | Medium |
+| **Likelihood** | Medium |
+| **Risk Score** | **MEDIUM** |
+| **Current Mitigation** | `HealthTracker.record_error()` in `health/tracker.py` treats HTTP 404 responses at inference time as model retirement events, immediately evicting the model via `_retire_model()`. The circuit breaker trips after 3 errors in 120s, preventing repeated dispatch to a failing model. `CatalogCache.is_stale()` returns true when the cache age exceeds TTL, and `CatalogCache.get()` returns `Err(StaleCatalogError)` for stale caches. `RoleMatrix` in `roles/matrix.py` supports hot-reload via mtime check. |
+| **Residual Risk** | No automatic periodic catalog refresh is scheduled -- staleness detection exists but automatic refresh does not. A model that returns 200 with degraded output (e.g., a model nearing deprecation that returns quality warnings but still generates) would not trigger the 404 retirement path. The 24-hour TTL default means up to 24 hours of routing to a deprecated model before cache staleness is detected. Reinstated models (`reinstate_model()`) have their error counts reset to 0, which could re-enable a model that was retired for good reason. The role matrix hot-reload checks file mtime but does not validate that the referenced model IDs still exist in the catalog. |
+| **Owner** | `catalog/cache.py`, `catalog/refresher.py`, `health/tracker.py` |
+
+---
+
+### HAZ-009 -- Circuit Breaker Flapping
+
+| Field | Detail |
+|-------|--------|
+| **ID** | HAZ-009 |
+| **Category** | Availability |
+| **Description** | Circuit breakers for multiple backends oscillate between OPEN and HALF_OPEN states in lockstep, creating periodic total unavailability. When a correlated failure (e.g., network partition) trips multiple circuit breakers simultaneously, they all enter OPEN with the same `_opened_at` timestamp. After the cooldown (default: 60s), all transition to HALF_OPEN simultaneously, all allow one probe request, and if those probes also fail (likely if the underlying issue persists), all re-enter OPEN simultaneously -- repeating the cycle. |
+| **Severity** | High |
+| **Likelihood** | Low |
+| **Risk Score** | **MEDIUM** |
+| **Current Mitigation** | Circuit breakers in `health/circuit_breaker.py` are per-model, so different models can be in different states. The HALF_OPEN state allows exactly one probe request, limiting blast radius of a failed probe. Error timestamps are pruned to a configurable window (`error_window_s`, default 120s). The error threshold is configurable (`error_threshold`, default 3). `record_success()` immediately resets the circuit to CLOSED and clears the error history. |
+| **Residual Risk** | No jitter or randomization is applied to the cooldown period, so breakers tripped at the same time recover at the same time. No exponential backoff exists -- the cooldown is fixed regardless of how many times the circuit has flapped. The HALF_OPEN state allows only one probe request, which creates a single point of failure for recovery determination. There is no health check loop that probes backends independently of user requests -- recovery depends entirely on user traffic arriving at the right time during HALF_OPEN. The `check_loop.py` health check loop exists in the codebase but its integration with the circuit breaker recovery path is not visible in the dispatch pipeline. |
+| **Owner** | `health/circuit_breaker.py`, `health/tracker.py` |
+
+---
+
+### HAZ-010 -- Token Count Estimation Inaccuracy
+
+| Field | Detail |
+|-------|--------|
+| **ID** | HAZ-010 |
+| **Category** | Cost |
+| **Description** | Token counts used for cost estimation and budget tracking are approximated by dividing character count by 4 (`len(content) // 4` in `dispatch/cascade.py`). This heuristic is inaccurate for non-English text, code, structured data, and special tokens. Inaccurate token counts propagate to `BudgetTracker.record_request()`, affecting RPM/TPM sliding windows and daily token cap tracking, and to `EngineResponse.estimated_cost_usd`, which is reported to the caller. |
+| **Severity** | Medium |
+| **Likelihood** | High |
+| **Risk Score** | **MEDIUM** |
+| **Current Mitigation** | The cost is labeled `estimated_cost_usd` in the `EngineResponse`, signaling to the caller that it is approximate. Budget tracking uses the same estimation consistently across all providers, so relative comparisons between providers remain valid even if absolute values are off. The cost governor in `selection/scoring.py` uses configurable thresholds (`cost_down_threshold_daily`, `cost_down_threshold_monthly`) that can be set conservatively to compensate for estimation error. |
+| **Residual Risk** | Character-count-based estimation can be off by 2-3x for CJK text, code with many short tokens, or messages with many special characters. This directly affects budget enforcement: a message that is 2x more expensive than estimated consumes 2x the budget without the tracker knowing. The `daily_token_cap` enforcement in `_daily_token_remaining()` uses these estimated counts, meaning a cap of 1M tokens could actually represent 500K-2M real tokens depending on content. No provider-reported token usage is fed back to the budget tracker -- the actual usage from provider response headers is ignored. |
+| **Owner** | `dispatch/cascade.py`, `budget/tracker.py` |
+
+---
+
+### HAZ-011 -- Unauthenticated Admin Endpoints
+
+| Field | Detail |
+|-------|--------|
+| **ID** | HAZ-011 |
+| **Category** | Security |
+| **Description** | Administrative endpoints (`POST /v1/retire`, `POST /v1/reinstate`, `POST /v1/catalog/refresh`) in `server/routes.py` are exposed without authentication or authorization checks. An attacker with network access to the router can retire all backends (causing total denial of service), reinstate retired backends (overriding safety controls), or trigger catalog refreshes (potential information disclosure of configured providers). The `RateLimitMiddleware` in `server/middleware.py` limits request rate per IP but does not distinguish between admin and non-admin endpoints. |
+| **Severity** | Critical |
+| **Likelihood** | Low |
+| **Risk Score** | **MEDIUM** |
+| **Current Mitigation** | `RateLimitMiddleware` enforces per-IP rate limiting (default: 60 req/min token bucket). The router is expected to be deployed behind a reverse proxy or VPN that restricts access to the admin API. The `retire_handler()` returns 404 for unknown backend names, limiting blind enumeration. |
+| **Residual Risk** | No authentication mechanism exists in the router codebase -- all endpoints are open to any network-reachable client. The `reinstate_handler()` can undo safety-motivated retirements (e.g., models retired due to 404 errors in `HealthTracker`). The `/v1/catalog/refresh` endpoint triggers outbound HTTP requests to all configured provider catalog URLs, which could be used to probe internal network resources if providers are misconfigured. The `/v1/health` endpoint (`GET`) exposes budget and health state, including provider names, model IDs, and spend data, to any unauthenticated caller. No audit log records who called admin endpoints. |
+| **Owner** | `server/routes.py`, `server/middleware.py` |
+
+---
+
+### HAZ-012 -- In-Memory State Loss on Process Restart
+
+| Field | Detail |
+|-------|--------|
+| **ID** | HAZ-012 |
+| **Category** | Availability / Cost |
+| **Description** | `BudgetTracker` and `HealthTracker` maintain all runtime state in memory (`defaultdict`, `deque`). A process crash, restart, or deployment loses: all RPM/TPM sliding windows, all daily spend counters, all circuit breaker states (error timestamps, open/closed status), all model retirement events, and all EMA latency data. After restart, the router has no knowledge of recent failures or spend, and may immediately re-route to providers that are over budget or models that were retired for cause. |
+| **Severity** | High |
+| **Likelihood** | Medium |
+| **Risk Score** | **HIGH** |
+| **Current Mitigation** | `budget/persistence.py` provides `save_budget_state()` and `load_budget_state()` with atomic write semantics (tmp-rename). `CatalogCache` in `catalog/cache.py` persists catalog state to disk with TTL-based expiration. Budget state persistence exists as infrastructure but is not visibly invoked from the dispatch pipeline or startup sequence in the code reviewed. |
+| **Residual Risk** | Circuit breaker state is not persisted -- all breakers start CLOSED on restart, allowing immediate routing to backends that were CIRCUIT_OPEN when the process died. Model retirements in `HealthTracker._retired` are in-memory only and lost on restart. The `_rpm_windows` and `_tpm_windows` sliding-window deques cannot be meaningfully serialized and restored (they represent time-series data that becomes stale immediately). EMA latency data (`_avg_latency`) is lost, causing the scoring function to start with no latency information. The budget persistence functions exist but the integration point (when state is saved, when it is restored) is not visible in the dispatch or server startup code. |
+| **Owner** | `budget/tracker.py`, `health/tracker.py`, `budget/persistence.py` |
+
+---
+
+### HAZ-013 -- Complexity Estimation Misrouting
+
+| Field | Detail |
+|-------|--------|
+| **ID** | HAZ-013 |
+| **Category** | Quality |
+| **Description** | `estimate_complexity()` in `selection/mbr.py` uses a simple if-chain to determine the backend tier: LOCAL by default, SIMPLE if long context or >4096 tokens, MODERATE if tool use required, COMPLEX if >8192 tokens. This heuristic does not account for task complexity (e.g., a 1000-token reasoning task that requires COMPLEX-tier capability) or for the sequential evaluation order (a request with both `requires_tool_use=True` and `context_tokens=9000` gets COMPLEX, but `requires_tool_use=True` with `context_tokens=5000` gets only MODERATE despite possibly needing COMPLEX reasoning). The tier assignment is non-monotonic: later conditions overwrite earlier ones without accumulation. |
+| **Severity** | Medium |
+| **Likelihood** | Medium |
+| **Risk Score** | **MEDIUM** |
+| **Current Mitigation** | MBR's graceful upgrade in `_resolve_tiers_to_try()` tries the requested tier and the next tier up, so a MODERATE estimate also checks COMPLEX backends. The no-downgrade invariant in `_enforce_no_downgrade()` ensures candidates are never below the estimated tier. The `intent_category` and `specific_intent` fields are available on `DispatchOrder` but are not currently used in tier estimation, leaving room for future refinement. |
+| **Residual Risk** | The one-tier-up upgrade is limited -- a LOCAL estimate only tries LOCAL and SIMPLE, missing MODERATE and COMPLEX backends entirely even if the task requires them. The heuristic ignores `intent_category` entirely, meaning "code generation" and "casual chat" at the same token count get the same tier. The `requires_tool_use` and `requires_long_context` flags are caller-supplied with no validation, meaning a caller can force any tier assignment by setting these flags. No feedback loop exists to learn from quality outcomes and adjust tier estimation. |
+| **Owner** | `selection/mbr.py` |
+
+---
+
+### HAZ-014 -- Concurrent Adapter State Mutation
+
+| Field | Detail |
+|-------|--------|
+| **ID** | HAZ-014 |
+| **Category** | Availability |
+| **Description** | The `OpenAICompatibleBackend` in `adapters/_openai_compat.py` maintains mutable instance state (`self._status: BackendStatus`) that is written from async exception handlers without synchronization. Under concurrent dispatch, multiple asyncio tasks can call `generate()` on the same adapter instance. If one task's request fails and sets `self._status = BackendStatus.ERROR`, this affects all subsequent requests through that adapter instance, even if the failure was transient and other requests are succeeding simultaneously. |
+| **Severity** | Medium |
+| **Likelihood** | Medium |
+| **Risk Score** | **MEDIUM** |
+| **Current Mitigation** | The health tracker provides a separate, per-model health scoring system that is used for routing decisions, so the adapter's `_status` field has limited routing impact. Circuit breakers in `health/circuit_breaker.py` track errors independently of adapter status. Adapter instances are created per-dispatch via `_adapters_mod.create_adapter()` in `cascade.py`, which may create fresh instances (mitigating shared-state issues if the factory creates new objects). |
+| **Residual Risk** | If adapter instances are cached or shared (factory implementation not reviewed), concurrent status mutations create race conditions. The `_status` field is set in multiple exception handlers without any atomicity guarantee. The `health_check()` method also mutates `_status`, meaning a concurrent health check and generation request can interfere. The `record_usage()` method is a no-op ("no-op until usage tracking is wired"), leaving a gap in usage tracking integration. |
+| **Owner** | `adapters/_openai_compat.py` |
+
+---
+
+## Summary Matrix
+
+| ID | Category | Description (Short) | Severity | Likelihood | Risk Score |
+|----|----------|---------------------|----------|------------|------------|
+| HAZ-001 | Data | Context to wrong trust tier | Critical | Medium | **HIGH** |
+| HAZ-002 | Cost | Budget enforcement race condition | High | Medium | **HIGH** |
+| HAZ-003 | Availability | Cascade exhaustion | Critical | Low | **MEDIUM** |
+| HAZ-004 | Quality | Silent fallback to lower capability | Medium | High | **MEDIUM** |
+| HAZ-005 | Cost / Availability | Provider rate limit violation | High | Medium | **HIGH** |
+| HAZ-006 | Security | API key exposure in logs | Critical | Low | **MEDIUM** |
+| HAZ-007 | Security | Prompt injection affecting routing | High | Low | **MEDIUM** |
+| HAZ-008 | Quality / Availability | Stale catalog routing | Medium | Medium | **MEDIUM** |
+| HAZ-009 | Availability | Circuit breaker flapping | High | Low | **MEDIUM** |
+| HAZ-010 | Cost | Token count estimation inaccuracy | Medium | High | **MEDIUM** |
+| HAZ-011 | Security | Unauthenticated admin endpoints | Critical | Low | **MEDIUM** |
+| HAZ-012 | Availability / Cost | In-memory state loss on restart | High | Medium | **HIGH** |
+| HAZ-013 | Quality | Complexity estimation misrouting | Medium | Medium | **MEDIUM** |
+| HAZ-014 | Availability | Concurrent adapter state mutation | Medium | Medium | **MEDIUM** |
+
+---
+
+## Risk Distribution
+
+- **HIGH risk (require immediate mitigation planning):** HAZ-001, HAZ-002, HAZ-005, HAZ-012
+- **MEDIUM risk (require mitigation before production):** HAZ-003, HAZ-004, HAZ-006, HAZ-007, HAZ-008, HAZ-009, HAZ-010, HAZ-011, HAZ-013, HAZ-014
+- **LOW risk:** None identified
+
+---
+
+## Revision History
+
+| Date | Author | Change |
+|------|--------|--------|
+| 2026-06-16 | QA Pipeline | Initial FMEA hazard register created (QA-026 finding) |

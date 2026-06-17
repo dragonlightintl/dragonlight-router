@@ -22,11 +22,13 @@ from dragonlight_router.core.types import (
     BackendRateLimits,
     BackendStatus,
     BackendTier,
+    StreamChunk,
 )
 from dragonlight_router.result import Ok, Err
 from dragonlight_router.server.app import create_app
 from dragonlight_router.server.routes import (
     _backend_tier_to_trust,
+    _format_stream_chunk,
     _validate_select_request,
     _validate_dispatch_request,
     _execute_catalog_refresh,
@@ -930,3 +932,263 @@ class TestDispatchOkPath:
         assert response.status_code == 500
         data = response.json()
         assert data["message"] == "Dispatch failed"
+
+
+# ---------------------------------------------------------------------------
+# Streaming dispatch — _format_stream_chunk
+# ---------------------------------------------------------------------------
+
+
+class TestFormatStreamChunk:
+    def test_token_chunk_format(self):
+        """[TM-009 AC-8] Token chunk serializes with event and content fields."""
+        chunk = StreamChunk(event_type="token", content="Hello")
+        result = _format_stream_chunk(chunk)
+        assert result.startswith("data: ")
+        assert result.endswith("\n\n")
+        parsed = json.loads(result[6:].strip())
+        assert parsed["event"] == "token"
+        assert parsed["content"] == "Hello"
+
+    def test_metadata_chunk_format(self):
+        """[TM-009 AC-8] Metadata chunk serializes with all response fields."""
+        chunk = StreamChunk(
+            event_type="metadata",
+            backend_used="groq_llama70b",
+            backend_tier="complex",
+            tokens_in=10,
+            tokens_out=20,
+            estimated_cost_usd=0.001,
+            latency_ms=123.4,
+            was_fallback=True,
+            fallback_chain=["openai_gpt4"],
+        )
+        result = _format_stream_chunk(chunk)
+        parsed = json.loads(result[6:].strip())
+        assert parsed["event"] == "metadata"
+        assert parsed["backend_used"] == "groq_llama70b"
+        assert parsed["backend_tier"] == "complex"
+        assert parsed["tokens_in"] == 10
+        assert parsed["tokens_out"] == 20
+        assert parsed["was_fallback"] is True
+        assert parsed["fallback_chain"] == ["openai_gpt4"]
+
+    def test_error_chunk_format(self):
+        """[TM-009 AC-8] Error chunk serializes with error_message."""
+        chunk = StreamChunk(event_type="error", error_message="boom")
+        result = _format_stream_chunk(chunk)
+        parsed = json.loads(result[6:].strip())
+        assert parsed["event"] == "error"
+        assert parsed["error_message"] == "boom"
+
+    def test_metadata_chunk_none_fallback_chain(self):
+        """[TM-009 AC-8] Metadata chunk with None fallback_chain serializes as empty list."""
+        chunk = StreamChunk(
+            event_type="metadata",
+            backend_used="b1",
+            backend_tier="simple",
+            fallback_chain=None,
+        )
+        result = _format_stream_chunk(chunk)
+        parsed = json.loads(result[6:].strip())
+        assert parsed["fallback_chain"] == []
+
+
+# ---------------------------------------------------------------------------
+# Streaming dispatch — endpoint integration
+# ---------------------------------------------------------------------------
+
+
+class TestStreamingDispatchEndpoint:
+    def test_stream_true_returns_sse(self, tmp_path: Path):
+        """[TM-009 AC-8] POST /v1/dispatch with stream=true returns text/event-stream."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        engine = app.state.engine
+
+        async def _mock_stream(order):
+            yield StreamChunk(event_type="token", content="Hello")
+            yield StreamChunk(event_type="token", content=" world")
+            yield StreamChunk(
+                event_type="metadata",
+                backend_used="groq_llama70b",
+                backend_tier="simple",
+                tokens_in=5,
+                tokens_out=3,
+                estimated_cost_usd=0.0001,
+                latency_ms=50.0,
+                was_fallback=False,
+                fallback_chain=[],
+            )
+
+        engine.dispatch_stream = _mock_stream
+        client = TestClient(app)
+        response = client.post(
+            "/v1/dispatch",
+            json={
+                "intent_category": "coding",
+                "specific_intent": "write a function",
+                "operator_message": "hello",
+                "context_tokens": 100,
+                "stream": True,
+            },
+        )
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+
+        # Parse SSE events
+        events = [
+            json.loads(line[6:].strip())
+            for line in response.text.split("\n\n")
+            if line.strip().startswith("data: ")
+        ]
+        assert len(events) == 3
+        assert events[0]["event"] == "token"
+        assert events[0]["content"] == "Hello"
+        assert events[1]["event"] == "token"
+        assert events[1]["content"] == " world"
+        assert events[2]["event"] == "metadata"
+        assert events[2]["backend_used"] == "groq_llama70b"
+
+    def test_stream_false_returns_json(self, tmp_path: Path):
+        """[TM-009 AC-8] POST /v1/dispatch with stream=false returns normal JSON."""
+        from dragonlight_router.core.types import EngineResponse
+
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        engine = app.state.engine
+
+        fake_response = EngineResponse(
+            content="Hello from model",
+            backend_used="groq_llama70b",
+            backend_tier=BackendTier.SIMPLE,
+            tokens_in=10,
+            tokens_out=20,
+            estimated_cost_usd=0.001,
+            latency_ms=123.4,
+            was_fallback=False,
+            fallback_chain=[],
+        )
+
+        async def _ok_dispatch(order):
+            return Ok(fake_response)
+
+        engine.dispatch = _ok_dispatch
+        client = TestClient(app)
+        response = client.post(
+            "/v1/dispatch",
+            json={
+                "intent_category": "coding",
+                "specific_intent": "write a function",
+                "operator_message": "hello",
+                "context_tokens": 100,
+                "stream": False,
+            },
+        )
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/json"
+        data = response.json()
+        assert data["content"] == "Hello from model"
+
+    def test_stream_error_event(self, tmp_path: Path):
+        """[TM-009 AC-8] Streaming dispatch error yields error SSE event."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        engine = app.state.engine
+
+        async def _error_stream(order):
+            yield StreamChunk(event_type="error", error_message="cascade failed")
+
+        engine.dispatch_stream = _error_stream
+        client = TestClient(app)
+        response = client.post(
+            "/v1/dispatch",
+            json={
+                "intent_category": "coding",
+                "specific_intent": "write a function",
+                "operator_message": "hello",
+                "context_tokens": 100,
+                "stream": True,
+            },
+        )
+        assert response.status_code == 200
+        events = [
+            json.loads(line[6:].strip())
+            for line in response.text.split("\n\n")
+            if line.strip().startswith("data: ")
+        ]
+        assert len(events) == 1
+        assert events[0]["event"] == "error"
+        assert events[0]["error_message"] == "cascade failed"
+
+    def test_stream_engine_exception_yields_error(self, tmp_path: Path):
+        """[TM-009 AC-8] Engine exception during streaming yields internal error event."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        engine = app.state.engine
+
+        async def _exploding_stream(order):
+            raise RuntimeError("unexpected")
+            yield  # noqa: RET503 — makes this an async generator
+
+        engine.dispatch_stream = _exploding_stream
+        client = TestClient(app)
+        response = client.post(
+            "/v1/dispatch",
+            json={
+                "intent_category": "coding",
+                "specific_intent": "write a function",
+                "operator_message": "hello",
+                "context_tokens": 100,
+                "stream": True,
+            },
+        )
+        assert response.status_code == 200
+        events = [
+            json.loads(line[6:].strip())
+            for line in response.text.split("\n\n")
+            if line.strip().startswith("data: ")
+        ]
+        assert any(e["event"] == "error" for e in events)
+        error_event = next(e for e in events if e["event"] == "error")
+        assert error_event["error_message"] == "Internal server error"
+
+    def test_stream_validation_error_returns_json_400(self, tmp_path: Path):
+        """[TM-009 AC-2] Invalid body with stream=true still returns JSON 400."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        client = TestClient(app)
+        response = client.post(
+            "/v1/dispatch",
+            json={
+                "intent_category": "coding",
+                "stream": True,
+            },
+        )
+        assert response.status_code == 400
+        assert response.headers["content-type"] == "application/json"
+
+    def test_stream_sse_headers(self, tmp_path: Path):
+        """[TM-009 AC-8] Streaming response includes correct SSE headers."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        engine = app.state.engine
+
+        async def _mock_stream(order):
+            yield StreamChunk(event_type="token", content="ok")
+            yield StreamChunk(event_type="metadata", backend_used="b1", backend_tier="simple")
+
+        engine.dispatch_stream = _mock_stream
+        client = TestClient(app)
+        response = client.post(
+            "/v1/dispatch",
+            json={
+                "intent_category": "coding",
+                "specific_intent": "test",
+                "operator_message": "hi",
+                "context_tokens": 0,
+                "stream": True,
+            },
+        )
+        assert response.headers.get("cache-control") == "no-cache"
+        assert response.headers.get("x-accel-buffering") == "no"

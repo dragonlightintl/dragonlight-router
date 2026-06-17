@@ -206,6 +206,27 @@ class CatalogEntry:
     created: int | None = None
 
 @dataclass(frozen=True)
+class StreamChunk:
+    """A single chunk from a streaming dispatch response.
+
+    event_type is one of:
+        "token"    — a content token from the LLM
+        "metadata" — final metadata after generation completes
+        "error"    — an error during generation
+    """
+    event_type: str
+    content: str = ""
+    backend_used: str = ""
+    backend_tier: str = ""
+    tokens_in: int = 0
+    tokens_out: int = 0
+    estimated_cost_usd: float = 0.0
+    latency_ms: float = 0.0
+    was_fallback: bool = False
+    fallback_chain: list[str] | None = None
+    error_message: str = ""
+
+@dataclass(frozen=True)
 class RequestOutcome:
     """Immutable record of a request outcome for budget/health tracking."""
     provider: str

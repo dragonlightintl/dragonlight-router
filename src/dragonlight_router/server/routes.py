@@ -6,13 +6,14 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import AsyncIterator
 
 import structlog
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, StreamingResponse
 
 from dragonlight_router.catalog import refresher as _refresher_mod
-from dragonlight_router.core.types import BackendTier, RequestOutcome, DispatchOrder, EngineResponse, DispatchFailure
+from dragonlight_router.core.types import BackendTier, RequestOutcome, DispatchOrder, EngineResponse, DispatchFailure, StreamChunk
 from dragonlight_router.result import Ok, Err
 from dragonlight_router.router import RouterEngine
 
@@ -346,8 +347,67 @@ def _format_dispatch_failure(error: object) -> JSONResponse:
     }, status_code=500)
 
 
-async def dispatch_handler(request: Request) -> JSONResponse:
-    """POST /v1/dispatch — execute the MBR->CBR->LBR cascade and return EngineResponse."""
+def _format_stream_chunk(chunk: StreamChunk) -> str:
+    """Serialize a StreamChunk to an SSE data line.
+
+    Each event is a JSON-encoded object on a ``data:`` line, followed by
+    two newlines (SSE protocol). The event_type field is used as the SSE
+    event name for client-side routing.
+    """
+    payload: dict = {"event": chunk.event_type}
+
+    if chunk.event_type == "token":
+        payload["content"] = chunk.content
+    elif chunk.event_type == "metadata":
+        payload.update({
+            "backend_used": chunk.backend_used,
+            "backend_tier": chunk.backend_tier,
+            "tokens_in": chunk.tokens_in,
+            "tokens_out": chunk.tokens_out,
+            "estimated_cost_usd": chunk.estimated_cost_usd,
+            "latency_ms": chunk.latency_ms,
+            "was_fallback": chunk.was_fallback,
+            "fallback_chain": chunk.fallback_chain or [],
+        })
+    elif chunk.event_type == "error":
+        payload["error_message"] = chunk.error_message
+
+    return f"data: {json.dumps(payload)}\n\n"
+
+
+async def _stream_dispatch_generator(
+    engine: RouterEngine,
+    order: DispatchOrder,
+) -> AsyncIterator[str]:
+    """Async generator that yields SSE-formatted lines from dispatch_stream.
+
+    Wraps the engine's streaming dispatch in SSE formatting and catches
+    unexpected exceptions to emit a final error event.
+    """
+    try:
+        async for chunk in engine.dispatch_stream(order):
+            if chunk.event_type == "token":
+                chunk = StreamChunk(
+                    event_type="token",
+                    content=_validate_llm_response(chunk.content),
+                )
+            yield _format_stream_chunk(chunk)
+    except (RuntimeError, ConnectionError, ValueError, TypeError, OSError) as exc:
+        logger.error("streaming_dispatch_failed", error=str(exc), exc_info=True)
+        error_chunk = StreamChunk(
+            event_type="error",
+            error_message="Internal server error",
+        )
+        yield _format_stream_chunk(error_chunk)
+
+
+async def dispatch_handler(request: Request) -> JSONResponse | StreamingResponse:
+    """POST /v1/dispatch — execute the MBR->CBR->LBR cascade and return EngineResponse.
+
+    When ``stream`` is true in the request body, returns an SSE stream
+    (``text/event-stream``) of token chunks followed by a metadata event.
+    Otherwise returns a standard JSON response.
+    """
     engine: RouterEngine = request.app.state.engine
 
     try:
@@ -361,6 +421,15 @@ async def dispatch_handler(request: Request) -> JSONResponse:
 
     order = _build_dispatch_order(body)
 
+    # Streaming path — return SSE StreamingResponse
+    if body.get("stream", False):
+        return StreamingResponse(
+            _stream_dispatch_generator(engine, order),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    # Non-streaming path — accumulate and return JSON
     try:
         dispatch_result = await engine.dispatch(order)
     except (RuntimeError, ConnectionError, ValueError, TypeError, OSError) as exc:

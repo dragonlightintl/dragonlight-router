@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 import threading
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
@@ -37,8 +38,9 @@ from dragonlight_router.core.types import (
     DispatchOrder,
     EngineResponse,
     LatencySLO,
+    StreamChunk,
 )
-from dragonlight_router.dispatch.cascade import dispatch as cascade_dispatch, route
+from dragonlight_router.dispatch.cascade import dispatch as cascade_dispatch, dispatch_stream as cascade_dispatch_stream, route
 from dragonlight_router.health.tracker import HealthTracker
 from dragonlight_router.health.check_loop import HealthCheckLoop
 from dragonlight_router.result import Ok, Err, Result
@@ -662,6 +664,24 @@ class RouterEngine:
             health_tracker=self._health,
             config=config_dict,
         )
+
+    async def dispatch_stream(self, order: DispatchOrder) -> AsyncIterator[StreamChunk]:
+        """Execute cascade dispatch with streaming token delivery.
+
+        Yields StreamChunk objects as tokens arrive from the LLM adapter.
+        Delegates to cascade.dispatch_stream for the full pipeline.
+        """
+        assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
+
+        config_dict = self._config.model_dump()
+        async for chunk in cascade_dispatch_stream(
+            order=order,
+            registry=self._registry,
+            budget_tracker=self._budget,
+            health_tracker=self._health,
+            config=config_dict,
+        ):
+            yield chunk
 
 
 def get_router(

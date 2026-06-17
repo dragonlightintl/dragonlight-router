@@ -296,3 +296,4 @@ This register uses FMEA methodology adapted for LLM routing infrastructure. Each
 |------|--------|--------|
 | 2026-06-16 | QA Pipeline | Initial FMEA hazard register created (QA-026 finding) |
 | 2026-06-17 | GOIBNIU + LUGH | Mitigated all 4 HIGH-risk items: HAZ-001 (trust floor), HAZ-002 (async lock), HAZ-005 (capacity gate), HAZ-012 (state persistence). 37 new tests, 805 total, 100% coverage. |
+| 2026-06-17 | GOIBNIU + LUGH | Streaming dispatch (SSE) implemented — resolves medium-severity spec gap. No hazard register items changed. 19 new tests, 824 total, 100% coverage. |

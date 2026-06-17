@@ -4,7 +4,8 @@ Spec traceability: TM-004 (Cascade dispatch)
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from collections.abc import AsyncIterator
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -13,6 +14,7 @@ from dragonlight_router.core.types import (
     BackendStatus,
     BackendTier,
     DispatchOrder,
+    StreamChunk,
 )
 from dragonlight_router.dispatch.cascade import (
     DispatchContext,
@@ -22,6 +24,8 @@ from dragonlight_router.dispatch.cascade import (
     _run_cascade,
     _run_cbr_stage,
     _run_lbr_stage,
+    _try_streaming_dispatch,
+    dispatch_stream,
     route,
 )
 from dragonlight_router.result import Err, Ok
@@ -351,3 +355,206 @@ class TestFilterByTrustFloor:
         from dragonlight_router.selection.mbr import MBRNoCandidatesError
         assert isinstance(result.error, MBRNoCandidatesError)
         assert "context_trust_tier" in str(result.error)
+
+
+# ---------------------------------------------------------------------------
+# Streaming dispatch — _try_streaming_dispatch
+# ---------------------------------------------------------------------------
+
+def _make_mock_adapter(chunks: list[str]):
+    """Create a mock adapter whose generate() yields the given chunks."""
+    adapter = MagicMock()
+
+    async def _gen(*args, **kwargs):
+        for chunk in chunks:
+            yield chunk
+
+    adapter.generate = _gen
+    adapter.record_usage = MagicMock()
+    return adapter
+
+
+def _make_failing_adapter(exc: Exception):
+    """Create a mock adapter whose generate() raises an exception."""
+    adapter = MagicMock()
+
+    async def _gen(*args, **kwargs):
+        raise exc
+        yield  # noqa: RET503 — unreachable, makes this an async generator
+
+    adapter.generate = _gen
+    adapter.record_usage = MagicMock()
+    return adapter
+
+
+class TestTryStreamingDispatch:
+    @pytest.mark.asyncio
+    async def test_streams_token_chunks_and_metadata(self, make_backend_config):
+        """[TM-004 AC-1] _try_streaming_dispatch yields token chunks then metadata."""
+        backend = make_backend_config(name="b1", provider="prov", tier=BackendTier.COMPLEX)
+        order = _make_order()
+        ctx = _make_ctx()
+        base_context = {"task": "hello"}
+        adapter = _make_mock_adapter(["Hello", " world"])
+
+        with patch("dragonlight_router.dispatch.cascade._adapters_mod.create_adapter", return_value=adapter):
+            chunks = []
+            async for chunk in _try_streaming_dispatch(backend, base_context, order, ctx, []):
+                chunks.append(chunk)
+
+        # Should have 2 token chunks + 1 metadata chunk
+        assert len(chunks) == 3
+        assert chunks[0].event_type == "token"
+        assert chunks[0].content == "Hello"
+        assert chunks[1].event_type == "token"
+        assert chunks[1].content == " world"
+        assert chunks[2].event_type == "metadata"
+        assert chunks[2].backend_used == "b1"
+        assert chunks[2].tokens_in >= 0
+        assert chunks[2].tokens_out >= 0
+        assert chunks[2].latency_ms > 0
+        assert chunks[2].was_fallback is False
+
+    @pytest.mark.asyncio
+    async def test_metadata_shows_fallback_when_chain_nonempty(self, make_backend_config):
+        """[TM-004 AC-2] _try_streaming_dispatch sets was_fallback=True when fallback_chain is non-empty."""
+        backend = make_backend_config(name="b2", provider="prov")
+        order = _make_order()
+        ctx = _make_ctx()
+        adapter = _make_mock_adapter(["ok"])
+
+        with patch("dragonlight_router.dispatch.cascade._adapters_mod.create_adapter", return_value=adapter):
+            chunks = []
+            async for chunk in _try_streaming_dispatch(backend, {"task": "hi"}, order, ctx, ["b1"]):
+                chunks.append(chunk)
+
+        metadata = [c for c in chunks if c.event_type == "metadata"]
+        assert len(metadata) == 1
+        assert metadata[0].was_fallback is True
+        assert metadata[0].fallback_chain == ["b1"]
+
+    @pytest.mark.asyncio
+    async def test_records_health_and_budget(self, make_backend_config):
+        """[TM-004 AC-5] _try_streaming_dispatch records success in health and budget trackers."""
+        backend = make_backend_config(name="b1", provider="prov", model="test-model")
+        order = _make_order()
+        health_tracker = MagicMock()
+        budget_tracker = MagicMock()
+        ctx = _make_ctx(health_tracker=health_tracker, budget_tracker=budget_tracker)
+        adapter = _make_mock_adapter(["response"])
+
+        with patch("dragonlight_router.dispatch.cascade._adapters_mod.create_adapter", return_value=adapter):
+            async for _ in _try_streaming_dispatch(backend, {"task": "hi"}, order, ctx, []):
+                pass
+
+        health_tracker.record_success.assert_called_once()
+        budget_tracker.record_request.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Streaming dispatch — dispatch_stream
+# ---------------------------------------------------------------------------
+
+class TestDispatchStream:
+    @pytest.mark.asyncio
+    async def test_streams_tokens_on_success(self, make_backend_config):
+        """[TM-004 AC-1] dispatch_stream yields token and metadata chunks on success."""
+        backend = make_backend_config(name="b1", provider="prov")
+        order = _make_order()
+        registry = MagicMock(spec=BackendRegistry)
+        budget_tracker = MagicMock()
+        health_tracker = MagicMock()
+        adapter = _make_mock_adapter(["Hi", " there"])
+
+        with patch("dragonlight_router.dispatch.cascade._run_cascade", return_value=Ok([backend])), \
+             patch("dragonlight_router.dispatch.cascade._adapters_mod.create_adapter", return_value=adapter):
+            chunks = []
+            async for chunk in dispatch_stream(order, registry, budget_tracker, health_tracker, {}):
+                chunks.append(chunk)
+
+        token_chunks = [c for c in chunks if c.event_type == "token"]
+        metadata_chunks = [c for c in chunks if c.event_type == "metadata"]
+        assert len(token_chunks) == 2
+        assert len(metadata_chunks) == 1
+        assert token_chunks[0].content == "Hi"
+        assert token_chunks[1].content == " there"
+
+    @pytest.mark.asyncio
+    async def test_yields_error_on_cascade_failure(self, make_backend_config):
+        """[TM-004 AC-6] dispatch_stream yields error chunk when cascade fails."""
+        order = _make_order()
+        registry = MagicMock(spec=BackendRegistry)
+        budget_tracker = MagicMock()
+        health_tracker = MagicMock()
+
+        from dragonlight_router.core.errors import BudgetExceededError
+        err = BudgetExceededError("no budget")
+
+        with patch("dragonlight_router.dispatch.cascade._run_cascade", return_value=Err(err)):
+            chunks = []
+            async for chunk in dispatch_stream(order, registry, budget_tracker, health_tracker, {}):
+                chunks.append(chunk)
+
+        assert len(chunks) == 1
+        assert chunks[0].event_type == "error"
+        assert "no budget" in chunks[0].error_message
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_adapter_failure(self, make_backend_config):
+        """[TM-004 AC-2] dispatch_stream falls back to next candidate on adapter failure."""
+        b1 = make_backend_config(name="b1", provider="prov1")
+        b2 = make_backend_config(name="b2", provider="prov2")
+        order = _make_order()
+        registry = MagicMock(spec=BackendRegistry)
+        budget_tracker = MagicMock()
+        health_tracker = MagicMock()
+
+        failing_adapter = _make_failing_adapter(RuntimeError("timeout"))
+        success_adapter = _make_mock_adapter(["fallback response"])
+
+        call_count = 0
+
+        def _create_adapter(config):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return failing_adapter
+            return success_adapter
+
+        with patch("dragonlight_router.dispatch.cascade._run_cascade", return_value=Ok([b1, b2])), \
+             patch("dragonlight_router.dispatch.cascade._adapters_mod.create_adapter", side_effect=_create_adapter):
+            chunks = []
+            async for chunk in dispatch_stream(order, registry, budget_tracker, health_tracker, {}):
+                chunks.append(chunk)
+
+        token_chunks = [c for c in chunks if c.event_type == "token"]
+        metadata_chunks = [c for c in chunks if c.event_type == "metadata"]
+        assert len(token_chunks) == 1
+        assert token_chunks[0].content == "fallback response"
+        assert len(metadata_chunks) == 1
+        assert metadata_chunks[0].was_fallback is True
+        assert metadata_chunks[0].fallback_chain == ["b1"]
+
+    @pytest.mark.asyncio
+    async def test_all_backends_exhausted_yields_error(self, make_backend_config):
+        """[TM-004 AC-6] dispatch_stream yields error when all backends fail."""
+        b1 = make_backend_config(name="b1", provider="prov1")
+        b2 = make_backend_config(name="b2", provider="prov2")
+        order = _make_order()
+        registry = MagicMock(spec=BackendRegistry)
+        budget_tracker = MagicMock()
+        health_tracker = MagicMock()
+
+        failing_adapter = _make_failing_adapter(RuntimeError("boom"))
+
+        with patch("dragonlight_router.dispatch.cascade._run_cascade", return_value=Ok([b1, b2])), \
+             patch("dragonlight_router.dispatch.cascade._adapters_mod.create_adapter", return_value=failing_adapter):
+            chunks = []
+            async for chunk in dispatch_stream(order, registry, budget_tracker, health_tracker, {}):
+                chunks.append(chunk)
+
+        assert len(chunks) == 1
+        assert chunks[0].event_type == "error"
+        assert "2 backends exhausted" in chunks[0].error_message
+        assert "b1" in chunks[0].error_message
+        assert "b2" in chunks[0].error_message

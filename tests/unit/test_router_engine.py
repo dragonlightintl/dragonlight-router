@@ -13,7 +13,7 @@ import pytest
 import yaml
 
 from dragonlight_router.core.errors import RouterConfigError
-from dragonlight_router.core.types import BackendTier, CatalogEntry, RequestOutcome
+from dragonlight_router.core.types import BackendTier, CatalogEntry, RequestOutcome, DispatchOrder, StreamChunk
 from dragonlight_router.result import Ok, Err
 from dragonlight_router.router import RouterEngine, get_router, reset_router
 
@@ -1140,3 +1140,69 @@ class TestBudgetStatePersistence:
         ):
             # Should not raise
             engine = RouterEngine(config_path=config_path)
+
+
+class TestDispatchStream:
+    @pytest.mark.asyncio
+    async def test_dispatch_stream_yields_chunks(self, tmp_path: Path):
+        """[TM-010 AC-4] dispatch_stream delegates to cascade and yields StreamChunk."""
+        config_path = _setup_config(tmp_path)
+        engine = RouterEngine(config_path=config_path)
+
+        expected_chunks = [
+            StreamChunk(event_type="token", content="Hello"),
+            StreamChunk(event_type="metadata", backend_used="b1", backend_tier="simple"),
+        ]
+
+        async def _mock_cascade_stream(**kwargs):
+            for chunk in expected_chunks:
+                yield chunk
+
+        order = DispatchOrder(
+            intent_category="test",
+            specific_intent="test",
+            operator_message="hi",
+            system_prompt="",
+            context_tokens=0,
+        )
+
+        with patch("dragonlight_router.router.cascade_dispatch_stream", side_effect=_mock_cascade_stream):
+            received = []
+            async for chunk in engine.dispatch_stream(order):
+                received.append(chunk)
+
+        assert len(received) == 2
+        assert received[0].event_type == "token"
+        assert received[0].content == "Hello"
+        assert received[1].event_type == "metadata"
+        assert received[1].backend_used == "b1"
+
+    @pytest.mark.asyncio
+    async def test_dispatch_stream_passes_config(self, tmp_path: Path):
+        """[TM-010 AC-4] dispatch_stream passes registry, budget, health, and config to cascade."""
+        config_path = _setup_config(tmp_path)
+        engine = RouterEngine(config_path=config_path)
+
+        captured_kwargs: dict = {}
+
+        async def _capture_stream(**kwargs):
+            captured_kwargs.update(kwargs)
+            yield StreamChunk(event_type="token", content="ok")
+
+        order = DispatchOrder(
+            intent_category="test",
+            specific_intent="test",
+            operator_message="hi",
+            system_prompt="",
+            context_tokens=0,
+        )
+
+        with patch("dragonlight_router.router.cascade_dispatch_stream", side_effect=_capture_stream):
+            async for _ in engine.dispatch_stream(order):
+                pass
+
+        assert captured_kwargs["order"] is order
+        assert captured_kwargs["registry"] is engine._registry
+        assert captured_kwargs["budget_tracker"] is engine._budget
+        assert captured_kwargs["health_tracker"] is engine._health
+        assert isinstance(captured_kwargs["config"], dict)

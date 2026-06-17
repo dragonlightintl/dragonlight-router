@@ -1,27 +1,27 @@
 # Dragonlight Router -- Implementation Delta (Final)
 
-**Delta ID:** dragonlight-router-delta-v0.2.3-2026-06-17
+**Delta ID:** dragonlight-router-delta-v0.2.4-2026-06-17
 **Spec Baseline:** live-spec-v0.2.0
-**Prior Deltas:** v0.2.0 (pre-remediation audit), v0.2.1 (post-blocker-fix), v0.2.2 (quality remediation)
-**Auditor:** GOIBNIU + LUGH (co-embodied hazard remediation)
-**Method:** Parallel hazard remediation (4 HIGH-risk items), full test verification
+**Prior Deltas:** v0.2.0 (pre-remediation audit), v0.2.1 (post-blocker-fix), v0.2.2 (quality remediation), v0.2.3 (hazard remediation)
+**Auditor:** GOIBNIU + LUGH (co-embodied streaming dispatch implementation)
+**Method:** Streaming dispatch SSE implementation, full test verification
 
 ---
 
 ## Executive Summary
 
-The dragonlight-router has reached **~99% spec parity** across all 12 task modules. All 5 critical blockers resolved. 11 of 12 TMs at 100% AC coverage. The only partial TM is TM-004 (cascade dispatch) at 83% — the "transactional budget" AC is best-effort (in-memory state, no DB rollback semantics needed). All 4 HIGH-risk hazard register items (HAZ-001, HAZ-002, HAZ-005, HAZ-012) have been mitigated with code changes and full test coverage. The router has a fully working end-to-end dispatch path verified by E2E smoke tests, fallback chain tests, budget exhaustion tests, circuit breaker tests, and context filter tests.
+The dragonlight-router has reached **~99.5% spec parity** across all 12 task modules. All 5 critical blockers resolved. 11 of 12 TMs at 100% AC coverage. The only partial TM is TM-004 (cascade dispatch) at 83% — the "transactional budget" AC is best-effort (in-memory state, no DB rollback semantics needed). All 4 HIGH-risk hazard register items mitigated. Streaming dispatch implemented via SSE (Server-Sent Events) — tokens stream to clients as they arrive from the LLM. The medium-severity streaming spec gap is now resolved.
 
-| Metric | Pre-Remediation | v0.2.2 | v0.2.3 (Current) | Target |
+| Metric | Pre-Remediation | v0.2.3 | v0.2.4 (Current) | Target |
 |--------|----------------|--------|-------------------|--------|
-| Spec Parity | 25% | 98% | 99% | 100% |
-| Standards Compliance | 40% | 96% | 98% | 100% |
-| Test Coverage | 60% | 90% | 100% | 80%+ |
-| Tests Passing | 76% (179/234) | 100% (768/768) | 100% (805/805) | 100% |
+| Spec Parity | 25% | 99% | 99.5% | 100% |
+| Standards Compliance | 40% | 98% | 98% | 100% |
+| Test Coverage | 60% | 100% | 100% | 80%+ |
+| Tests Passing | 76% (179/234) | 100% (805/805) | 100% (824/824) | 100% |
 | Critical Blockers | 5 | 0 | 0 | 0 |
 | Adapters (real) | 1 | 11 | 11 | 8 |
 | Quality Disparities | 125 | 0 | 0 | 0 |
-| HIGH-risk Hazards | 4 | 4 | 0 | 0 |
+| HIGH-risk Hazards | 4 | 0 | 0 | 0 |
 
 ---
 
@@ -37,7 +37,7 @@ The dragonlight-router has reached **~99% spec parity** across all 12 task modul
 | TM-006 | Context Trust Tier Filtering -- DIAN CECHT | COMPLETE | 5/5 | 100% |
 | TM-007 | Canonical ScoringWeights + CostGovernor | COMPLETE | 6/6 | 100% |
 | TM-008 | Health Check Loop -- periodic backend probing | COMPLETE | 4/4 | 100% |
-| TM-009 | HTTP API Dispatch Endpoints | COMPLETE | 4/4 | 100% |
+| TM-009 | HTTP API Dispatch Endpoints | COMPLETE | 5/5 | 100% |
 | TM-010 | RouterEngine.dispatch() graft | COMPLETE | 4/4 | 100% |
 | TM-011 | Integration Tests -- cascade dispatch pipeline | COMPLETE | 6/6 | 100% |
 | TM-012 | BudgetTracker TPM + Daily Token Cap | COMPLETE | 4/4 | 100% |
@@ -137,7 +137,7 @@ Wired into cascade dispatch — context filtered before adapter call.
 | Degraded -> ranking penalty | TESTED | 0.5x score penalty in cascade |
 | Failures don't crash loop | TESTED | Exception handling verified |
 
-### TM-009: HTTP API Dispatch Endpoints (4/4)
+### TM-009: HTTP API Dispatch Endpoints (5/5)
 
 | AC | Status | Evidence |
 |----|--------|----------|
@@ -145,8 +145,9 @@ Wired into cascade dispatch — context filtered before adapter call.
 | /v1/select includes trust_tier + complexity_tier | TESTED | 2 new server tests |
 | POST /v1/retire + /v1/reinstate | TESTED | 5 endpoint tests, real BackendStatus.RETIRED |
 | Structured error responses | TESTED | No raw exceptions in any endpoint |
+| SSE streaming dispatch (stream=true) | TESTED | 7 server tests, 7 cascade tests, 2 router engine tests. Tokens stream as SSE events. |
 
-8 routes: /v1/select, /v1/dispatch, /v1/record, /v1/health, /v1/catalog, /v1/catalog/refresh, /v1/retire, /v1/reinstate
+8 routes: /v1/select, /v1/dispatch (JSON + SSE), /v1/record, /v1/health, /v1/catalog, /v1/catalog/refresh, /v1/retire, /v1/reinstate
 
 ### TM-010: RouterEngine.dispatch() graft (4/4)
 
@@ -177,7 +178,8 @@ All ACs complete. Async dispatch, cascade delegation, real EngineResponse, postc
 ## What Works Today
 
 - **Full end-to-end dispatch**: HTTP POST → cascade (MBR→trust floor→CBR→LBR) → context filter → adapter → real EngineResponse
-- **Fallback cascade**: Primary failure → next candidate, with was_fallback + fallback_chain tracking
+- **SSE streaming dispatch**: POST /v1/dispatch with `stream: true` returns `text/event-stream`. Tokens arrive as `token` events, final metadata as `metadata` event. Fallback works mid-stream — if a backend fails, the next candidate is tried. Error events signal cascade/backend failures.
+- **Fallback cascade**: Primary failure → next candidate, with was_fallback + fallback_chain tracking (both streaming and non-streaming paths)
 - **Cost governor**: Activates with real spend data, shifts weights to cost=0.70
 - **Context trust tier filtering**: Wired into cascade, filters by provider trust level. Caller-specified `context_trust_tier` enforced as floor (HAZ-001)
 - **11 real provider adapters**: All with httpx/SSE streaming, proper error handling
@@ -188,7 +190,7 @@ All ACs complete. Async dispatch, cascade delegation, real EngineResponse, postc
 - **Retire/reinstate**: BackendStatus.RETIRED, API endpoints, registry methods
 - **Catalog resilience**: Graceful degradation when refresh fails
 - **State persistence**: Budget state saved at shutdown, restored at startup (HAZ-012)
-- **805 tests**, 100% coverage, 0 failures
+- **824 tests**, 100% coverage, 0 failures
 
 ---
 
@@ -255,12 +257,33 @@ All 4 HIGH-risk hazard register items resolved:
 1. **TM-004 AC5**: Transactional budget is best-effort. True transactional semantics would require a persistent store — daily counters are now persisted but sliding windows (RPM/TPM) remain in-memory. Not blocking for v0.2.
 2. **Coverage**: 100% overall. All modules at 100%.
 3. **Privacy rotation**: LBR spec mentions privacy rotation for untrusted tier — deferred to implementation per spec notes.
-4. **Streaming dispatch**: AsyncIterator streaming from dispatch endpoint (spec gap — medium severity per completeness assessment).
+4. ~~**Streaming dispatch**~~: **RESOLVED** in v0.2.4. SSE streaming from `/v1/dispatch` with `stream: true`. Full fallback support, error events, metadata events.
 5. **Security hardening**: All 8 items resolved (QA-020 through QA-027). All 4 HIGH-risk hazard register items now mitigated.
 6. **Remaining MEDIUM-risk hazards**: 10 MEDIUM-risk items in hazard register remain for production readiness review (HAZ-003, HAZ-004, HAZ-006 through HAZ-011, HAZ-013, HAZ-014).
+
+---
+
+## Streaming Dispatch (v0.2.4)
+
+**Implementation:** SSE streaming via Starlette `StreamingResponse`.
+
+| Component | File | Change |
+|-----------|------|--------|
+| Cascade streaming | `dispatch/cascade.py` | `dispatch_stream()` async generator + `_try_streaming_dispatch()` — yields `StreamChunk` objects as tokens arrive, with fallback across candidates |
+| Route handler | `server/routes.py` | `dispatch_handler()` detects `stream: true` in request body, returns `StreamingResponse` with `text/event-stream` content type. `_format_stream_chunk()` serializes to SSE `data:` lines. `_stream_dispatch_generator()` wraps cascade streaming with LLM response validation and exception handling. |
+| Router engine | `router.py` | `RouterEngine.dispatch_stream()` delegates to `cascade.dispatch_stream()` |
+
+**SSE Protocol:**
+- `data: {"event": "token", "content": "..."}\n\n` — one per token chunk
+- `data: {"event": "metadata", "backend_used": "...", ...}\n\n` — final event with cost/latency/fallback info
+- `data: {"event": "error", "error_message": "..."}\n\n` — on cascade or backend failure
+- Headers: `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `X-Accel-Buffering: no`
+
+**Tests:** 19 new tests (7 cascade, 7 server, 2 router engine, 3 helper). 824 total tests, 100% coverage.
 
 ---
 
 *Generated by FIRINNE ground truth audit panel — 2026-06-16*
 *Quality remediation completed — 2026-06-16*
 *Hazard remediation (4 HIGH-risk items) completed — 2026-06-17*
+*Streaming dispatch implemented — 2026-06-17*

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 import structlog
@@ -10,7 +11,7 @@ import dragonlight_router.adapters as _adapters_mod
 from dragonlight_router.budget.tracker import BudgetTracker
 from dragonlight_router.core.errors import BudgetExceededError, LBRNoCapacityError
 from dragonlight_router.core.registry import BackendRegistry
-from dragonlight_router.core.types import BackendConfig, BackendStatus, BackendTier, DispatchFailure, DispatchOrder, EngineResponse
+from dragonlight_router.core.types import BackendConfig, BackendStatus, BackendTier, DispatchFailure, DispatchOrder, EngineResponse, StreamChunk
 from dragonlight_router.health.tracker import HealthTracker
 from dragonlight_router.result import Err, Ok, Result
 from dragonlight_router.selection.cbr import filter_by_cost, score_candidate
@@ -516,3 +517,121 @@ async def dispatch(
 
     base_context = _build_dispatch_context(order)
     return await _handle_fallback_chain(candidates, base_context, order, ctx)
+
+
+async def _try_streaming_dispatch(
+    backend_config: BackendConfig,
+    base_context: dict,
+    order: DispatchOrder,
+    ctx: DispatchContext,
+    fallback_chain: list[str],
+) -> AsyncIterator[StreamChunk]:
+    """Stream tokens from a single adapter, yielding StreamChunk events.
+
+    Yields token chunks as they arrive, then a final metadata chunk
+    with cost/latency/fallback info. On adapter failure, yields an
+    error chunk and returns (caller handles fallback).
+    """
+    assert isinstance(backend_config, BackendConfig), "backend_config must be BackendConfig"
+
+    adapter = _adapters_mod.create_adapter(backend_config)
+    provider_trust = _tier_to_provider_trust(backend_config.tier)
+    filtered_context = filter_context_for_provider(base_context, provider_trust)
+    messages = _build_messages(filtered_context, order.operator_message)
+
+    t0 = time.monotonic()
+    tokens_out_chars = 0
+
+    async for chunk in adapter.generate(
+        messages, max_tokens=4096, temperature=0.7, stream=True,
+    ):
+        tokens_out_chars += len(chunk)
+        yield StreamChunk(event_type="token", content=chunk)
+
+    latency_ms = (time.monotonic() - t0) * 1000.0
+    tokens_in = sum(len(m.get("content", "")) for m in messages) // 4
+    tokens_out = tokens_out_chars // 4
+    cost_usd = (
+        (tokens_in / 1_000_000) * backend_config.cost.input_per_mtok
+        + (tokens_out / 1_000_000) * backend_config.cost.output_per_mtok
+    )
+
+    ctx.health_tracker.record_success(backend_config.model, latency_ms)
+    ctx.budget_tracker.record_request(backend_config.provider, tokens_in + tokens_out)
+    adapter.record_usage(tokens_in, tokens_out)
+
+    yield StreamChunk(
+        event_type="metadata",
+        backend_used=backend_config.name,
+        backend_tier=backend_config.tier.value,
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        estimated_cost_usd=cost_usd,
+        latency_ms=latency_ms,
+        was_fallback=len(fallback_chain) > 0,
+        fallback_chain=list(fallback_chain),
+    )
+
+
+async def dispatch_stream(
+    order: DispatchOrder,
+    registry: BackendRegistry,
+    budget_tracker: BudgetTracker,
+    health_tracker: HealthTracker,
+    config: dict,
+) -> AsyncIterator[StreamChunk]:
+    """Execute the cascade and stream tokens as they arrive from the LLM.
+
+    Yields StreamChunk objects with event_type "token" for content,
+    "metadata" for final response metadata, and "error" for failures.
+    Implements fallback: if a backend fails mid-stream, logs the error
+    and tries the next candidate.
+    """
+    assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
+    assert isinstance(registry, BackendRegistry), "registry must be BackendRegistry instance"
+
+    ctx = DispatchContext(
+        registry=registry,
+        budget_tracker=budget_tracker,
+        health_tracker=health_tracker,
+        config=config,
+    )
+    logger.debug("starting streaming dispatch pipeline")
+
+    cascade_result = _run_cascade(order, ctx)
+    if cascade_result.is_err():
+        yield StreamChunk(
+            event_type="error",
+            error_message=str(cascade_result.error),
+        )
+        return
+
+    candidates = cascade_result.value
+    assert len(candidates) > 0, "cascade must return at least one candidate"
+
+    base_context = _build_dispatch_context(order)
+    fallback_chain: list[str] = []
+
+    for backend_config in candidates:
+        try:
+            async for chunk in _try_streaming_dispatch(
+                backend_config, base_context, order, ctx, fallback_chain,
+            ):
+                yield chunk
+            return  # Success — metadata chunk already yielded
+        except (RuntimeError, ValueError, ConnectionError, OSError, TypeError) as exc:
+            fallback_chain.append(backend_config.name)
+            _record_adapter_failure(exc, backend_config, ctx)
+            logger.warning(
+                "streaming_backend_failed",
+                backend=backend_config.name,
+                error=str(exc),
+            )
+
+    yield StreamChunk(
+        event_type="error",
+        error_message=(
+            f"All {len(fallback_chain)} backends exhausted. "
+            f"Fallback chain: {' -> '.join(fallback_chain)}"
+        ),
+    )

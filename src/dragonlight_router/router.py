@@ -9,6 +9,7 @@ Wires together: config, budget, health, catalog, matrix, scoring, interleaving.
 from __future__ import annotations
 
 import asyncio
+import shutil
 import threading
 from pathlib import Path
 from typing import Any
@@ -16,13 +17,26 @@ from typing import Any
 import aiohttp
 import structlog
 
+from dragonlight_router.adapters import create_adapter, _PROVIDER_MAP
 from dragonlight_router.budget.tracker import BudgetTracker
 from dragonlight_router.catalog.cache import CatalogCache
 from dragonlight_router.catalog.refresher import CatalogRefresher
 from dragonlight_router.config.loader import load_config
 from dragonlight_router.config.schema import RouterConfig
 from dragonlight_router.core.registry import BackendRegistry
-from dragonlight_router.core.types import ModelScore, ProviderConfig, RequestOutcome, DispatchOrder, EngineResponse, LatencySLO
+from dragonlight_router.core.types import (
+    BackendCapabilities,
+    BackendCostProfile,
+    BackendConfig,
+    BackendRateLimits,
+    BackendTier,
+    ModelScore,
+    ProviderConfig,
+    RequestOutcome,
+    DispatchOrder,
+    EngineResponse,
+    LatencySLO,
+)
 from dragonlight_router.dispatch.cascade import dispatch as cascade_dispatch, route
 from dragonlight_router.health.tracker import HealthTracker
 from dragonlight_router.health.check_loop import HealthCheckLoop
@@ -47,12 +61,31 @@ _router_instance: RouterEngine | None = None
 class RouterEngine:
     """Central router — serves both daos-engine and factory consumers."""
 
+    # Maps config provider names to adapter factory keys.
+    # Config uses descriptive names (nvidia_nim, gemini, ollama);
+    # the adapter _PROVIDER_MAP uses canonical short keys.
+    _PROVIDER_ADAPTER_KEY: dict[str, str] = {
+        "nvidia_nim": "nvidia",
+        "groq": "groq",
+        "openrouter": "openrouter",
+        "cerebras": "cerebras",
+        "gemini": "google",
+        "mistral": "mistral",
+        "ollama": "local",
+        "anthropic": "anthropic",
+        "openai": "openai",
+        "cohere": "cohere",
+        "together": "together",
+    }
+
     def __init__(self, config_path: Path | None = None, **overrides: Any) -> None:
         assert config_path is None or isinstance(config_path, Path), "config_path must be a Path or None"
 
         self._config = self._load_config(config_path, overrides)
         self._config.state_dir.mkdir(parents=True, exist_ok=True)
         self._init_subsystems()
+        self._ensure_matrix_in_state_dir()
+        self._register_backends_from_matrix()
         self._init_health_check()
 
         assert isinstance(self._budget, BudgetTracker), "_budget must be a BudgetTracker instance"
@@ -112,6 +145,206 @@ class RouterEngine:
         self._health_check_loop = HealthCheckLoop(
             backends=backends_dict, states=states_dict,
             latency_slos=latency_slos_dict, interval_s=30.0, timeout_s=10.0,
+        )
+
+    def _ensure_matrix_in_state_dir(self) -> None:
+        """Copy config/model_role_matrix.json to state_dir if not already present."""
+        state_matrix = self._config.state_dir / "model_role_matrix.json"
+        if state_matrix.exists():
+            return
+
+        # Search for the config-side copy relative to the project root.
+        # Try a few candidate locations so this works whether cwd is repo root
+        # or the package is installed elsewhere.
+        candidates = [
+            Path("config/model_role_matrix.json"),
+            Path(__file__).parent.parent.parent.parent / "config" / "model_role_matrix.json",
+        ]
+        for src in candidates:
+            if src.exists():
+                shutil.copy2(src, state_matrix)
+                logger.info(
+                    "matrix_copied_to_state_dir",
+                    src=str(src),
+                    dst=str(state_matrix),
+                )
+                return
+        logger.warning("model_role_matrix_not_found_in_config", candidates=[str(c) for c in candidates])
+
+    @staticmethod
+    def _normalize_base_url(base_url: str, adapter_key: str) -> str:
+        """Strip trailing '/v1' from base_url when the adapter appends its own '/v1'.
+
+        Adapters that inherit the default _completions_path='/v1/chat/completions'
+        must receive a base_url WITHOUT a trailing '/v1', otherwise the constructed
+        URL becomes 'https://host/v1/v1/chat/completions'.
+
+        Adapters that override _completions_path to omit '/v1' (e.g. GroqBackend
+        uses '/chat/completions') already carry '/v1' in their base_url, so we
+        must NOT strip it.
+        """
+        adapter_cls = _PROVIDER_MAP.get(adapter_key)
+        if adapter_cls is None:
+            return base_url
+        completions_path: str = getattr(adapter_cls, "_completions_path", "/v1/chat/completions")
+        if completions_path.startswith("/v1/") and base_url.rstrip("/").endswith("/v1"):
+            stripped = base_url.rstrip("/")[: -len("/v1")]
+            logger.debug(
+                "base_url_v1_stripped",
+                adapter_key=adapter_key,
+                original=base_url,
+                normalized=stripped,
+            )
+            return stripped
+        return base_url
+
+    @staticmethod
+    def _assign_tier(model_id: str) -> BackendTier:
+        """Assign a BackendTier based on model name heuristics.
+
+        Tier ordering: LOCAL < SIMPLE < MODERATE < COMPLEX.
+        The MBR cascade starts at the estimated tier and escalates one step up
+        if no candidates are found, so tier assignment determines which requests
+        a model is eligible to serve as a primary (vs. fallback-only).
+
+        "versatile" general-purpose fast-inference models go to MODERATE so they
+        are reachable for SIMPLE-tier requests (MBR escalates LOCAL→SIMPLE→MODERATE
+        one step at a time).  Specialist frontier models stay at COMPLEX.
+        """
+        lower = model_id.lower()
+        # Local/Ollama models run on-box — bypass all rate limits
+        if lower.startswith("ollama/"):
+            return BackendTier.LOCAL
+        # General-purpose "versatile" models serve any complexity level.
+        # Classify as SIMPLE so they are reachable even for LOCAL-estimated requests
+        # (MBR escalates LOCAL → SIMPLE when no LOCAL backends are available).
+        if "versatile" in lower:
+            return BackendTier.SIMPLE
+        # Frontier / reasoning / large specialist models → COMPLEX
+        if any(kw in lower for kw in ("70b", "405b", "pro", "v4", "kimi", "qwen3.5", "deepseek-r1")):
+            return BackendTier.COMPLEX
+        # Code-specialist or mid-size instruct models → MODERATE
+        if any(kw in lower for kw in ("codestral", "coder", "instruct")):
+            return BackendTier.MODERATE
+        return BackendTier.SIMPLE
+
+    def _register_backends_from_matrix(self) -> None:
+        """Populate BackendRegistry from the role matrix + provider config.
+
+        Iterates every model_id in the role matrix, deduplicates, resolves its
+        provider via prefix, creates a BackendConfig, instantiates the adapter,
+        and registers it.  Models whose provider is not in the adapter map or
+        whose API key env var is absent are skipped with a warning.
+        """
+        # Collect all unique model IDs across all roles
+        all_model_ids: set[str] = set()
+        for role, entries in self._matrix._matrix.items():
+            for model_id in entries:
+                all_model_ids.add(model_id)
+
+        if not all_model_ids:
+            logger.warning("role_matrix_empty_no_backends_registered")
+            return
+
+        # Build provider config lookup keyed by name
+        provider_map = {p.name: p for p in self._config.providers}
+
+        registered = 0
+        skipped = 0
+        for model_id in sorted(all_model_ids):
+            # Resolve provider via prefix matching
+            matched_provider = None
+            for p in self._config.providers:
+                if model_id.startswith(p.model_prefix):
+                    matched_provider = p
+                    break
+
+            if matched_provider is None:
+                logger.warning("model_no_provider_match", model_id=model_id)
+                skipped += 1
+                continue
+
+            # Strip provider prefix to get the bare model string
+            bare_model = model_id[len(matched_provider.model_prefix):]
+
+            # Map config provider name → adapter factory key
+            adapter_key = self._PROVIDER_ADAPTER_KEY.get(matched_provider.name)
+            if adapter_key is None:
+                logger.warning(
+                    "provider_no_adapter_key",
+                    provider=matched_provider.name,
+                    model_id=model_id,
+                )
+                skipped += 1
+                continue
+
+            tier = self._assign_tier(model_id)
+
+            # Skip providers with no API key configured unless the model is LOCAL
+            # (LOCAL tier runs on-box and needs no credentials).
+            # This also prevents double-registration in test environments where
+            # providers are configured without env_key, allowing tests to manually
+            # populate the registry.
+            if matched_provider.env_key is None and tier != BackendTier.LOCAL:
+                logger.debug(
+                    "backend_skipped_no_env_key",
+                    model_id=model_id,
+                    provider=matched_provider.name,
+                )
+                skipped += 1
+                continue
+
+            # Normalize base_url: strip trailing '/v1' if the adapter appends its own.
+            normalized_base_url = self._normalize_base_url(matched_provider.base_url, adapter_key)
+
+            rate_limits = matched_provider.rate_limits
+            backend_config = BackendConfig(
+                name=model_id,
+                provider=adapter_key,
+                model=bare_model,
+                tier=tier,
+                base_url=normalized_base_url,
+                env_key=matched_provider.env_key,
+                capabilities=BackendCapabilities(
+                    max_context_tokens=131072,
+                    supports_tool_use=True,
+                    supports_streaming=True,
+                    supports_json_mode=True,
+                    supports_system_prompts=True,
+                ),
+                cost=BackendCostProfile(input_per_mtok=0.0, output_per_mtok=0.0),
+                rate_limits=BackendRateLimits(
+                    rpm=rate_limits.rpm,
+                    rpd=rate_limits.rpd if rate_limits.rpd is not None else 999999,
+                    tpm=rate_limits.tpm if rate_limits.tpm is not None else 9999999,
+                    daily_token_cap=rate_limits.daily_token_cap if rate_limits.daily_token_cap is not None else 9999999,
+                ),
+            )
+
+            try:
+                adapter = create_adapter(backend_config)
+                self._registry.register(adapter)
+                logger.info(
+                    "backend_registered_from_matrix",
+                    model_id=model_id,
+                    provider=matched_provider.name,
+                    adapter_key=adapter_key,
+                    tier=tier.value,
+                )
+                registered += 1
+            except Exception as exc:  # noqa: BLE001 — skip bad configs gracefully
+                logger.warning(
+                    "backend_registration_failed",
+                    model_id=model_id,
+                    error=str(exc),
+                )
+                skipped += 1
+
+        logger.info(
+            "backend_registration_complete",
+            registered=registered,
+            skipped=skipped,
+            total=registered + skipped,
         )
 
     async def start_health_check_loop(self) -> None:
@@ -316,45 +549,63 @@ class RouterEngine:
             assert isinstance(snapshot[provider_name], dict), f"budget snapshot for {provider_name} must be a dict"
         return snapshot
     def _refresh_catalog(self) -> None:
-        """Synchronously trigger async catalog refresh. Stores result in cache."""
+        """Trigger catalog refresh — works in both sync and async contexts.
+
+        Detects whether a running event loop exists:
+        - Inside an async context (e.g. uvicorn server): schedules the refresh
+          as a fire-and-forget asyncio Task on the running loop.
+        - In a sync context (e.g. CLI, tests): uses asyncio.run() to run the
+          refresh to completion before returning.
+
+        DEVIATION QA-002: except Exception at I/O boundary.
+        Justification: Provider adapters raise heterogeneous exception types.
+        Approved by: architect. Mitigations: exception is logged, never silenced.
+        Scope: _refresh_catalog / _async_refresh_catalog only.
+        """
         assert isinstance(self._config, RouterConfig), "_config must be a RouterConfig instance"
         assert isinstance(self._refresher, CatalogRefresher), "_refresher must be a CatalogRefresher instance"
 
-        result = self._execute_catalog_refresh()
-        if result is None:
-            return
-        self._catalog.set(result)
-        logger.info("catalog_refreshed", providers=list(result.keys()))
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
 
-    def _execute_catalog_refresh(self) -> dict | None:
-        """Run the async catalog refresh and return the catalog dict, or None on failure.
+        if loop is not None and loop.is_running():
+            # Inside an async context — schedule as a background task (fire-and-forget).
+            # Cannot await here because _refresh_catalog is a sync method.
+            loop.create_task(self._async_refresh_catalog())
+        else:
+            # Sync context — safe to block with asyncio.run().
+            asyncio.run(self._async_refresh_catalog())
 
-        This is an I/O boundary (network calls to provider APIs via asyncio.run).
-        The refresher delegates to multiple provider HTTP endpoints that can raise
-        arbitrary exceptions (httpx, aiohttp, provider-specific errors). Graceful
-        degradation is required: catalog refresh failure must never crash the router.
+    async def _async_refresh_catalog(self) -> None:
+        """Async catalog refresh implementation shared by sync and async paths.
 
         DEVIATION QA-002: except Exception at I/O boundary.
         Justification: Provider adapters raise heterogeneous exception types including
           RuntimeError, OSError, httpx.HTTPError, aiohttp.ClientError, and provider SDK
           errors. Enumerating all possible types is infeasible and brittle.
         Approved by: architect. Mitigations: exception is logged, never silenced.
-        Scope: this function only. Expiration: revisit when adapters adopt Result returns.
+        Scope: this coroutine only. Expiration: revisit when adapters adopt Result returns.
         """
         try:
-            result = asyncio.run(self._refresher.refresh(self._config.providers))
+            result = await self._refresher.refresh(self._config.providers)
         except Exception as exc:  # noqa: BLE001 — deviation QA-002
             logger.warning("catalog_refresh_failed", error=str(exc))
-            return None
+            return
 
         if isinstance(result, Ok):
-            return result.value if result.value else None
-        if isinstance(result, dict):
-            return result if result else None
+            catalog = result.value
+        elif isinstance(result, dict):
+            catalog = result
+        else:
+            error_msg = getattr(getattr(result, "error", None), "message", str(result))
+            logger.warning("catalog_refresh_failed", error=error_msg)
+            return
 
-        error_msg = getattr(getattr(result, "error", None), "message", str(result))
-        logger.warning("catalog_refresh_failed", error=error_msg)
-        return None
+        if catalog:
+            self._catalog.set(catalog)
+            logger.info("catalog_refreshed", providers=list(catalog.keys()))
 
     def _resolve_provider(self, model_id: str) -> str | None:
         """Resolve a model_id to its provider name via prefix matching."""

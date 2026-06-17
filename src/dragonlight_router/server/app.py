@@ -37,8 +37,18 @@ def create_app(config_path: Path | None = None, **overrides: Any) -> Starlette:
     """
     engine = RouterEngine(config_path=config_path, **overrides)
 
+    import structlog as _structlog
+    _lifespan_logger = _structlog.get_logger()
+
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncGenerator[None, None]:
+        # Bootstrap: refresh catalog at startup (concurrent, one fetch per provider).
+        try:
+            await engine._async_refresh_catalog()
+        except Exception:  # noqa: BLE001
+            _lifespan_logger.warning("startup_catalog_refresh_failed")
+
+        # Start health check loop
         task = asyncio.create_task(engine.start_health_check_loop())
         try:
             yield
@@ -66,7 +76,9 @@ def create_app(config_path: Path | None = None, **overrides: Any) -> Starlette:
 
 def main() -> None:
     """CLI entrypoint — run the server with uvicorn."""
-    app = create_app()
+    config_env = os.environ.get("DRAGONLIGHT_ROUTER_CONFIG")
+    config_path = Path(config_env) if config_env else None
+    app = create_app(config_path=config_path)
     host = os.environ.get("DRAGONLIGHT_HOST", "127.0.0.1")
     port = int(os.environ.get("DRAGONLIGHT_PORT", "8100"))
     uvicorn.run(app, host=host, port=port)

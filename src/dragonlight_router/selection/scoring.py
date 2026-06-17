@@ -99,6 +99,9 @@ class ScoringWeights(Enum):
     - priority: 0.20
     - queue: 0.10
     - health: 0.10
+
+    Note: HEALTH and QUEUE both have value 0.10, which makes HEALTH an alias.
+    The ScoringWeightsConfig dataclass is the source of truth for weights.
     """
     COST = 0.35
     LATENCY = 0.25
@@ -106,10 +109,14 @@ class ScoringWeights(Enum):
     QUEUE = 0.10
     HEALTH = 0.10
 
-    def __post_init__(self):
-        """Validate that weights sum to 1.0."""
-        total = sum(member.value for member in ScoringWeights)
-        assert abs(total - 1.0) < 1e-9, f"Weights must sum to 1.0, got {total}"
+
+assert abs(sum([
+    ScoringWeights.COST.value,
+    ScoringWeights.LATENCY.value,
+    ScoringWeights.PRIORITY.value,
+    ScoringWeights.QUEUE.value,
+    ScoringWeights.HEALTH.value,
+]) - 1.0) < 1e-9, "ScoringWeights must sum to 1.0"
 
 
 @dataclass(frozen=True)

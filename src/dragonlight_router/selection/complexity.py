@@ -49,8 +49,7 @@ def estimate_complexity(order: DispatchOrder) -> ComplexityEstimate:
     tier, confidence = _evaluate_sonnet_gates(order, signals)
     tier, confidence = _evaluate_message_characteristics(order, tier, confidence, signals)
 
-    if not signals:
-        signals.append("default tier assignment")
+    assert len(signals) > 0, "signal evaluation must produce at least one signal"
 
     return _build_estimate(tier, confidence, signals)
 

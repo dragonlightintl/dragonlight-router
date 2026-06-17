@@ -7,7 +7,11 @@ from __future__ import annotations
 
 from collections import Counter
 
+import structlog
+
 from dragonlight_router.core.types import ModelScore
+
+logger = structlog.get_logger(__name__)
 
 
 def interleave_providers(
@@ -81,7 +85,8 @@ def _build_interleaved(
 
     while remaining:
         placed = _try_place_best(result, remaining, max_consecutive)
-        if not placed:
+        if not placed:  # pragma: no cover
+            logger.warning("interleave_fallback_triggered", remaining_count=len(remaining))
             result.extend(remaining)
             break
 

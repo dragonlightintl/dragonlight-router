@@ -137,9 +137,6 @@ def _redact_system_fields(context: dict) -> dict:
     assert "system" not in context or isinstance(context.get("system"), dict), "system must be a dict if present"
 
     system = context.get("system", {})
-    if not isinstance(system, dict):
-        return context
-
     system = {k: v for k, v in system.items() if k not in ("behavioral_rules", "behavioral\\s*rules")}
     system = _redact_persona_fields(system)
     context["system"] = system

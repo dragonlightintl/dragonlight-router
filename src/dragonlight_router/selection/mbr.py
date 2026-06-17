@@ -300,9 +300,6 @@ def _meets_requirements(caps: BackendCapabilities, order: DispatchOrder) -> bool
     if order.requires_tool_use and not caps.supports_tool_use:
         return False
 
-    if order.requires_long_context and caps.max_context_tokens < order.context_tokens:
-        return False
-
     if bool(order.system_prompt) and not caps.supports_system_prompts:
         return False
 

@@ -1,4 +1,4 @@
-"""Budget tracker — per-provider rate limit tracking with sliding windows.
+"""Budget tracker -- per-provider rate limit tracking with sliding windows.
 
 Tracks RPM (requests per minute) via a sliding window of timestamps,
 and RPD (requests per day) via a simple counter with daily reset.
@@ -20,7 +20,7 @@ logger = structlog.get_logger()
 
 
 def invariant(condition: bool, message: str) -> None:
-    """Inline invariant check — enforced even under python -O."""
+    """Inline invariant check -- enforced even under python -O."""
     if not condition:
         raise AssertionError(message)
 
@@ -51,47 +51,52 @@ class BudgetTracker:
             logger.debug("provider_not_found", provider=provider_name)
             return Ok(100.0)
 
+        ratios = self._compute_budget_ratios(provider_name, provider)
+        score_value = min(ratios) * 100.0
+
+        assert 0.0 <= score_value <= 100.0, f"score must be in [0, 100], got {score_value}"
+        return Ok(score_value)
+
+    def _compute_budget_ratios(
+        self, provider_name: str, provider: ProviderConfig
+    ) -> list[float]:
+        """Compute budget utilization ratios for all limit dimensions."""
+        rpm_ratio = self._rpm_ratio(provider_name, provider)
+        rpd_ratio = self._rpd_ratio(provider_name, provider)
+        tpm_ratio = self._tpm_ratio(provider_name, provider)
+        daily_token_ratio = self._daily_token_ratio(provider_name, provider)
+
+        ratios = [rpm_ratio, rpd_ratio, tpm_ratio, daily_token_ratio]
+        assert all(0.0 <= r <= 1.0 for r in ratios), f"all ratios must be in [0, 1], got {ratios}"
+        return ratios
+
+    def _rpm_ratio(self, provider_name: str, provider: ProviderConfig) -> float:
+        """Compute RPM remaining ratio."""
         rpm_remaining = self._rpm_remaining(provider_name)
-        rpm_limit = provider.rpm_limit
+        return rpm_remaining / provider.rpm_limit if provider.rpm_limit > 0 else 1.0
 
-        rpd_remaining: int | None = None
-        rpd_limit: int | None = provider.rpd_limit
+    def _rpd_ratio(self, provider_name: str, provider: ProviderConfig) -> float:
+        """Compute RPD remaining ratio."""
+        if provider.rpd_limit is None or provider.rpd_limit == 0:
+            return 1.0
+        self._maybe_reset_daily()
+        rpd_remaining = max(0, provider.rpd_limit - self._rpd_counts[provider_name])
+        return rpd_remaining / provider.rpd_limit
 
+    def _tpm_ratio(self, provider_name: str, provider: ProviderConfig) -> float:
+        """Compute TPM remaining ratio."""
+        if provider.tpm_limit is None or provider.tpm_limit <= 0:
+            return 1.0
         tpm_remaining = self._tpm_remaining(provider_name)
-        tpm_limit: int | None = provider.tpm_limit
+        return tpm_remaining / provider.tpm_limit
 
-        daily_token_remaining: int | None = None
-        daily_token_limit: int | None = provider.daily_token_cap
-
-        if rpd_limit is not None:
-            self._maybe_reset_daily()
-            rpd_remaining = max(0, rpd_limit - self._rpd_counts[provider_name])
-
-        if daily_token_limit is not None:
-            self._maybe_reset_daily()
-            daily_token_remaining = max(0, daily_token_limit - self._daily_token_counts[provider_name])
-
-        rpm_ratio = rpm_remaining / rpm_limit if rpm_limit > 0 else 1.0
-
-        if rpd_remaining is None or rpd_limit is None or rpd_limit == 0:
-            rpd_ratio = 1.0
-        else:
-            rpd_ratio = rpd_remaining / rpd_limit
-
-        tpm_ratio = tpm_remaining / tpm_limit if tpm_limit is not None and tpm_limit > 0 else 1.0
-
-        if daily_token_remaining is None or daily_token_limit is None or daily_token_limit == 0:
-            daily_token_ratio = 1.0
-        else:
-            daily_token_ratio = daily_token_remaining / daily_token_limit
-
-        # Assertions for coding standard (>=2 assertions)
-        assert 0.0 <= rpm_ratio <= 1.0, f"rpm_ratio out of bounds: {rpm_ratio}"
-        assert 0.0 <= rpd_ratio <= 1.0, f"rpd_ratio out of bounds: {rpd_ratio}"
-        assert 0.0 <= tpm_ratio <= 1.0, f"tpm_ratio out of bounds: {tpm_ratio}"
-        assert 0.0 <= daily_token_ratio <= 1.0, f"daily_token_ratio out of bounds: {daily_token_ratio}"
-
-        return Ok(min(rpm_ratio, rpd_ratio, tpm_ratio, daily_token_ratio) * 100.0)
+    def _daily_token_ratio(self, provider_name: str, provider: ProviderConfig) -> float:
+        """Compute daily token cap remaining ratio."""
+        if provider.daily_token_cap is None or provider.daily_token_cap == 0:
+            return 1.0
+        self._maybe_reset_daily()
+        remaining = max(0, provider.daily_token_cap - self._daily_token_counts[provider_name])
+        return remaining / provider.daily_token_cap
 
     def record_request(self, provider_name: str, tokens_used: int = 0) -> None:
         """Record that a request was dispatched."""
@@ -104,14 +109,49 @@ class BudgetTracker:
         self._daily_token_counts[provider_name] += tokens_used
 
     def has_capacity(self, provider_name: str) -> bool:
-        """Quick check: does this provider have RPM and RPD headroom?"""
+        """Quick check: does this provider have RPM, RPD, TPM, and daily token headroom?"""
         assert isinstance(provider_name, str), "provider_name must be a string"
         provider = self._providers.get(provider_name)
         if provider is None:
             return True
         if not self._rpm_remaining(provider_name):
             return False
-        return self._rpd_remaining(provider_name) > 0
+        if provider.rpd_limit is not None and self._rpd_remaining(provider_name) <= 0:
+            return False
+        if provider.tpm_limit is not None and provider.tpm_limit > 0 and self._tpm_remaining(provider_name) <= 0:
+            return False
+        if provider.daily_token_cap is not None and provider.daily_token_cap > 0 and self._daily_token_remaining(provider_name) <= 0:
+            return False
+        return True
+
+    def daily_spend_usd(self, provider_name: str, avg_cost_per_token: float = 0.0) -> float:
+        """Estimated daily spend for a provider in USD.
+
+        Calculates from tokens_today * avg_cost_per_token.
+        """
+        assert isinstance(provider_name, str), "provider_name must be a string"
+        assert isinstance(avg_cost_per_token, (int, float)) and avg_cost_per_token >= 0, (
+            f"avg_cost_per_token must be a non-negative number, got {avg_cost_per_token}"
+        )
+        self._maybe_reset_daily()
+        tokens_today = self._daily_token_counts.get(provider_name, 0)
+        spend = tokens_today * avg_cost_per_token
+        assert spend >= 0.0, f"daily spend must be non-negative, got {spend}"
+        return spend
+
+    def monthly_spend_usd(self, provider_name: str, avg_cost_per_token: float = 0.0) -> float:
+        """Estimated monthly spend for a provider in USD.
+
+        Approximates monthly spend as daily_spend * 30.
+        """
+        assert isinstance(provider_name, str), "provider_name must be a string"
+        assert isinstance(avg_cost_per_token, (int, float)) and avg_cost_per_token >= 0, (
+            f"avg_cost_per_token must be a non-negative number, got {avg_cost_per_token}"
+        )
+        daily = self.daily_spend_usd(provider_name, avg_cost_per_token)
+        monthly = daily * 30.0
+        assert monthly >= 0.0, f"monthly spend must be non-negative, got {monthly}"
+        return monthly
 
     def _rpm_remaining(self, provider_name: str) -> int:
         """Remaining RPM in the current minute window."""

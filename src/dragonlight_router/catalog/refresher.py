@@ -1,4 +1,4 @@
-"""Catalog refresher — fetches model lists from providers concurrently.
+"""Catalog refresher -- fetches model lists from providers concurrently.
 
 Calls GET /v1/models on each provider's catalog_url (or base_url + /models).
 Returns a unified catalog dict keyed by provider name.
@@ -22,6 +22,7 @@ class CatalogRefresher:
     """Fetches model catalogs from all configured providers."""
 
     def __init__(self, timeout_s: float = 10.0) -> None:
+        assert timeout_s > 0, f"timeout_s must be positive, got {timeout_s}"
         self._timeout = timeout_s
 
     async def refresh(
@@ -29,8 +30,9 @@ class CatalogRefresher:
     ) -> Result[dict[str, list[CatalogEntry]], CatalogRefreshError]:
         """Refresh catalogs from all providers concurrently.
 
-        Returns partial results — providers that fail are logged but skipped.
+        Returns partial results -- providers that fail are logged but skipped.
         """
+        assert isinstance(providers, list), "providers must be a list"
         tasks = [self._fetch_provider(p) for p in providers]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -43,13 +45,14 @@ class CatalogRefresher:
                     error=str(result),
                 )
             else:
-                # At this point, result is not an Exception, so it's list[CatalogEntry]
                 catalog[provider.name] = result
 
+        assert isinstance(catalog, dict), "catalog must be a dict"
         return Ok(catalog)
 
     async def _fetch_provider(self, provider: ProviderSchema) -> list[CatalogEntry]:
         """Fetch model list from a single provider."""
+        assert isinstance(provider, ProviderSchema), "provider must be a ProviderSchema"
         url = provider.catalog_url or f"{provider.base_url}/models"
 
         async with httpx.AsyncClient(timeout=self._timeout) as client:
@@ -59,6 +62,13 @@ class CatalogRefresher:
         data = response.json()
         models = data.get("data", [])
 
+        entries = self._parse_models(models, provider)
+        assert all(isinstance(e, CatalogEntry) for e in entries), "all entries must be CatalogEntry"
+        return entries
+
+    @staticmethod
+    def _parse_models(models: list[dict], provider: ProviderSchema) -> list[CatalogEntry]:
+        """Parse raw model dicts into CatalogEntry objects."""
         entries: list[CatalogEntry] = []
         for model in models:
             model_id = model.get("id", "")
@@ -70,5 +80,4 @@ class CatalogRefresher:
                     created=created,
                 )
             )
-
         return entries

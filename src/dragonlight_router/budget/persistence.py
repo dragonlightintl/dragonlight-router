@@ -72,7 +72,10 @@ def load_budget_state(path: Path) -> Result[dict[str, Any] | None, StatePersiste
         if not text.strip():
             return Ok(None)
         return Ok(json.loads(text))
-    except (json.JSONDecodeError, OSError) as exc:
+    except json.JSONDecodeError as exc:
+        logger.warning("budget_state_load_failed", path=str(path), error=str(exc))
+        return Ok(None)
+    except OSError as exc:
         logger.warning("budget_state_load_failed", path=str(path), error=str(exc))
         return Err(StatePersistenceError(
             path=str(path),

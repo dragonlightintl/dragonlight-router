@@ -1,4 +1,4 @@
-"""Configuration loader — YAML file → RouterConfig model.
+"""Configuration loader -- YAML file to RouterConfig model.
 
 Resolution order:
 1. Canonical config path (if provided)
@@ -20,35 +20,46 @@ from dragonlight_router.result import Err, Ok, Result
 logger = structlog.get_logger()
 
 
+def _resolve_config_path(config_path: Path | None) -> Path | None:
+    """Resolve config path from explicit argument or environment variable."""
+    if config_path is not None:
+        return config_path
+    env_path = os.environ.get("DRAGONLIGHT_ROUTER_CONFIG")
+    if env_path:
+        return Path(env_path)
+    return None
+
+
 def load_config(config_path: Path | None = None) -> Result[RouterConfig, RouterConfigError]:
     """Load and validate router configuration.
 
     Falls back to defaults if no config file is found.
     """
-    # Resolution: explicit path → env var → defaults
-    if config_path is None:
-        env_path = os.environ.get("DRAGONLIGHT_ROUTER_CONFIG")
-        if env_path:
-            config_path = Path(env_path)
+    resolved = _resolve_config_path(config_path)
 
-    if config_path is not None:
-        if config_path.exists():
-            # Try to load the YAML file
-            try:
-                return Ok(_load_from_yaml(config_path))
-            except (yaml.YAMLError, OSError) as exc:
-                logger.error("config_load_failed", path=str(config_path), error=str(exc))
-                return Err(RouterConfigError(
-                    message=f"Failed to load config from {config_path}: {exc}",
-                    config_path=str(config_path)
-                ))
-        else:
-            # File doesn't exist - fall back to defaults (original behavior)
-            logger.warning("config_file_not_found", path=str(config_path))
-            return Ok(RouterConfig())
+    if resolved is None:
+        return Ok(RouterConfig())
 
-    # No config path provided - use defaults
-    return Ok(RouterConfig())
+    if not resolved.exists():
+        logger.warning("config_file_not_found", path=str(resolved))
+        return Ok(RouterConfig())
+
+    return _load_yaml_config(resolved)
+
+
+def _load_yaml_config(path: Path) -> Result[RouterConfig, RouterConfigError]:
+    """Attempt to load config from a YAML file, returning Result."""
+    assert path.exists(), f"config file must exist: {path}"
+    try:
+        config = _load_from_yaml(path)
+        assert isinstance(config, RouterConfig), "loaded config must be RouterConfig"
+        return Ok(config)
+    except (yaml.YAMLError, OSError) as exc:
+        logger.error("config_load_failed", path=str(path), error=str(exc))
+        return Err(RouterConfigError(
+            message=f"Failed to load config from {path}: {exc}",
+            config_path=str(path)
+        ))
 
 
 def _load_from_yaml(path: Path) -> RouterConfig:

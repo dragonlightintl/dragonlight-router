@@ -1,4 +1,4 @@
-"""Semantic cache — character n-gram similarity matching.
+"""Semantic cache -- character n-gram similarity matching.
 
 MVP implementation that stores text with precomputed n-gram sets.
 On lookup, computes Jaccard similarity between query n-grams and
@@ -23,6 +23,10 @@ class SemanticCache:
         ngram_size: int = 3,
         max_entries: int = 500,
     ) -> None:
+        assert isinstance(db_path, Path), "db_path must be a Path instance"
+        assert 0.0 <= threshold <= 1.0, f"threshold must be in [0, 1], got {threshold}"
+        assert ngram_size > 0, f"ngram_size must be positive, got {ngram_size}"
+        assert max_entries > 0, f"max_entries must be positive, got {max_entries}"
         self._db_path = db_path
         self._threshold = threshold
         self._ngram_size = ngram_size
@@ -35,6 +39,7 @@ class SemanticCache:
 
         Returns the cached response if similarity >= threshold, else None.
         """
+        assert isinstance(text, str), "text must be a string"
         query_ngrams = self._compute_ngrams(text)
         if not query_ngrams:
             return None
@@ -53,10 +58,13 @@ class SemanticCache:
                 best_score = similarity
                 best_response = response
 
+        assert best_score <= 1.0, f"similarity score must be <= 1.0, got {best_score}"
         return best_response
 
     def put(self, text: str, response: str) -> None:
         """Store text and its response with precomputed n-grams."""
+        assert isinstance(text, str), "text must be a string"
+        assert isinstance(response, str), "response must be a string"
         ngrams = self._compute_ngrams(text)
         ngrams_json = json.dumps(sorted(ngrams))
         now = time.time()
@@ -73,6 +81,7 @@ class SemanticCache:
 
     def _compute_ngrams(self, text: str) -> set[str]:
         """Compute character n-grams from normalized text."""
+        assert isinstance(text, str), "text must be a string"
         normalized = text.lower().strip()
         if len(normalized) < self._ngram_size:
             return {normalized} if normalized else set()
@@ -80,6 +89,7 @@ class SemanticCache:
         ngrams: set[str] = set()
         for i in range(len(normalized) - self._ngram_size + 1):
             ngrams.add(normalized[i : i + self._ngram_size])
+        assert all(len(ng) == self._ngram_size for ng in ngrams), "all n-grams must have correct size"
         return ngrams
 
     @staticmethod
@@ -89,7 +99,9 @@ class SemanticCache:
             return 0.0
         intersection = len(set_a & set_b)
         union = len(set_a | set_b)
-        return intersection / union if union > 0 else 0.0
+        result = intersection / union if union > 0 else 0.0
+        assert 0.0 <= result <= 1.0, f"Jaccard similarity must be in [0, 1], got {result}"
+        return result
 
     def _evict_if_needed(self) -> None:
         """Remove oldest entries if count exceeds max_entries."""
@@ -97,12 +109,14 @@ class SemanticCache:
             "SELECT COUNT(*) FROM semantic_cache"
         ).fetchone()[0]
 
-        if count > self._max_entries:
-            excess = count - self._max_entries
-            self._conn.execute(
-                """DELETE FROM semantic_cache WHERE id IN (
-                       SELECT id FROM semantic_cache ORDER BY created_at ASC LIMIT ?
-                   )""",
-                (excess,),
-            )
-            self._conn.commit()
+        if count <= self._max_entries:
+            return
+
+        excess = count - self._max_entries
+        self._conn.execute(
+            """DELETE FROM semantic_cache WHERE id IN (
+                   SELECT id FROM semantic_cache ORDER BY created_at ASC LIMIT ?
+               )""",
+            (excess,),
+        )
+        self._conn.commit()

@@ -7,11 +7,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RateLimitSchema(BaseModel):
     """Rate limit configuration for a provider."""
+
+    model_config = ConfigDict(frozen=True)
 
     rpm: int
     rpd: int | None = None
@@ -21,6 +23,8 @@ class RateLimitSchema(BaseModel):
 
 class ProviderSchema(BaseModel):
     """Provider-level configuration from YAML."""
+
+    model_config = ConfigDict(frozen=True)
 
     name: str
     base_url: str
@@ -32,6 +36,8 @@ class ProviderSchema(BaseModel):
 
 class RouterConfig(BaseModel):
     """Top-level router configuration."""
+
+    model_config = ConfigDict(frozen=True)
 
     state_dir: Path = Path("./router_state")
     catalog_ttl_hours: int = 24

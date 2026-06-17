@@ -1,4 +1,4 @@
-"""Catalog cache — file-backed provider model catalog with TTL.
+"""Catalog cache -- file-backed provider model catalog with TTL.
 
 Stores the unified catalog as JSON with a timestamp.
 Returns None when stale or missing (triggering a refresh).
@@ -25,9 +25,8 @@ class CatalogCache:
 
     def __init__(self, cache_path: Path, ttl_hours: int = 24) -> None:
         """File-backed catalog cache with TTL-based expiration."""
-        # Precondition assertions
         assert isinstance(cache_path, Path), "cache_path must be a Path instance"
-        assert ttl_hours > 0, "ttl_hours must be positive"
+        assert ttl_hours >= 0, "ttl_hours must be non-negative"
 
         self._path = cache_path
         self._ttl_s = ttl_hours * 3600.0
@@ -35,65 +34,57 @@ class CatalogCache:
     def get(self) -> Result[dict[str, list[CatalogEntry]], StaleCatalogError]:
         """Load catalog from cache. Returns Err if stale, missing, or corrupt."""
         if self.is_stale():
-            # Calculate age for the error
-            age = 0
-            if self._path.exists():
-                try:
-                    text = self._path.read_text()
-                    data = json.loads(text)
-                    timestamp = data.get("timestamp", 0)
-                    age = int(time.time() - timestamp)
-                except (json.JSONDecodeError, OSError):
-                    age = int(self._ttl_s)  # Max age if we can't read timestamp
-            
-            return Err(StaleCatalogError(
-                provider="unified_cache",
-                max_age_seconds=int(self._ttl_s),
-                age_seconds=age,
-                message="Catalog cache is stale or missing"
-            ))
+            return Err(self._make_stale_error("Catalog cache is stale or missing"))
 
+        return self._read_catalog()
+
+    def _read_catalog(self) -> Result[dict[str, list[CatalogEntry]], StaleCatalogError]:
+        """Read and deserialize catalog from the cache file."""
         try:
             text = self._path.read_text()
             data = json.loads(text)
-            catalog = self._deserialize(data.get("catalog", {}))
-            # Postcondition assertions
-            assert isinstance(catalog, dict), "catalog must be a dict"
-            for provider, entries in catalog.items():
-                assert isinstance(provider, str), "provider key must be string"
-                assert isinstance(entries, list), "entries must be list"
-                for entry in entries:
-                    assert isinstance(entry, CatalogEntry), "each entry must be CatalogEntry"
-            return Ok(catalog)
         except (json.JSONDecodeError, OSError, KeyError) as exc:
             logger.warning("catalog_cache_read_failed", error=str(exc))
-            # Calculate age for error context
-            age = 0
-            if self._path.exists():
-                try:
-                    text = self._path.read_text()
-                    data = json.loads(text)
-                    timestamp = data.get("timestamp", 0)
-                    age = int(time.time() - timestamp)
-                except (json.JSONDecodeError, OSError):
-                    age = int(self._ttl_s)
-            
-            return Err(StaleCatalogError(
-                provider="unified_cache",
-                max_age_seconds=int(self._ttl_s),
-                age_seconds=age,
-                message=f"Failed to read catalog cache: {exc}"
-            ))
+            return Err(self._make_stale_error(f"Failed to read catalog cache: {exc}"))
 
-    def set(self, catalog: dict[str, list[CatalogEntry]]) -> None:
-        """Atomically write catalog to cache with current timestamp."""
-        # Precondition assertions
+        catalog = self._deserialize(data.get("catalog", {}))
+        self._validate_catalog(catalog)
+        return Ok(catalog)
+
+    def _read_cache_age(self) -> int:
+        """Read the age of the cache file in seconds. Returns max TTL on failure."""
+        if not self._path.exists():
+            return int(self._ttl_s)
+        try:
+            text = self._path.read_text()
+            data = json.loads(text)
+            timestamp = data.get("timestamp", 0)
+            return int(time.time() - timestamp)
+        except (json.JSONDecodeError, OSError):
+            return int(self._ttl_s)
+
+    def _make_stale_error(self, message: str) -> StaleCatalogError:
+        """Construct a StaleCatalogError with current cache age."""
+        age = self._read_cache_age()
+        return StaleCatalogError(
+            provider="unified_cache",
+            max_age_seconds=int(self._ttl_s),
+            age_seconds=age,
+            message=message,
+        )
+
+    @staticmethod
+    def _validate_catalog(catalog: dict[str, list[CatalogEntry]]) -> None:
+        """Assert postconditions on deserialized catalog structure."""
         assert isinstance(catalog, dict), "catalog must be a dict"
         for provider, entries in catalog.items():
             assert isinstance(provider, str), "provider key must be string"
             assert isinstance(entries, list), "entries must be list"
-            for entry in entries:
-                assert isinstance(entry, CatalogEntry), "each entry must be CatalogEntry"
+
+    def set(self, catalog: dict[str, list[CatalogEntry]]) -> None:
+        """Atomically write catalog to cache with current timestamp."""
+        assert isinstance(catalog, dict), "catalog must be a dict"
+        self._validate_catalog(catalog)
 
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -122,16 +113,17 @@ class CatalogCache:
         """Check if the cache is stale (missing, corrupt, or expired)."""
         assert isinstance(self._path, Path), "_path must be a Path instance"
         if not self._path.exists():
+            return True
+
+        try:
+            text = self._path.read_text()
+            data = json.loads(text)
+            timestamp = data.get("timestamp", 0)
+            age = time.time() - timestamp
+            result = age > self._ttl_s
+        except (json.JSONDecodeError, OSError):
             result = True
-        else:
-            try:
-                text = self._path.read_text()
-                data = json.loads(text)
-                timestamp = data.get("timestamp", 0)
-                age = time.time() - timestamp
-                result = age > self._ttl_s
-            except (json.JSONDecodeError, OSError):
-                result = True
+
         assert isinstance(result, bool), "is_stale must return a bool"
         return result
 

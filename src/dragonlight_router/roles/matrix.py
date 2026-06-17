@@ -1,4 +1,4 @@
-"""Role matrix — maps roles to ranked model lists.
+"""Role matrix -- maps roles to ranked model lists.
 
 Loaded from a JSON file. Supports hot-reload via mtime check.
 Returns ranked tuples of (model_id, rank) for a given role.
@@ -20,6 +20,7 @@ class RoleMatrix:
     """Maps roles to ranked model IDs. File-backed with hot-reload."""
 
     def __init__(self, matrix_path: Path) -> None:
+        assert isinstance(matrix_path, Path), "matrix_path must be a Path instance"
         self._path = matrix_path
         self._mtime: float = 0.0
         self._matrix: dict[str, dict[str, int]] = {}
@@ -30,13 +31,17 @@ class RoleMatrix:
 
         Returns empty list for unknown roles.
         """
+        assert isinstance(role, str), "role must be a string"
         role_data = self._matrix.get(role, {})
         ranked = [(model_id, rank) for model_id, rank in role_data.items()]
         ranked.sort(key=lambda x: x[1], reverse=True)
+        assert all(isinstance(r, tuple) and len(r) == 2 for r in ranked), "ranked items must be 2-tuples"
         return ranked
 
     def get_rank(self, model_id: str, role: str) -> int:
         """Return rank for a model in a role, or default_rank (20) for unknowns."""
+        assert isinstance(model_id, str), "model_id must be a string"
+        assert isinstance(role, str), "role must be a string"
         role_data = self._matrix.get(role, {})
         return role_data.get(model_id, _DEFAULT_RANK)
 
@@ -49,8 +54,8 @@ class RoleMatrix:
             current_mtime = os.path.getmtime(self._path)
             if current_mtime > self._mtime:
                 self._load()
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.warning("matrix_stat_failed", error=str(exc))
 
     def _load(self) -> None:
         """Load matrix from JSON file.
@@ -63,24 +68,38 @@ class RoleMatrix:
             self._matrix = {}
             return
 
-        try:
-            text = self._path.read_text()
-            raw = json.loads(text)
-            self._mtime = os.path.getmtime(self._path)
-        except (json.JSONDecodeError, OSError) as exc:
-            logger.warning("role_matrix_load_failed", path=str(self._path), error=str(exc))
+        raw = self._read_json()
+        if raw is None:
             self._matrix = {}
             return
 
         if "roles" in raw:
-            roles_raw = raw["roles"]
-            self._matrix = {}
-            for role, entries in roles_raw.items():
-                if isinstance(entries, list):
-                    self._matrix[role] = {
-                        e["model_id"]: e["rank"] for e in entries
-                    }
-                elif isinstance(entries, dict):
-                    self._matrix[role] = entries
+            self._matrix = self._parse_full_schema(raw["roles"])
         else:
             self._matrix = raw
+
+        assert isinstance(self._matrix, dict), "matrix must be a dict after load"
+
+    def _read_json(self) -> dict | None:
+        """Read and parse the JSON matrix file. Returns None on failure."""
+        try:
+            text = self._path.read_text()
+            raw = json.loads(text)
+            self._mtime = os.path.getmtime(self._path)
+            return raw
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("role_matrix_load_failed", path=str(self._path), error=str(exc))
+            return None
+
+    @staticmethod
+    def _parse_full_schema(roles_raw: dict) -> dict[str, dict[str, int]]:
+        """Parse the full schema format with version/roles structure."""
+        matrix: dict[str, dict[str, int]] = {}
+        for role, entries in roles_raw.items():
+            if isinstance(entries, list):
+                matrix[role] = {
+                    e["model_id"]: e["rank"] for e in entries
+                }
+            elif isinstance(entries, dict):
+                matrix[role] = entries
+        return matrix

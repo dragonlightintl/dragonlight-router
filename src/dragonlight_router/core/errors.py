@@ -1,4 +1,4 @@
-"Typed errors for the routing system."
+"""Typed errors for the routing system."""
 from __future__ import annotations
 
 from dataclasses import dataclass

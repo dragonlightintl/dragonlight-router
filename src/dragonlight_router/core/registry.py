@@ -7,7 +7,7 @@ from typing import Any
 import structlog
 
 from dragonlight_router.core.state import BackendState
-from dragonlight_router.core.types import GenerativeBackend, BackendTier, BackendConfig
+from dragonlight_router.core.types import GenerativeBackend, BackendTier, BackendConfig, BackendStatus
 
 logger = structlog.get_logger()
 
@@ -75,6 +75,40 @@ class BackendRegistry:
             if backend.config.tier == tier:
                 result.append(backend.config)
         return result
+
+    def retire(self, name: str) -> bool:
+        """Mark a backend as retired, excluding it from all routing.
+
+        Args:
+            name: The backend name to retire.
+
+        Returns:
+            True if found and retired, False if not found.
+        """
+        backend, state = self.get(name)
+        if backend is None or state is None:
+            return False
+        state.status = BackendStatus.RETIRED
+        logger.info("backend_retired", name=name)
+        return True
+
+    def reinstate(self, name: str) -> bool:
+        """Reinstate a previously retired backend, returning it to the active pool.
+
+        Args:
+            name: The backend name to reinstate.
+
+        Returns:
+            True if found and was retired, False otherwise.
+        """
+        backend, state = self.get(name)
+        if backend is None or state is None:
+            return False
+        if state.status != BackendStatus.RETIRED:
+            return False
+        state.status = BackendStatus.AVAILABLE
+        logger.info("backend_reinstated", name=name)
+        return True
 
     def health_snapshot(self) -> dict[str, dict[str, Any]]:
         """Return a health snapshot for observability."""

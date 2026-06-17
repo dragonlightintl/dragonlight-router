@@ -74,6 +74,7 @@ class BackendStatus(Enum):
     CIRCUIT_OPEN = "circuit_open"
     OFFLINE = "offline"
     DEGRADED = "degraded"
+    RETIRED = "retired"
 
 @dataclass(frozen=True)
 class BackendCapabilities:

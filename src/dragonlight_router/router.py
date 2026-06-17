@@ -22,9 +22,10 @@ from dragonlight_router.catalog.refresher import CatalogRefresher
 from dragonlight_router.config.loader import load_config
 from dragonlight_router.config.schema import RouterConfig
 from dragonlight_router.core.registry import BackendRegistry
-from dragonlight_router.core.types import ModelScore, ProviderConfig, RequestOutcome, DispatchOrder, EngineResponse
-from dragonlight_router.dispatch.cascade import route
+from dragonlight_router.core.types import ModelScore, ProviderConfig, RequestOutcome, DispatchOrder, EngineResponse, LatencySLO
+from dragonlight_router.dispatch.cascade import dispatch as cascade_dispatch, route
 from dragonlight_router.health.tracker import HealthTracker
+from dragonlight_router.health.check_loop import HealthCheckLoop
 from dragonlight_router.result import Ok, Err, Result
 from dragonlight_router.roles.matrix import RoleMatrix
 from dragonlight_router.selection.interleave import interleave_providers
@@ -34,6 +35,11 @@ from dragonlight_router.selection.scoring import (
 
 logger = structlog.get_logger()
 
+# DEVIATION QA-012: Module-level mutable singleton state.
+# Justification: Thread-safe singleton pattern for RouterEngine requires module-level lock
+# and instance reference. reset_router() provided for test isolation.
+# Approved by: architect. Mitigations: reset_router() for test cleanup.
+# Scope: _router_lock, _router_instance only. Expiration: permanent (design pattern).
 _router_lock = threading.Lock()
 _router_instance: RouterEngine | None = None
 
@@ -43,41 +49,46 @@ class RouterEngine:
 
     def __init__(self, config_path: Path | None = None, **overrides: Any) -> None:
         assert config_path is None or isinstance(config_path, Path), "config_path must be a Path or None"
+
+        self._config = self._load_config(config_path, overrides)
+        self._config.state_dir.mkdir(parents=True, exist_ok=True)
+        self._init_subsystems()
+        self._init_health_check()
+
+        assert isinstance(self._budget, BudgetTracker), "_budget must be a BudgetTracker instance"
+        assert isinstance(self._health, HealthTracker), "_health must be a HealthTracker instance"
+        assert isinstance(self._config, RouterConfig), "_config must be a RouterConfig instance"
+
+    @staticmethod
+    def _load_config(config_path: Path | None, overrides: dict[str, Any]) -> RouterConfig:
+        """Load and apply overrides to router configuration."""
         config_result = load_config(config_path)
         if isinstance(config_result, Ok):
             config = config_result.value
         else:
-            # Config loading failed - log the error and use defaults
             logger.error("config_load_failed", error=config_result.error.message)
             config = RouterConfig()
-        self._config: RouterConfig = config
 
-        # Apply overrides
         if overrides:
-            config_data = self._config.model_dump()
+            config_data = config.model_dump()
             config_data.update(overrides)
-            self._config = RouterConfig(**config_data)
+            config = RouterConfig(**config_data)
 
-        # Initialize subsystems
+        assert isinstance(config, RouterConfig), "config must be a RouterConfig instance"
+        return config
+
+    def _init_subsystems(self) -> None:
+        """Wire up budget, health, catalog, matrix, and registry subsystems."""
         state_dir = self._config.state_dir
-        state_dir.mkdir(parents=True, exist_ok=True)
-
-        # Convert ProviderSchema → ProviderConfig for budget tracker
         provider_configs = [
             ProviderConfig(
-                name=p.name,
-                base_url=p.base_url,
-                catalog_url=p.catalog_url,
-                env_key=p.env_key,
-                model_prefix=p.model_prefix,
-                rpm_limit=p.rate_limits.rpm,
-                rpd_limit=p.rate_limits.rpd,
-                tpm_limit=p.rate_limits.tpm,
-                daily_token_cap=p.rate_limits.daily_token_cap,
+                name=p.name, base_url=p.base_url, catalog_url=p.catalog_url,
+                env_key=p.env_key, model_prefix=p.model_prefix,
+                rpm_limit=p.rate_limits.rpm, rpd_limit=p.rate_limits.rpd,
+                tpm_limit=p.rate_limits.tpm, daily_token_cap=p.rate_limits.daily_token_cap,
             )
             for p in self._config.providers
         ]
-
         self._budget = BudgetTracker(providers=provider_configs)
         self._health = HealthTracker()
         self._catalog = CatalogCache(
@@ -88,10 +99,24 @@ class RouterEngine:
         self._matrix = RoleMatrix(matrix_path=state_dir / "model_role_matrix.json")
         self._registry = BackendRegistry()
         self._provider_configs = {p.name: p for p in provider_configs}
-        assert isinstance(self._budget, BudgetTracker), "_budget must be a BudgetTracker instance"
-        assert isinstance(self._health, HealthTracker), "_health must be a HealthTracker instance"
-        assert isinstance(self._config, RouterConfig), "_config must be a RouterConfig instance"
-        assert isinstance(self._budget, BudgetTracker), "_budget must be a BudgetTracker instance"
+
+    def _init_health_check(self) -> None:
+        """Set up the background health check loop from registry state."""
+        backends_dict = {}
+        states_dict = {}
+        for name, backend, state in self._registry.all_backends():
+            backends_dict[name] = backend
+            states_dict[name] = state
+
+        latency_slos_dict = {name: LatencySLO(latency_ms=5000.0) for name in backends_dict}
+        self._health_check_loop = HealthCheckLoop(
+            backends=backends_dict, states=states_dict,
+            latency_slos=latency_slos_dict, interval_s=30.0, timeout_s=10.0,
+        )
+
+    async def start_health_check_loop(self) -> None:
+        """Start the background health check loop."""
+        await self._health_check_loop.start()
 
     def select_models(
         self,
@@ -254,47 +279,82 @@ class RouterEngine:
         self._budget.record_request(outcome.provider, outcome.tokens_used)
 
     def health_snapshot(self) -> dict[str, Any]:
-        """Return health state of all tracked models."""
+        """Return health state of all tracked models, keyed by provider then model_id."""
         assert isinstance(self._registry, BackendRegistry), "_registry must be a BackendRegistry instance"
-        # Combine registry health with health tracker data
+        # Build a provider → {model_id → {score, ...}} snapshot from HealthTracker
         snapshot: dict[str, Any] = {}
-        # Add data from the health tracker for all known models
-        # Return registry snapshot if backends are registered
-        registry_snap = self._registry.health_snapshot()
-        if registry_snap:
-            return registry_snap
-        return snapshot
-
+        # Collect all model_ids that HealthTracker knows about (error counts + latency)
+        tracked_models = set(self._health._error_counts.keys()) | set(self._health._avg_latency.keys())
+        for model_id in tracked_models:
+            # Resolve provider via prefix matching
+            provider = self._resolve_provider(model_id) or "unknown"
+            if provider not in snapshot:
+                snapshot[provider] = {}
+            health_result = self._health.score(model_id)
+            health_score = health_result.value if isinstance(health_result, Ok) else 0.0
+            snapshot[provider][model_id] = {
+                "score": health_score,
+                "error_count": self._health.get_error_count(model_id),
+                "avg_latency_ms": self._health.get_avg_latency(model_id),
+                "is_retired": self._health.is_retired(model_id),
+            }
         assert isinstance(snapshot, dict), "health_snapshot must return a dict"
+        return snapshot
     def budget_snapshot(self) -> dict[str, Any]:
         """Return budget state of all providers."""
         snapshot: dict[str, Any] = {}
         for provider_name in self._provider_configs:
+            score_result = self._budget.score(provider_name)
+            score_value = score_result.value if isinstance(score_result, Ok) else 0.0
             snapshot[provider_name] = {
-                "score": self._budget.score(provider_name),
+                "score": score_value,
                 "has_capacity": self._budget.has_capacity(provider_name),
             }
-        return snapshot
 
         assert isinstance(snapshot, dict), "budget_snapshot must return a dict"
         for provider_name in snapshot:
             assert isinstance(snapshot[provider_name], dict), f"budget snapshot for {provider_name} must be a dict"
+        return snapshot
     def _refresh_catalog(self) -> None:
         """Synchronously trigger async catalog refresh. Stores result in cache."""
         assert isinstance(self._config, RouterConfig), "_config must be a RouterConfig instance"
         assert isinstance(self._refresher, CatalogRefresher), "_refresher must be a CatalogRefresher instance"
+
+        result = self._execute_catalog_refresh()
+        if result is None:
+            return
+        self._catalog.set(result)
+        logger.info("catalog_refreshed", providers=list(result.keys()))
+
+    def _execute_catalog_refresh(self) -> dict | None:
+        """Run the async catalog refresh and return the catalog dict, or None on failure.
+
+        This is an I/O boundary (network calls to provider APIs via asyncio.run).
+        The refresher delegates to multiple provider HTTP endpoints that can raise
+        arbitrary exceptions (httpx, aiohttp, provider-specific errors). Graceful
+        degradation is required: catalog refresh failure must never crash the router.
+
+        DEVIATION QA-002: except Exception at I/O boundary.
+        Justification: Provider adapters raise heterogeneous exception types including
+          RuntimeError, OSError, httpx.HTTPError, aiohttp.ClientError, and provider SDK
+          errors. Enumerating all possible types is infeasible and brittle.
+        Approved by: architect. Mitigations: exception is logged, never silenced.
+        Scope: this function only. Expiration: revisit when adapters adopt Result returns.
+        """
         try:
             result = asyncio.run(self._refresher.refresh(self._config.providers))
-            if isinstance(result, Ok):
-                catalog = result.value
-                if catalog:
-                    self._catalog.set(catalog)
-                    logger.info("catalog_refreshed", providers=list(catalog.keys()))
-            else:
-                # Refresh failed - log the error but don't crash
-                logger.warning("catalog_refresh_failed", error=result.error.message)
-        except (TimeoutError, aiohttp.ClientError) as exc:
+        except Exception as exc:  # noqa: BLE001 — deviation QA-002
             logger.warning("catalog_refresh_failed", error=str(exc))
+            return None
+
+        if isinstance(result, Ok):
+            return result.value if result.value else None
+        if isinstance(result, dict):
+            return result if result else None
+
+        error_msg = getattr(getattr(result, "error", None), "message", str(result))
+        logger.warning("catalog_refresh_failed", error=error_msg)
+        return None
 
     def _resolve_provider(self, model_id: str) -> str | None:
         """Resolve a model_id to its provider name via prefix matching."""
@@ -305,16 +365,12 @@ class RouterEngine:
                 return p.name
         return None
 
-    def dispatch(self, order: DispatchOrder) -> Result[EngineResponse, Exception]:
+    async def dispatch(self, order: DispatchOrder) -> Result[EngineResponse, Exception]:
         """Execute full cascade dispatch for engine-style consumers."""
         assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
-        
-        # Convert RouterConfig to dict for the dispatch function
+
         config_dict = self._config.model_dump()
-        
-        # Run the full dispatch pipeline
-        from dragonlight_router.dispatch.cascade import dispatch as cascade_dispatch
-        return cascade_dispatch(
+        return await cascade_dispatch(
             order=order,
             registry=self._registry,
             budget_tracker=self._budget,
@@ -337,3 +393,10 @@ def get_router(
         path = Path(config_path) if config_path else None
         _router_instance = RouterEngine(config_path=path, **overrides)
         return _router_instance
+
+
+def reset_router() -> None:
+    """Reset the singleton instance for test isolation (QA-012 mitigation)."""
+    global _router_instance
+    with _router_lock:
+        _router_instance = None

@@ -7,60 +7,12 @@ type and E is the error type.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Generic, NoReturn, TypeVar, Union
+from typing import NoReturn, TypeVar, Union
+
+from dragonlight_router.core.types import Ok, Err, Result
 
 T = TypeVar("T")
 E = TypeVar("E")
-
-
-@dataclass(frozen=True)
-class Ok(Generic[T]):
-    """Successful result containing a value."""
-
-    value: T
-
-    def is_ok(self) -> bool:
-        """Return True because this is an Ok."""
-        return True
-
-    def is_err(self) -> bool:
-        """Return False because this is not an Err."""
-        return False
-
-    def unwrap(self: Ok[T]) -> T:
-        """Return the contained value."""
-        return self.value
-
-    def unwrap_err(self: Ok[T]) -> NoReturn:
-        """Raise AssertionError because this is an Ok value."""
-        raise AssertionError("Called unwrap_err on Ok value")
-
-
-@dataclass(frozen=True)
-class Err(Generic[E]):
-    """Failed result containing an error."""
-
-    error: E
-
-    def is_ok(self) -> bool:
-        """Return False because this is not an Ok."""
-        return False
-
-    def is_err(self) -> bool:
-        """Return True because this is an Err."""
-        return True
-
-    def unwrap(self: Err[E]) -> NoReturn:
-        """Raise AssertionError because this is an Err value."""
-        raise AssertionError("Called unwrap on Err value")
-
-    def unwrap_err(self: Err[E]) -> E:
-        """Return the contained error."""
-        return self.error
-
-
-Result = Union[Ok[T], Err[E]]
 
 
 def ok(value: T) -> Ok[T]:

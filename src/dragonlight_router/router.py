@@ -18,6 +18,7 @@ import aiohttp
 import structlog
 
 from dragonlight_router.adapters import create_adapter, _PROVIDER_MAP
+from dragonlight_router.budget.persistence import load_budget_state, save_budget_state
 from dragonlight_router.budget.tracker import BudgetTracker
 from dragonlight_router.catalog.cache import CatalogCache
 from dragonlight_router.catalog.refresher import CatalogRefresher
@@ -86,6 +87,7 @@ class RouterEngine:
         self._init_subsystems()
         self._ensure_matrix_in_state_dir()
         self._register_backends_from_matrix()
+        self._restore_budget_state()
         self._init_health_check()
 
         assert isinstance(self._budget, BudgetTracker), "_budget must be a BudgetTracker instance"
@@ -146,6 +148,38 @@ class RouterEngine:
             backends=backends_dict, states=states_dict,
             latency_slos=latency_slos_dict, interval_s=30.0, timeout_s=10.0,
         )
+
+    def _restore_budget_state(self) -> None:
+        """HAZ-012 mitigation: Restore persisted budget state at startup.
+
+        Loads daily counters from disk so the router does not lose spend
+        tracking on process restart. Sliding windows (RPM/TPM) are not
+        restored because they represent sub-minute state that is stale
+        on restart.
+        """
+        budget_path = self._config.state_dir / "budget_state.json"
+        result = load_budget_state(budget_path)
+        if isinstance(result, Ok) and result.value is not None:
+            self._budget.restore_state(result.value)
+            logger.info("budget_state_loaded", path=str(budget_path))
+        elif isinstance(result, Ok):
+            logger.debug("no_persisted_budget_state", path=str(budget_path))
+        else:
+            logger.warning("budget_state_load_error", error=str(result.error))
+
+    def save_state(self) -> None:
+        """HAZ-012 mitigation: Persist budget state to disk.
+
+        Called at shutdown (or periodically) to preserve daily spend
+        counters across process restarts.
+        """
+        budget_path = self._config.state_dir / "budget_state.json"
+        state = self._budget.get_state()
+        result = save_budget_state(state, budget_path)
+        if isinstance(result, Ok):
+            logger.info("budget_state_saved", path=str(budget_path))
+        else:
+            logger.warning("budget_state_save_failed", error=str(result.error))
 
     def _ensure_matrix_in_state_dir(self) -> None:
         """Copy config/model_role_matrix.json to state_dir if not already present."""

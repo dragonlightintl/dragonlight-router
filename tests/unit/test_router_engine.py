@@ -1086,3 +1086,57 @@ class TestEnsureMatrixNoCandidateFound:
 
         # State matrix should still not exist (no copy was performed)
         assert not (state_dir / "model_role_matrix.json").exists()
+
+
+class TestBudgetStatePersistence:
+    """HAZ-012 mitigation: RouterEngine save_state and _restore_budget_state."""
+
+    def test_save_state_creates_budget_file(self, tmp_path: Path):
+        """[TM-010 AC-21] save_state writes budget_state.json to state_dir."""
+        config_path = _setup_config(tmp_path)
+        engine = RouterEngine(config_path=config_path)
+        engine.save_state()
+        budget_path = engine._config.state_dir / "budget_state.json"
+        assert budget_path.exists()
+
+    def test_save_and_restore_round_trip(self, tmp_path: Path):
+        """[TM-010 AC-21] Budget state survives save -> new engine load."""
+        config_path = _setup_config(tmp_path)
+        engine1 = RouterEngine(config_path=config_path)
+        # Record some usage
+        engine1._budget.record_request("groq", tokens_used=500)
+        engine1._budget.record_request("groq", tokens_used=300)
+        engine1.save_state()
+
+        # Create a new engine from the same config — it should restore state
+        engine2 = RouterEngine(config_path=config_path)
+        assert engine2._budget._rpd_counts["groq"] == 2
+        assert engine2._budget._daily_token_counts["groq"] == 800
+
+    def test_restore_handles_missing_file(self, tmp_path: Path):
+        """[TM-010 AC-21] _restore_budget_state handles missing file gracefully."""
+        config_path = _setup_config(tmp_path)
+        # No budget_state.json exists — should not raise
+        engine = RouterEngine(config_path=config_path)
+        assert engine._budget._rpd_counts.get("groq", 0) == 0
+
+    def test_save_state_error_does_not_raise(self, tmp_path: Path):
+        """[TM-010 AC-21] save_state logs warning but does not raise on write error."""
+        config_path = _setup_config(tmp_path)
+        engine = RouterEngine(config_path=config_path)
+        with patch(
+            "dragonlight_router.router.save_budget_state",
+            return_value=Err(MagicMock(message="disk full")),
+        ):
+            # Should not raise
+            engine.save_state()
+
+    def test_restore_handles_load_error(self, tmp_path: Path):
+        """[TM-010 AC-21] _restore_budget_state handles load error gracefully."""
+        config_path = _setup_config(tmp_path)
+        with patch(
+            "dragonlight_router.router.load_budget_state",
+            return_value=Err(MagicMock(message="corrupt")),
+        ):
+            # Should not raise
+            engine = RouterEngine(config_path=config_path)

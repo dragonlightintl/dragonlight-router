@@ -101,3 +101,88 @@ class TestErrorWindow:
         cb.record_error()
         # Only 1 error since last success
         assert cb.state == CircuitState.CLOSED
+
+
+class TestStatePersistence:
+    """HAZ-012 mitigation: circuit breaker state serialization."""
+
+    def test_get_state_closed(self):
+        """[TM-013 AC-5] get_state on CLOSED breaker returns closed state."""
+        cb = CircuitBreaker()
+        state = cb.get_state()
+        assert state["state"] == "closed"
+        assert state["opened_at"] == 0.0
+        assert state["error_timestamps"] == []
+
+    def test_get_state_open(self):
+        """[TM-013 AC-5] get_state on OPEN breaker returns open state with timestamp."""
+        cb = CircuitBreaker(error_threshold=3)
+        cb.record_error()
+        cb.record_error()
+        cb.record_error()
+        state = cb.get_state()
+        assert state["state"] == "open"
+        assert state["opened_at"] > 0
+        assert len(state["error_timestamps"]) == 3
+
+    def test_restore_state_open_within_cooldown(self):
+        """[TM-013 AC-5] restore_state restores OPEN when still within cooldown."""
+        cb = CircuitBreaker(error_threshold=3, cooldown_s=3600.0)
+        state = {
+            "state": "open",
+            "opened_at": time.time() - 10,  # opened 10s ago, cooldown 3600s
+            "error_timestamps": [time.time() - 5, time.time() - 3, time.time() - 1],
+        }
+        cb.restore_state(state)
+        assert cb.state == CircuitState.OPEN
+        assert cb.allow_request() is False
+
+    def test_restore_state_open_past_cooldown(self):
+        """[TM-013 AC-5] restore_state sets HALF_OPEN when cooldown has elapsed."""
+        cb = CircuitBreaker(error_threshold=3, cooldown_s=10.0)
+        state = {
+            "state": "open",
+            "opened_at": time.time() - 20,  # opened 20s ago, cooldown 10s
+            "error_timestamps": [time.time() - 25, time.time() - 22, time.time() - 20],
+        }
+        cb.restore_state(state)
+        assert cb.state == CircuitState.HALF_OPEN
+
+    def test_restore_state_closed_stays_closed(self):
+        """[TM-013 AC-5] restore_state with closed state stays CLOSED."""
+        cb = CircuitBreaker()
+        state = {
+            "state": "closed",
+            "opened_at": 0.0,
+            "error_timestamps": [],
+        }
+        cb.restore_state(state)
+        assert cb.state == CircuitState.CLOSED
+
+    def test_restore_state_prunes_old_timestamps(self):
+        """[TM-013 AC-5] restore_state prunes error timestamps outside the window."""
+        cb = CircuitBreaker(error_threshold=3, error_window_s=60.0)
+        old_ts = time.time() - 120  # 120s ago, outside 60s window
+        recent_ts = time.time() - 5   # 5s ago, within window
+        state = {
+            "state": "closed",
+            "opened_at": 0.0,
+            "error_timestamps": [old_ts, recent_ts],
+        }
+        cb.restore_state(state)
+        assert len(cb._error_timestamps) == 1
+        assert cb._error_timestamps[0] == recent_ts
+
+    def test_round_trip_get_restore(self):
+        """[TM-013 AC-5] get_state -> restore_state preserves circuit state."""
+        cb1 = CircuitBreaker(error_threshold=3, cooldown_s=3600.0)
+        cb1.record_error()
+        cb1.record_error()
+        cb1.record_error()
+        assert cb1.state == CircuitState.OPEN
+
+        state = cb1.get_state()
+        cb2 = CircuitBreaker(error_threshold=3, cooldown_s=3600.0)
+        cb2.restore_state(state)
+        assert cb2.state == CircuitState.OPEN
+        assert cb2.allow_request() is False

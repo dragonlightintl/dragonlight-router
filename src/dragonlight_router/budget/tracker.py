@@ -6,6 +6,7 @@ and RPD (requests per day) via a simple counter with daily reset.
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import sys
 import time
@@ -39,6 +40,8 @@ class BudgetTracker:
         self._tpm_windows: dict[str, deque[tuple[float, int]]] = defaultdict(deque)
         self._daily_token_counts: dict[str, int] = defaultdict(int)
         self._day_reset_at: float = self._next_day_boundary()
+        # HAZ-002: asyncio.Lock for atomic check-then-record under concurrency
+        self._lock = asyncio.Lock()
 
     def score(self, provider_name: str) -> Result[float, ProviderNotFoundError]:
         """Budget availability score (0-100) for a provider.
@@ -107,6 +110,24 @@ class BudgetTracker:
         self._rpd_counts[provider_name] += 1
         self._tpm_windows[provider_name].append((now, tokens_used))
         self._daily_token_counts[provider_name] += tokens_used
+
+    async def check_and_reserve(self, provider_name: str, estimated_tokens: int = 0) -> bool:
+        """Atomically check capacity and reserve budget under the async lock.
+
+        HAZ-002 mitigation: Prevents concurrent requests from passing budget
+        checks simultaneously before either records its spend. Returns True
+        if capacity was available and the reservation was recorded, False if
+        the provider has no remaining capacity.
+        """
+        assert isinstance(provider_name, str), "provider_name must be a string"
+        assert isinstance(estimated_tokens, int) and estimated_tokens >= 0, (
+            f"estimated_tokens must be a non-negative integer, got {estimated_tokens}"
+        )
+        async with self._lock:
+            if not self.has_capacity(provider_name):
+                return False
+            self.record_request(provider_name, estimated_tokens)
+            return True
 
     def has_capacity(self, provider_name: str) -> bool:
         """Quick check: does this provider have RPM, RPD, TPM, and daily token headroom?"""
@@ -234,3 +255,44 @@ class BudgetTracker:
         remaining = max(0, provider.daily_token_cap - self._daily_token_counts[provider_name])
         assert remaining >= 0, f"Remaining daily token cap must be non-negative, got {remaining}"
         return remaining
+
+    def get_state(self) -> dict:
+        """Export serializable budget state for persistence (HAZ-012 mitigation).
+
+        Returns daily counters and reset timestamp. Sliding windows (RPM/TPM)
+        are intentionally excluded -- they represent sub-minute state that
+        becomes stale immediately on restore.
+        """
+        return {
+            "rpd_counts": dict(self._rpd_counts),
+            "daily_token_counts": dict(self._daily_token_counts),
+            "day_reset_at": self._day_reset_at,
+        }
+
+    def restore_state(self, state: dict) -> None:
+        """Restore budget state from persistence (HAZ-012 mitigation).
+
+        Only restores daily counters if the persisted reset boundary has not
+        passed (i.e., we are still within the same UTC day). If the boundary
+        has passed, counters start fresh.
+        """
+        assert isinstance(state, dict), "state must be a dict"
+        persisted_reset = state.get("day_reset_at", 0.0)
+        now = time.time()
+
+        if now >= persisted_reset:
+            # Day boundary passed since save -- start fresh
+            logger.info("budget_state_stale_skipping_restore")
+            return
+
+        self._day_reset_at = persisted_reset
+        rpd = state.get("rpd_counts", {})
+        for provider_name, count in rpd.items():
+            self._rpd_counts[provider_name] = count
+        dtc = state.get("daily_token_counts", {})
+        for provider_name, count in dtc.items():
+            self._daily_token_counts[provider_name] = count
+        logger.info(
+            "budget_state_restored",
+            providers_restored=len(rpd),
+        )

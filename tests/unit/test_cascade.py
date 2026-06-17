@@ -18,6 +18,8 @@ from dragonlight_router.dispatch.cascade import (
     DispatchContext,
     _apply_degraded_penalty,
     _build_messages,
+    _filter_by_trust_floor,
+    _run_cascade,
     _run_cbr_stage,
     _run_lbr_stage,
     route,
@@ -258,3 +260,94 @@ class TestBuildMessages:
 
         user_msg = next(m for m in messages if m["role"] == "user")
         assert user_msg["content"] == "fallback text"
+
+
+# ---------------------------------------------------------------------------
+# HAZ-001 — _filter_by_trust_floor context trust tier enforcement
+# ---------------------------------------------------------------------------
+
+class TestFilterByTrustFloor:
+    """HAZ-001 mitigation: context_trust_tier enforcement in cascade."""
+
+    def test_none_trust_tier_passes_all(self, make_backend_config):
+        """[TM-004 AC-6] None context_trust_tier passes all candidates through."""
+        simple = make_backend_config(name="s1", tier=BackendTier.SIMPLE)
+        complex_ = make_backend_config(name="c1", tier=BackendTier.COMPLEX)
+        result = _filter_by_trust_floor([simple, complex_], None)
+        assert len(result) == 2
+
+    def test_trusted_floor_filters_simple(self, make_backend_config):
+        """[TM-004 AC-6] 'trusted' floor removes SIMPLE/MODERATE backends (semi_trusted)."""
+        simple = make_backend_config(name="s1", tier=BackendTier.SIMPLE)
+        complex_ = make_backend_config(name="c1", tier=BackendTier.COMPLEX)
+        result = _filter_by_trust_floor([simple, complex_], "trusted")
+        assert len(result) == 1
+        assert result[0].name == "c1"
+
+    def test_trusted_floor_keeps_local(self, make_backend_config):
+        """[TM-004 AC-6] 'trusted' floor keeps LOCAL backends (LOCAL rank >= trusted)."""
+        local = make_backend_config(name="l1", tier=BackendTier.LOCAL)
+        complex_ = make_backend_config(name="c1", tier=BackendTier.COMPLEX)
+        result = _filter_by_trust_floor([local, complex_], "trusted")
+        assert len(result) == 2
+
+    def test_semi_trusted_floor_filters_nothing(self, make_backend_config):
+        """[TM-004 AC-6] 'semi_trusted' floor keeps SIMPLE, MODERATE, COMPLEX, LOCAL."""
+        simple = make_backend_config(name="s1", tier=BackendTier.SIMPLE)
+        moderate = make_backend_config(name="m1", tier=BackendTier.MODERATE)
+        complex_ = make_backend_config(name="c1", tier=BackendTier.COMPLEX)
+        local = make_backend_config(name="l1", tier=BackendTier.LOCAL)
+        result = _filter_by_trust_floor(
+            [simple, moderate, complex_, local], "semi_trusted",
+        )
+        assert len(result) == 4
+
+    def test_local_floor_keeps_only_local(self, make_backend_config):
+        """[TM-004 AC-6] 'local' floor keeps only LOCAL backends."""
+        simple = make_backend_config(name="s1", tier=BackendTier.SIMPLE)
+        local = make_backend_config(name="l1", tier=BackendTier.LOCAL)
+        result = _filter_by_trust_floor([simple, local], "local")
+        assert len(result) == 1
+        assert result[0].name == "l1"
+
+    def test_unknown_trust_tier_passes_all(self, make_backend_config):
+        """[TM-004 AC-6] Unknown context_trust_tier string passes all candidates."""
+        simple = make_backend_config(name="s1", tier=BackendTier.SIMPLE)
+        result = _filter_by_trust_floor([simple], "bogus_tier")
+        assert len(result) == 1
+
+    def test_untrusted_floor_passes_all(self, make_backend_config):
+        """[TM-004 AC-6] 'untrusted' floor passes all backends (lowest rank)."""
+        simple = make_backend_config(name="s1", tier=BackendTier.SIMPLE)
+        result = _filter_by_trust_floor([simple], "untrusted")
+        assert len(result) == 1
+
+    def test_case_insensitive(self, make_backend_config):
+        """[TM-004 AC-6] Trust tier string is case-insensitive."""
+        complex_ = make_backend_config(name="c1", tier=BackendTier.COMPLEX)
+        simple = make_backend_config(name="s1", tier=BackendTier.SIMPLE)
+        result = _filter_by_trust_floor([complex_, simple], "TRUSTED")
+        assert len(result) == 1
+        assert result[0].name == "c1"
+
+    def test_empty_candidates_returns_empty(self):
+        """[TM-004 AC-6] Empty candidate list returns empty."""
+        result = _filter_by_trust_floor([], "trusted")
+        assert result == []
+
+    def test_cascade_returns_err_when_trust_floor_removes_all(self, make_backend_config):
+        """[TM-004 AC-6] _run_cascade returns Err when trust floor filters all candidates."""
+        simple = make_backend_config(name="s1", tier=BackendTier.SIMPLE)
+        order = _make_order(context_trust_tier="local")
+        ctx = _make_ctx()
+
+        with patch(
+            "dragonlight_router.dispatch.cascade._run_mbr_stage",
+            return_value=Ok([simple]),
+        ):
+            result = _run_cascade(order, ctx)
+
+        assert result.is_err()
+        from dragonlight_router.selection.mbr import MBRNoCandidatesError
+        assert isinstance(result.error, MBRNoCandidatesError)
+        assert "context_trust_tier" in str(result.error)

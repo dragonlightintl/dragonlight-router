@@ -88,3 +88,37 @@ class CircuitBreaker:
         if len(self._error_timestamps) >= self._error_threshold:
             self._state = CircuitState.OPEN
             self._opened_at = now
+
+    def get_state(self) -> dict:
+        """Export circuit breaker state for persistence (HAZ-012).
+
+        Returns the state name, opened_at timestamp, and error timestamps
+        so OPEN circuit breakers survive process restarts.
+        """
+        return {
+            "state": self._state.value,
+            "opened_at": self._opened_at,
+            "error_timestamps": list(self._error_timestamps),
+        }
+
+    def restore_state(self, state: dict) -> None:
+        """Restore circuit breaker state from persistence (HAZ-012).
+
+        Only restores OPEN state -- CLOSED and HALF_OPEN start fresh.
+        Error timestamps are pruned to the current window.
+        """
+        assert isinstance(state, dict), "state must be a dict"
+        saved_state_name = state.get("state", "closed")
+        if saved_state_name == CircuitState.OPEN.value:
+            opened_at = state.get("opened_at", 0.0)
+            now = time.time()
+            if now < opened_at + self._cooldown_s:
+                self._state = CircuitState.OPEN
+                self._opened_at = opened_at
+            else:
+                self._state = CircuitState.HALF_OPEN
+
+        saved_timestamps = state.get("error_timestamps", [])
+        now = time.time()
+        cutoff = now - self._error_window_s
+        self._error_timestamps = [t for t in saved_timestamps if t >= cutoff]

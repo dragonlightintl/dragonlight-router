@@ -47,8 +47,8 @@ This register uses FMEA methodology adapted for LLM routing infrastructure. Each
 | **Severity** | Critical |
 | **Likelihood** | Medium |
 | **Risk Score** | **HIGH** |
-| **Current Mitigation** | `context_filter.py` implements a four-tier dispatch (`TRUSTED`, `SEMI_TRUSTED`, `UNTRUSTED`, `LOCAL`) with field-level redaction: SEMI_TRUSTED strips behavioral rules and redacts persona fields; UNTRUSTED returns task-only context. `cascade.py` maps each `BackendTier` to a `ProviderTrustTier` via `_tier_to_provider_trust()`. Unknown tiers default to `UNTRUSTED`. |
-| **Residual Risk** | The `context_trust_tier` field on `DispatchOrder` is accepted but not used in routing decisions -- a caller requesting elevated trust enforcement gets no guarantee. The tier mapping is hardcoded with no runtime validation that the mapping matches the actual provider's data handling agreement. If a new `BackendTier` is added without updating the mapping, the `dict.get()` fallback to `UNTRUSTED` is safe, but the silent default could mask a configuration error. SEMI_TRUSTED filtering uses string-match-based field exclusion (`"behavioral_rules"`) which is brittle if context field names change. |
+| **Current Mitigation** | `context_filter.py` implements a four-tier dispatch (`TRUSTED`, `SEMI_TRUSTED`, `UNTRUSTED`, `LOCAL`) with field-level redaction: SEMI_TRUSTED strips behavioral rules and redacts persona fields; UNTRUSTED returns task-only context. `cascade.py` maps each `BackendTier` to a `ProviderTrustTier` via `_tier_to_provider_trust()`. Unknown tiers default to `UNTRUSTED`. **v0.2.3:** `_filter_by_trust_floor()` in `cascade.py` now enforces `context_trust_tier` from `DispatchOrder` as a minimum floor — backends whose provider trust rank is below the caller's requested floor are removed before CBR/LBR scoring. 9 unit tests verify enforcement across all tier combinations. |
+| **Residual Risk** | The tier mapping is hardcoded with no runtime validation that the mapping matches the actual provider's data handling agreement. If a new `BackendTier` is added without updating the mapping, the `dict.get()` fallback to `UNTRUSTED` is safe, but the silent default could mask a configuration error. SEMI_TRUSTED filtering uses string-match-based field exclusion (`"behavioral_rules"`) which is brittle if context field names change. |
 | **Owner** | `selection/context_filter.py`, `dispatch/cascade.py` |
 
 ---
@@ -63,8 +63,8 @@ This register uses FMEA methodology adapted for LLM routing infrastructure. Each
 | **Severity** | High |
 | **Likelihood** | Medium |
 | **Risk Score** | **HIGH** |
-| **Current Mitigation** | The CBR stage in `dispatch/cascade.py` calls `_compute_aggregate_spend()` and `filter_by_cost()` which check budget scores before dispatch. The cost governor in `selection/scoring.py` shifts scoring weights when daily or monthly thresholds are crossed (70% cost weight). Budget state is persisted atomically via `budget/persistence.py` (tmp-rename pattern). |
-| **Residual Risk** | All budget checks are non-atomic check-then-act. No mutex or semaphore protects the check-dispatch-record sequence. Under concurrent load, N requests can all pass budget checks before any records spend. The `monthly_spend_usd()` method extrapolates from daily spend (daily * 30), which compounds estimation error. The daily reset boundary (`_maybe_reset_daily()`) clears all counters atomically at UTC midnight, creating a brief window where a burst of requests could all pass against a fresh zero-spend state. |
+| **Current Mitigation** | The CBR stage in `dispatch/cascade.py` calls `_compute_aggregate_spend()` and `filter_by_cost()` which check budget scores before dispatch. The cost governor in `selection/scoring.py` shifts scoring weights when daily or monthly thresholds are crossed (70% cost weight). Budget state is persisted atomically via `budget/persistence.py` (tmp-rename pattern). **v0.2.3:** `BudgetTracker` now has an `asyncio.Lock` and `check_and_reserve()` method that atomically checks capacity and records spend under the lock. 4 unit tests including a concurrent race prevention test verifying that capacity limits are not exceeded under parallel dispatch. |
+| **Residual Risk** | The `monthly_spend_usd()` method extrapolates from daily spend (daily * 30), which compounds estimation error. The daily reset boundary (`_maybe_reset_daily()`) clears all counters atomically at UTC midnight, creating a brief window where a burst of requests could all pass against a fresh zero-spend state. The lock is per-process — multi-process deployments (e.g., multiple uvicorn workers) still have no cross-process coordination. |
 | **Owner** | `budget/tracker.py`, `dispatch/cascade.py` |
 
 ---
@@ -111,8 +111,8 @@ This register uses FMEA methodology adapted for LLM routing infrastructure. Each
 | **Severity** | High |
 | **Likelihood** | Medium |
 | **Risk Score** | **HIGH** |
-| **Current Mitigation** | `BudgetTracker` tracks RPM via sliding window (60s), RPD via daily counter, TPM via sliding window, and daily token cap. `has_capacity()` checks all four dimensions. LBR in `selection/lbr.py` filters candidates by median budget score. The server's `RateLimitMiddleware` in `server/middleware.py` enforces per-IP inbound rate limiting (token bucket, default 60 req/min). Budget state is persisted to disk via `budget/persistence.py`. |
-| **Residual Risk** | Budget tracking is in-memory and resets on restart -- a process crash and restart clears all sliding windows, allowing immediate burst against providers that were near their limits. The LBR median-threshold approach does not enforce hard per-provider limits (a provider at 10% remaining capacity still routes if it is above median). The `_tpm_remaining()` calculation relies on estimated token counts (message length / 4), not actual provider-reported usage. Provider-side rate limits may differ from configured limits if the provider changes them without config update. The `_maybe_reset_daily()` boundary creates a step-function reset at UTC midnight. |
+| **Current Mitigation** | `BudgetTracker` tracks RPM via sliding window (60s), RPD via daily counter, TPM via sliding window, and daily token cap. `has_capacity()` checks all four dimensions. LBR in `selection/lbr.py` filters candidates by median budget score. The server's `RateLimitMiddleware` in `server/middleware.py` enforces per-IP inbound rate limiting (token bucket, default 60 req/min). Budget state is persisted to disk via `budget/persistence.py`. **v0.2.3:** LBR now applies a hard `_hard_capacity_gate()` before median filtering: providers where `has_capacity()` returns False are removed entirely, regardless of median score. LOCAL tier bypasses this gate. 5 unit tests. Daily counters persist across restarts (HAZ-012). |
+| **Residual Risk** | Sliding windows (RPM/TPM) are in-memory and reset on restart — a process crash and restart clears sub-minute state. The `_tpm_remaining()` calculation relies on estimated token counts (message length / 4), not actual provider-reported usage. Provider-side rate limits may differ from configured limits if the provider changes them without config update. The `_maybe_reset_daily()` boundary creates a step-function reset at UTC midnight. |
 | **Owner** | `budget/tracker.py`, `selection/lbr.py`, `server/middleware.py` |
 
 ---
@@ -223,8 +223,8 @@ This register uses FMEA methodology adapted for LLM routing infrastructure. Each
 | **Severity** | High |
 | **Likelihood** | Medium |
 | **Risk Score** | **HIGH** |
-| **Current Mitigation** | `budget/persistence.py` provides `save_budget_state()` and `load_budget_state()` with atomic write semantics (tmp-rename). `CatalogCache` in `catalog/cache.py` persists catalog state to disk with TTL-based expiration. Budget state persistence exists as infrastructure but is not visibly invoked from the dispatch pipeline or startup sequence in the code reviewed. |
-| **Residual Risk** | Circuit breaker state is not persisted -- all breakers start CLOSED on restart, allowing immediate routing to backends that were CIRCUIT_OPEN when the process died. Model retirements in `HealthTracker._retired` are in-memory only and lost on restart. The `_rpm_windows` and `_tpm_windows` sliding-window deques cannot be meaningfully serialized and restored (they represent time-series data that becomes stale immediately). EMA latency data (`_avg_latency`) is lost, causing the scoring function to start with no latency information. The budget persistence functions exist but the integration point (when state is saved, when it is restored) is not visible in the dispatch or server startup code. |
+| **Current Mitigation** | `budget/persistence.py` provides `save_budget_state()` and `load_budget_state()` with atomic write semantics (tmp-rename). `CatalogCache` in `catalog/cache.py` persists catalog state to disk with TTL-based expiration. **v0.2.3:** Budget state is now fully wired into the lifecycle: `RouterEngine._restore_budget_state()` loads daily counters at startup, `RouterEngine.save_state()` persists them at shutdown (called from server lifespan). `BudgetTracker.get_state()`/`restore_state()` serialize RPD counts, daily token counts, and day reset boundaries. `CircuitBreaker.get_state()`/`restore_state()` serialize OPEN state with cooldown tracking. 19 unit tests across all persistence touchpoints. |
+| **Residual Risk** | Sliding windows (RPM/TPM) are intentionally not persisted — they represent sub-minute time-series data that becomes stale immediately on restore. Model retirements in `HealthTracker._retired` are in-memory only and lost on restart. EMA latency data (`_avg_latency`) is lost, causing the scoring function to start with no latency information. Circuit breaker state persistence is implemented but not yet wired into HealthTracker save/restore (individual breakers are serializable but the HealthTracker does not invoke get_state/restore_state on its breaker collection). |
 | **Owner** | `budget/tracker.py`, `health/tracker.py`, `budget/persistence.py` |
 
 ---
@@ -263,28 +263,28 @@ This register uses FMEA methodology adapted for LLM routing infrastructure. Each
 
 ## Summary Matrix
 
-| ID | Category | Description (Short) | Severity | Likelihood | Risk Score |
-|----|----------|---------------------|----------|------------|------------|
-| HAZ-001 | Data | Context to wrong trust tier | Critical | Medium | **HIGH** |
-| HAZ-002 | Cost | Budget enforcement race condition | High | Medium | **HIGH** |
-| HAZ-003 | Availability | Cascade exhaustion | Critical | Low | **MEDIUM** |
-| HAZ-004 | Quality | Silent fallback to lower capability | Medium | High | **MEDIUM** |
-| HAZ-005 | Cost / Availability | Provider rate limit violation | High | Medium | **HIGH** |
-| HAZ-006 | Security | API key exposure in logs | Critical | Low | **MEDIUM** |
-| HAZ-007 | Security | Prompt injection affecting routing | High | Low | **MEDIUM** |
-| HAZ-008 | Quality / Availability | Stale catalog routing | Medium | Medium | **MEDIUM** |
-| HAZ-009 | Availability | Circuit breaker flapping | High | Low | **MEDIUM** |
-| HAZ-010 | Cost | Token count estimation inaccuracy | Medium | High | **MEDIUM** |
-| HAZ-011 | Security | Unauthenticated admin endpoints | Critical | Low | **MEDIUM** |
-| HAZ-012 | Availability / Cost | In-memory state loss on restart | High | Medium | **HIGH** |
-| HAZ-013 | Quality | Complexity estimation misrouting | Medium | Medium | **MEDIUM** |
-| HAZ-014 | Availability | Concurrent adapter state mutation | Medium | Medium | **MEDIUM** |
+| ID | Category | Description (Short) | Severity | Likelihood | Risk Score | Status |
+|----|----------|---------------------|----------|------------|------------|--------|
+| HAZ-001 | Data | Context to wrong trust tier | Critical | Medium | ~~HIGH~~ **MITIGATED** | Trust floor enforcement in cascade |
+| HAZ-002 | Cost | Budget enforcement race condition | High | Medium | ~~HIGH~~ **MITIGATED** | asyncio.Lock + check_and_reserve |
+| HAZ-003 | Availability | Cascade exhaustion | Critical | Low | **MEDIUM** | |
+| HAZ-004 | Quality | Silent fallback to lower capability | Medium | High | **MEDIUM** | |
+| HAZ-005 | Cost / Availability | Provider rate limit violation | High | Medium | ~~HIGH~~ **MITIGATED** | Hard capacity gate in LBR |
+| HAZ-006 | Security | API key exposure in logs | Critical | Low | **MEDIUM** | |
+| HAZ-007 | Security | Prompt injection affecting routing | High | Low | **MEDIUM** | |
+| HAZ-008 | Quality / Availability | Stale catalog routing | Medium | Medium | **MEDIUM** | |
+| HAZ-009 | Availability | Circuit breaker flapping | High | Low | **MEDIUM** | |
+| HAZ-010 | Cost | Token count estimation inaccuracy | Medium | High | **MEDIUM** | |
+| HAZ-011 | Security | Unauthenticated admin endpoints | Critical | Low | **MEDIUM** | |
+| HAZ-012 | Availability / Cost | In-memory state loss on restart | High | Medium | ~~HIGH~~ **MITIGATED** | Budget persistence at startup/shutdown |
+| HAZ-013 | Quality | Complexity estimation misrouting | Medium | Medium | **MEDIUM** | |
+| HAZ-014 | Availability | Concurrent adapter state mutation | Medium | Medium | **MEDIUM** | |
 
 ---
 
 ## Risk Distribution
 
-- **HIGH risk (require immediate mitigation planning):** HAZ-001, HAZ-002, HAZ-005, HAZ-012
+- **HIGH risk (all mitigated):** HAZ-001 (trust floor), HAZ-002 (async lock), HAZ-005 (capacity gate), HAZ-012 (state persistence)
 - **MEDIUM risk (require mitigation before production):** HAZ-003, HAZ-004, HAZ-006, HAZ-007, HAZ-008, HAZ-009, HAZ-010, HAZ-011, HAZ-013, HAZ-014
 - **LOW risk:** None identified
 
@@ -295,3 +295,4 @@ This register uses FMEA methodology adapted for LLM routing infrastructure. Each
 | Date | Author | Change |
 |------|--------|--------|
 | 2026-06-16 | QA Pipeline | Initial FMEA hazard register created (QA-026 finding) |
+| 2026-06-17 | GOIBNIU + LUGH | Mitigated all 4 HIGH-risk items: HAZ-001 (trust floor), HAZ-002 (async lock), HAZ-005 (capacity gate), HAZ-012 (state persistence). 37 new tests, 805 total, 100% coverage. |

@@ -274,6 +274,85 @@ def test_collect_provider_scores_deduplicates_same_provider():
     budget_tracker.score.assert_called_once_with("shared_prov")
 
 
+class TestHardCapacityGate:
+    """HAZ-005 mitigation: hard has_capacity gate before median filtering."""
+
+    def test_removes_no_capacity_provider(self):
+        """[TM-003 AC-7] Provider with no remaining capacity is removed by hard gate."""
+        from dragonlight_router.selection.lbr import _hard_capacity_gate
+        config_a = _make_backend_config(name="a", provider="exhausted_prov")
+        config_b = _make_backend_config(name="b", provider="healthy_prov")
+        budget_tracker = Mock(spec=BudgetTracker)
+        budget_tracker.has_capacity.side_effect = lambda p: p != "exhausted_prov"
+        result = _hard_capacity_gate([config_a, config_b], budget_tracker)
+        assert len(result) == 1
+        assert result[0].name == "b"
+
+    def test_local_bypasses_capacity_gate(self):
+        """[TM-003 AC-7] LOCAL tier bypasses the hard capacity gate."""
+        from dragonlight_router.selection.lbr import _hard_capacity_gate
+        local = _make_backend_config(
+            name="local-llm", provider="local_prov", tier=BackendTier.LOCAL,
+        )
+        budget_tracker = Mock(spec=BudgetTracker)
+        budget_tracker.has_capacity.return_value = False
+        result = _hard_capacity_gate([local], budget_tracker)
+        assert len(result) == 1
+        assert result[0].name == "local-llm"
+
+    def test_all_exhausted_returns_empty(self):
+        """[TM-003 AC-7] All providers exhausted returns empty list."""
+        from dragonlight_router.selection.lbr import _hard_capacity_gate
+        config_a = _make_backend_config(name="a", provider="prov_a")
+        config_b = _make_backend_config(name="b", provider="prov_b")
+        budget_tracker = Mock(spec=BudgetTracker)
+        budget_tracker.has_capacity.return_value = False
+        result = _hard_capacity_gate([config_a, config_b], budget_tracker)
+        assert result == []
+
+    def test_filter_by_rate_limit_uses_hard_gate(self):
+        """[TM-003 AC-7] filter_by_rate_limit removes exhausted providers before median scoring."""
+        config_ok = _make_backend_config(name="ok", provider="good_prov")
+        config_bad = _make_backend_config(name="bad", provider="exhausted_prov")
+        order = DispatchOrder(
+            intent_category="test",
+            specific_intent="test",
+            operator_message="test",
+            system_prompt="",
+            context_tokens=0,
+            requires_tool_use=False,
+            requires_long_context=False,
+        )
+        budget_tracker = Mock(spec=BudgetTracker)
+
+        def has_capacity_side(p):
+            return p != "exhausted_prov"
+
+        budget_tracker.has_capacity.side_effect = has_capacity_side
+        budget_tracker.score.return_value = Ok(80.0)
+
+        result = filter_by_rate_limit([config_ok, config_bad], order, budget_tracker)
+        assert len(result) == 1
+        assert result[0].name == "ok"
+
+    def test_filter_by_rate_limit_all_removed_by_gate(self):
+        """[TM-003 AC-7] All candidates removed by hard gate returns empty list."""
+        config = _make_backend_config(name="a", provider="prov")
+        order = DispatchOrder(
+            intent_category="test",
+            specific_intent="test",
+            operator_message="test",
+            system_prompt="",
+            context_tokens=0,
+            requires_tool_use=False,
+            requires_long_context=False,
+        )
+        budget_tracker = Mock(spec=BudgetTracker)
+        budget_tracker.has_capacity.return_value = False
+        result = filter_by_rate_limit([config], order, budget_tracker)
+        assert result == []
+
+
 def test_filter_by_rate_limit_guard_clauses():
     """[TM-003 AC-5] Guard clauses should raise AssertionError on invalid types."""
     # candidates not a list

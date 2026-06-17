@@ -32,6 +32,23 @@ logger = structlog.get_logger(__name__)
 # Penalty multiplier applied to scores of DEGRADED backends (0.5 = halve the score).
 _DEGRADED_SCORE_PENALTY = 0.5
 
+# Mapping from caller-specified trust tier strings to ProviderTrustTier ordering.
+# Higher numeric value = more restrictive trust requirement.
+_TRUST_TIER_RANK: dict[str, int] = {
+    "untrusted": 0,
+    "semi_trusted": 1,
+    "trusted": 2,
+    "local": 3,
+}
+
+# Reverse mapping from ProviderTrustTier enum to rank for comparison.
+_PROVIDER_TRUST_RANK: dict[ProviderTrustTier, int] = {
+    ProviderTrustTier.UNTRUSTED: 0,
+    ProviderTrustTier.SEMI_TRUSTED: 1,
+    ProviderTrustTier.TRUSTED: 2,
+    ProviderTrustTier.LOCAL: 3,
+}
+
 
 @dataclass(frozen=True)
 class DispatchContext:
@@ -196,11 +213,50 @@ def _run_lbr_stage(
     return Ok(lbr_candidates)
 
 
+def _filter_by_trust_floor(
+    candidates: list[BackendConfig],
+    context_trust_tier: str | None,
+) -> list[BackendConfig]:
+    """Filter candidates whose provider trust is below the caller-specified floor.
+
+    HAZ-001 mitigation: If the DispatchOrder specifies a context_trust_tier,
+    only backends whose provider trust rank meets or exceeds the requested
+    floor are retained. When no trust tier is specified, all candidates pass.
+    """
+    if context_trust_tier is None:
+        return candidates
+
+    floor_rank = _TRUST_TIER_RANK.get(context_trust_tier.lower())
+    if floor_rank is None:
+        logger.warning(
+            "unknown_context_trust_tier",
+            context_trust_tier=context_trust_tier,
+        )
+        return candidates
+
+    filtered = []
+    for candidate in candidates:
+        provider_trust = _tier_to_provider_trust(candidate.tier)
+        provider_rank = _PROVIDER_TRUST_RANK.get(provider_trust, 0)
+        if provider_rank >= floor_rank:
+            filtered.append(candidate)
+        else:
+            logger.debug(
+                "candidate_filtered_by_trust_floor",
+                backend=candidate.name,
+                provider_trust=provider_trust.name,
+                required_floor=context_trust_tier,
+            )
+
+    assert len(filtered) <= len(candidates), "trust filter must not add candidates"
+    return filtered
+
+
 def _run_cascade(
     order: DispatchOrder,
     ctx: DispatchContext,
 ) -> Result[list[BackendConfig], Exception]:
-    """Run MBR -> CBR -> LBR cascade and return the full ranked candidate list.
+    """Run MBR -> trust floor -> CBR -> LBR cascade and return the full ranked candidate list.
 
     Unlike route(), this returns ALL surviving candidates so dispatch() can
     implement fallback across the ranked list.
@@ -218,7 +274,16 @@ def _run_cascade(
     if mbr_result.is_err():
         return mbr_result
 
-    cbr_result = _run_cbr_stage(order, mbr_result.value, ctx)
+    # HAZ-001: Enforce caller-specified trust floor before cost/rate scoring
+    trust_filtered = _filter_by_trust_floor(
+        mbr_result.value, order.context_trust_tier,
+    )
+    if not trust_filtered:
+        return Err(MBRNoCandidatesError(
+            "No candidates meet the requested context_trust_tier floor"
+        ))
+
+    cbr_result = _run_cbr_stage(order, trust_filtered, ctx)
     if cbr_result.is_err():
         return cbr_result
 

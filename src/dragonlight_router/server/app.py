@@ -56,6 +56,11 @@ def create_app(config_path: Path | None = None, **overrides: Any) -> Starlette:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+            # HAZ-012: Persist budget state on shutdown
+            try:
+                engine.save_state()
+            except (OSError, ValueError, TypeError) as exc:
+                _lifespan_logger.warning("shutdown_state_save_failed", error=str(exc))
 
     routes = [
         Route("/v1/select", select_handler, methods=["POST"]),

@@ -659,6 +659,48 @@ class TestLifespan:
                 response = client.get("/v1/health")
                 assert response.status_code == 200
 
+    def test_lifespan_saves_state_on_shutdown(self, tmp_path: Path):
+        """[TM-009 AC-10] HAZ-012: Lifespan calls save_state on shutdown."""
+        config_path = _setup_test_env(tmp_path)
+
+        async def _instant_loop(self_engine):
+            pass
+
+        with patch(
+            "dragonlight_router.router.RouterEngine._async_refresh_catalog",
+            new=AsyncMock(),
+        ), patch(
+            "dragonlight_router.router.RouterEngine.start_health_check_loop",
+            new=_instant_loop,
+        ):
+            app = create_app(config_path=config_path)
+            engine = app.state.engine
+            with patch.object(engine, "save_state") as mock_save:
+                with TestClient(app):
+                    pass  # enter and exit triggers lifespan shutdown
+            mock_save.assert_called_once()
+
+    def test_lifespan_shutdown_save_error_does_not_crash(self, tmp_path: Path):
+        """[TM-009 AC-10] HAZ-012: save_state failure at shutdown does not crash the server."""
+        config_path = _setup_test_env(tmp_path)
+
+        async def _instant_loop(self_engine):
+            pass
+
+        with patch(
+            "dragonlight_router.router.RouterEngine._async_refresh_catalog",
+            new=AsyncMock(),
+        ), patch(
+            "dragonlight_router.router.RouterEngine.start_health_check_loop",
+            new=_instant_loop,
+        ):
+            app = create_app(config_path=config_path)
+            engine = app.state.engine
+            with patch.object(engine, "save_state", side_effect=OSError("disk full")):
+                # Should not raise even though save_state fails
+                with TestClient(app):
+                    pass
+
 
 class TestMain:
     def test_main_uses_default_host_and_port(self, tmp_path: Path):

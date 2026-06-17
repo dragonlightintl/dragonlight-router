@@ -482,6 +482,100 @@ class TestRpdRemainingEdgeCases:
         assert result == 0
 
 
+class TestCheckAndReserve:
+    """HAZ-002: Atomic check-then-reserve under async lock."""
+
+    @pytest.mark.asyncio
+    async def test_check_and_reserve_succeeds_with_capacity(self):
+        """[TM-012 AC-4] check_and_reserve returns True when capacity is available."""
+        bt = BudgetTracker(providers=[_provider("groq", rpm=10, rpd=1000)])
+        result = await bt.check_and_reserve("groq", estimated_tokens=100)
+        assert result is True
+        # Verify the request was recorded
+        assert bt._rpd_counts["groq"] == 1
+
+    @pytest.mark.asyncio
+    async def test_check_and_reserve_fails_without_capacity(self):
+        """[TM-012 AC-4] check_and_reserve returns False when RPM is exhausted."""
+        bt = BudgetTracker(providers=[_provider("groq", rpm=2, rpd=1000)])
+        bt.record_request("groq")
+        bt.record_request("groq")
+        result = await bt.check_and_reserve("groq", estimated_tokens=100)
+        assert result is False
+        # Verify no additional request was recorded
+        assert bt._rpd_counts["groq"] == 2
+
+    @pytest.mark.asyncio
+    async def test_check_and_reserve_prevents_race_condition(self):
+        """[TM-012 AC-4] Concurrent check_and_reserve calls do not exceed capacity."""
+        import asyncio
+        bt = BudgetTracker(providers=[_provider("groq", rpm=3, rpd=100000)])
+        # Launch 10 concurrent reserve attempts, only 3 should succeed
+        results = await asyncio.gather(
+            *[bt.check_and_reserve("groq", estimated_tokens=1) for _ in range(10)]
+        )
+        successes = sum(1 for r in results if r is True)
+        assert successes == 3
+
+    @pytest.mark.asyncio
+    async def test_check_and_reserve_unknown_provider(self):
+        """[TM-012 AC-4] check_and_reserve returns True for unknown provider (default capacity)."""
+        bt = BudgetTracker(providers=[])
+        result = await bt.check_and_reserve("unknown", estimated_tokens=50)
+        assert result is True
+
+
+class TestGetAndRestoreState:
+    """HAZ-012: Budget state serialization and restoration."""
+
+    def test_get_state_returns_daily_counters(self):
+        """[TM-012 AC-9] get_state includes rpd_counts, daily_token_counts, and day_reset_at."""
+        bt = BudgetTracker(providers=[_provider("groq", rpm=100, rpd=1000, daily_token_cap=10000)])
+        bt.record_request("groq", tokens_used=500)
+        bt.record_request("groq", tokens_used=300)
+        state = bt.get_state()
+        assert state["rpd_counts"]["groq"] == 2
+        assert state["daily_token_counts"]["groq"] == 800
+        assert "day_reset_at" in state
+        assert state["day_reset_at"] > time.time()
+
+    def test_restore_state_reloads_counters(self):
+        """[TM-012 AC-9] restore_state reloads daily counters from persisted state."""
+        bt = BudgetTracker(providers=[_provider("groq", rpm=100, rpd=1000, daily_token_cap=10000)])
+        state = {
+            "rpd_counts": {"groq": 5},
+            "daily_token_counts": {"groq": 2000},
+            "day_reset_at": time.time() + 3600,  # 1 hour in the future
+        }
+        bt.restore_state(state)
+        assert bt._rpd_counts["groq"] == 5
+        assert bt._daily_token_counts["groq"] == 2000
+
+    def test_restore_state_skips_stale_data(self):
+        """[TM-012 AC-9] restore_state ignores state whose reset boundary has passed."""
+        bt = BudgetTracker(providers=[_provider("groq", rpm=100, rpd=1000)])
+        state = {
+            "rpd_counts": {"groq": 99},
+            "daily_token_counts": {"groq": 9999},
+            "day_reset_at": time.time() - 100,  # already passed
+        }
+        bt.restore_state(state)
+        # Should NOT have restored the stale counters
+        assert bt._rpd_counts["groq"] == 0
+
+    def test_round_trip_get_restore(self):
+        """[TM-012 AC-9] get_state -> restore_state preserves counters."""
+        bt1 = BudgetTracker(providers=[_provider("groq", rpm=100, rpd=1000, daily_token_cap=10000)])
+        bt1.record_request("groq", tokens_used=750)
+        bt1.record_request("groq", tokens_used=250)
+        state = bt1.get_state()
+
+        bt2 = BudgetTracker(providers=[_provider("groq", rpm=100, rpd=1000, daily_token_cap=10000)])
+        bt2.restore_state(state)
+        assert bt2._rpd_counts["groq"] == 2
+        assert bt2._daily_token_counts["groq"] == 1000
+
+
 class TestPropertyTests:
     @given(
         rpm=st.integers(min_value=0, max_value=1000),

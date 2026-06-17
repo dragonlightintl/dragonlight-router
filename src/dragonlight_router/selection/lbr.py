@@ -13,15 +13,44 @@ from dragonlight_router.result import Err, Ok, Result
 logger = structlog.get_logger(__name__)
 
 
+def _hard_capacity_gate(
+    candidates: list[BackendConfig],
+    budget_tracker: BudgetTracker,
+) -> list[BackendConfig]:
+    """HAZ-005 mitigation: Hard has_capacity() gate before median filtering.
+
+    Removes candidates whose provider has zero remaining capacity (RPM, RPD,
+    TPM, or daily token cap exhausted). LOCAL tier backends bypass this gate.
+    This prevents routing to providers that are definitively over their limits,
+    regardless of the softer median-threshold filter that follows.
+    """
+    filtered = []
+    for candidate in candidates:
+        if candidate.tier == BackendTier.LOCAL:
+            filtered.append(candidate)
+            continue
+        if budget_tracker.has_capacity(candidate.provider):
+            filtered.append(candidate)
+        else:
+            logger.debug(
+                "candidate_removed_no_capacity",
+                backend=candidate.name,
+                provider=candidate.provider,
+            )
+    assert len(filtered) <= len(candidates), "capacity gate must not add candidates"
+    return filtered
+
+
 def filter_by_rate_limit(
     candidates: list[BackendConfig],
     order: DispatchOrder,
     budget_tracker: BudgetTracker,
 ) -> list[BackendConfig]:
-    """Filter candidates by rate-limit budget using a median-score threshold.
+    """Filter candidates by rate-limit budget using hard gate + median-score threshold.
 
-    Retains candidates whose provider score is >= the median. LOCAL tier
-    backends bypass filtering. Zero-median passes all candidates.
+    First applies a hard has_capacity() gate (HAZ-005) to remove providers
+    with zero remaining capacity. Then retains candidates whose provider
+    score is >= the median. LOCAL tier backends bypass both filters.
     """
     assert isinstance(candidates, list), "candidates must be a list"
     assert all(isinstance(c, BackendConfig) for c in candidates), "all candidates must be BackendConfig instances"
@@ -34,11 +63,17 @@ def filter_by_rate_limit(
         logger.debug("no candidates, returning as-is")
         return candidates
 
-    provider_scores = _collect_provider_scores(candidates, budget_tracker)
-    median = _compute_median(candidates, provider_scores)
+    # HAZ-005: Hard gate — remove providers with zero capacity
+    capacity_filtered = _hard_capacity_gate(candidates, budget_tracker)
+    if not capacity_filtered:
+        logger.debug("all candidates removed by hard capacity gate")
+        return []
+
+    provider_scores = _collect_provider_scores(capacity_filtered, budget_tracker)
+    median = _compute_median(capacity_filtered, provider_scores)
     logger.debug("rate-limit score median computed", median=median, provider_scores=provider_scores)
 
-    filtered = _apply_median_threshold(candidates, provider_scores, median)
+    filtered = _apply_median_threshold(capacity_filtered, provider_scores, median)
     logger.debug("rate-limit filtering complete", original_count=len(candidates), filtered_count=len(filtered))
 
     assert len(filtered) <= len(candidates), "filtered count must not exceed original"

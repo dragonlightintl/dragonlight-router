@@ -2,23 +2,37 @@
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import AsyncIterator
-from typing import Dict, Any
+
+import httpx
+import structlog
 
 from dragonlight_router.core.types import (
-    GenerativeBackend,
     BackendConfig,
     BackendStatus,
+    GenerativeBackend,
 )
+
+logger = structlog.get_logger()
 
 
 class AnthropicBackend(GenerativeBackend):
-    """Anthropic backend adapter."""
+    """Anthropic backend adapter using the Messages API with SSE streaming."""
 
-    def __init__(self, config: BackendConfig) -> None:
+    _ANTHROPIC_VERSION = "2023-06-01"
+
+    def __init__(
+        self,
+        config: BackendConfig,
+        *,
+        _transport: httpx.BaseTransport | None = None,
+    ) -> None:
         self._config = config
+        self._api_key = os.environ.get(config.env_key, "") if config.env_key else ""
         self._status = BackendStatus.AVAILABLE
+        self._transport = _transport
 
     @property
     def config(self) -> BackendConfig:
@@ -28,6 +42,49 @@ class AnthropicBackend(GenerativeBackend):
     def status(self) -> BackendStatus:
         return self._status
 
+    def _make_client(self, timeout: float) -> httpx.AsyncClient:
+        """Build an AsyncClient, optionally using an injected transport."""
+        kwargs: dict[str, object] = {"timeout": timeout}
+        if self._transport is not None:
+            kwargs["transport"] = self._transport
+        return httpx.AsyncClient(**kwargs)
+
+    def _build_headers(self) -> dict[str, str]:
+        """Build Anthropic-specific request headers."""
+        return {
+            "x-api-key": self._api_key,
+            "anthropic-version": self._ANTHROPIC_VERSION,
+            "Content-Type": "application/json",
+        }
+
+    def _build_payload(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        max_tokens: int,
+        temperature: float,
+        stream: bool,
+    ) -> dict[str, object]:
+        """Build the Messages API payload, extracting system messages."""
+        system_parts: list[str] = []
+        api_messages: list[dict[str, str]] = []
+        for msg in messages:
+            if msg.get("role") == "system":
+                system_parts.append(msg.get("content", ""))
+            else:
+                api_messages.append(msg)
+
+        payload: dict[str, object] = {
+            "model": self._config.model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": api_messages,
+            "stream": stream,
+        }
+        if system_parts:
+            payload["system"] = "\n\n".join(system_parts)
+        return payload
+
     async def generate(
         self,
         messages: list[dict[str, str]],
@@ -36,31 +93,139 @@ class AnthropicBackend(GenerativeBackend):
         temperature: float = 0.7,
         stream: bool = True,
     ) -> AsyncIterator[str]:
-        """Generate text using Anthropic's API (mocked for development)."""
-        # Mock implementation: yield a mock response without making actual API calls
-        if not self._config.env_key:
-            yield f"[Mock Anthropic] Error: API key not configured for backend {self._config.name}"
-            return
+        """Generate text using Anthropic's Messages API."""
+        assert isinstance(messages, list), "messages must be a list"
+        assert len(messages) > 0, "messages must not be empty"
 
-        api_key = os.getenv(self._config.env_key)
-        if not api_key:
-            yield f"[Mock Anthropic] Error: Environment variable {self._config.env_key} not set"
-            return
+        if not self._api_key:
+            self._status = BackendStatus.ERROR
+            raise ValueError(
+                f"anthropic: API key not configured (env: {self._config.env_key})"
+            )
 
-        # Simulate a mock response based on the first user message
-        user_message = ""
-        for msg in messages:
-            if msg.get("role") == "user":
-                user_message = msg.get("content", "")
-                break
+        base_url = (
+            self._config.base_url.rstrip("/")
+            if self._config.base_url
+            else "https://api.anthropic.com"
+        )
+        url = f"{base_url}/v1/messages"
+        headers = self._build_headers()
+        payload = self._build_payload(
+            messages, max_tokens=max_tokens, temperature=temperature, stream=stream,
+        )
 
-        mock_response = f"[Mock Anthropic {self._config.model}] Response to: {user_message[:50]}..."
-        yield mock_response
+        async with self._make_client(timeout=30.0) as client:
+            try:
+                if stream:
+                    async for chunk in self._stream_generate(client, url, headers, payload):
+                        yield chunk
+                else:
+                    async for chunk in self._non_stream_generate(client, url, headers, payload):
+                        yield chunk
+            except httpx.HTTPStatusError as e:
+                self._status = BackendStatus.ERROR
+                raise RuntimeError(f"Anthropic API error: {e}") from e
+            except (httpx.ConnectError, httpx.TimeoutException) as e:
+                self._status = BackendStatus.ERROR
+                raise RuntimeError(f"Anthropic connection failed: {e}") from e
+            except RuntimeError:
+                raise
+            except (json.JSONDecodeError, KeyError, ValueError) as e:
+                self._status = BackendStatus.ERROR
+                raise RuntimeError(f"Anthropic request failed: {e}") from e
+
+    async def _stream_generate(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        headers: dict[str, str],
+        payload: dict[str, object],
+    ) -> AsyncIterator[str]:
+        """Parse Anthropic SSE stream and yield text chunks."""
+        async with client.stream(
+            "POST", url, headers=headers, json=payload, timeout=60.0,
+        ) as response:
+            response.raise_for_status()
+            event_type: str | None = None
+            async for line in response.aiter_lines():
+                if line.startswith("event: "):
+                    event_type = line[7:].strip()
+                    continue
+                if not line.startswith("data: "):
+                    continue
+                if event_type == "message_stop":
+                    break
+                if event_type == "content_block_delta":
+                    text = self._extract_delta_text(line[6:])
+                    if text:
+                        assert isinstance(text, str), "streamed text must be a string"
+                        yield text
+
+    def _extract_delta_text(self, data: str) -> str | None:
+        """Extract text from a content_block_delta SSE data payload."""
+        try:
+            chunk = json.loads(data)
+        except json.JSONDecodeError:
+            return None
+        delta = chunk.get("delta", {})
+        if delta.get("type") != "text_delta":
+            return None
+        return delta.get("text", "") or None
+
+    async def _non_stream_generate(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        headers: dict[str, str],
+        payload: dict[str, object],
+    ) -> AsyncIterator[str]:
+        """Handle non-streaming Anthropic response."""
+        response = await client.post(
+            url, headers=headers, json=payload, timeout=60.0,
+        )
+        response.raise_for_status()
+        response_data = response.json()
+        for block in response_data.get("content", []):
+            if block.get("type") == "text":
+                text = block.get("text", "")
+                if text:
+                    assert isinstance(text, str), "response text must be a string"
+                    yield text
 
     async def health_check(self) -> bool:
-        """Mock health check - always returns True for development."""
-        return True
+        """Check if the Anthropic API is reachable.
+
+        Sends a minimal messages request to verify connectivity and auth.
+        """
+        if not self._api_key:
+            self._status = BackendStatus.ERROR
+            return False
+
+        base_url = (
+            self._config.base_url.rstrip("/")
+            if self._config.base_url
+            else "https://api.anthropic.com"
+        )
+        url = f"{base_url}/v1/messages"
+        headers = self._build_headers()
+
+        payload: dict[str, object] = {
+            "model": self._config.model,
+            "max_tokens": 1,
+            "messages": [{"role": "user", "content": "ping"}],
+        }
+
+        async with self._make_client(timeout=10.0) as client:
+            try:
+                response = await client.post(url, headers=headers, json=payload)
+                if response.is_success:
+                    self._status = BackendStatus.AVAILABLE
+                    return True
+                self._status = BackendStatus.ERROR
+                return False
+            except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPError):
+                self._status = BackendStatus.ERROR
+                return False
 
     def record_usage(self, tokens_in: int, tokens_out: int) -> None:
-        """Mock usage recording - does nothing in development."""
-        pass
+        """Record token usage -- no-op until usage tracking is wired."""

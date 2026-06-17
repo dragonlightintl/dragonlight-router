@@ -6,6 +6,7 @@ Returns a unified catalog dict keyed by provider name.
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 import httpx
 import structlog
@@ -38,7 +39,7 @@ class CatalogRefresher:
 
         catalog: dict[str, list[CatalogEntry]] = {}
         for provider, result in zip(providers, results, strict=True):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 logger.warning(
                     "catalog_refresh_failed",
                     provider=provider.name,
@@ -67,7 +68,7 @@ class CatalogRefresher:
         return entries
 
     @staticmethod
-    def _parse_models(models: list[dict], provider: ProviderSchema) -> list[CatalogEntry]:
+    def _parse_models(models: list[dict[str, Any]], provider: ProviderSchema) -> list[CatalogEntry]:
         """Parse raw model dicts into CatalogEntry objects."""
         entries: list[CatalogEntry] = []
         for model in models:

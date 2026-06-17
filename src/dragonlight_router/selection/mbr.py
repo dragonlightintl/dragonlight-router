@@ -20,6 +20,13 @@ from dragonlight_router.core.types import (
 
 logger = structlog.get_logger(__name__)
 
+__all__ = [
+    "MBRNoCandidatesError",
+    "filter_by_capabilities",
+    "estimate_complexity",
+    "TIER_ORDER",
+]
+
 # Canonical tier ordering — index position defines rank (0 = lowest).
 TIER_ORDER: tuple[BackendTier, ...] = (BackendTier.LOCAL, BackendTier.SIMPLE, BackendTier.MODERATE, BackendTier.COMPLEX)
 _TIER_RANK = {tier: idx for idx, tier in enumerate(TIER_ORDER)}

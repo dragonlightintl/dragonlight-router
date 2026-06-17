@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 from dragonlight_router.budget.tracker import BudgetTracker
 from dragonlight_router.core.types import BackendConfig, DispatchOrder
@@ -128,7 +129,7 @@ class ScoringWeightsConfig:
     queue: float = 0.10
     health: float = 0.10
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate that weights sum to 1.0."""
         total = self.cost + self.latency + self.priority + self.queue + self.health
         assert abs(total - 1.0) < 1e-9, f"Weights must sum to 1.0, got {total}"
@@ -154,7 +155,7 @@ def normalize_rank(rank: int) -> float:
         Normalized score in [0.0, 1.0]
     """
     assert rank >= 1, f"Rank must be >= 1, got {rank}"
-    normalized = max(0.0, min(1.0, 2.0 ** (1 - rank / 10.0)))
+    normalized: float = max(0.0, min(1.0, 2.0 ** (1 - rank / 10.0)))
     assert 0.0 <= normalized <= 1.0, f"Normalized rank out of bounds: {normalized}"
     return normalized
 
@@ -354,7 +355,7 @@ def _apply_weights(normalized: _NormalizedScores, weights: ScoringWeightsConfig)
 def cost_governor_active(
     daily_spend: float,
     monthly_spend: float,
-    config: dict,
+    config: dict[str, Any],
 ) -> bool:
     """Check if cost governor should be active.
 
@@ -369,8 +370,8 @@ def cost_governor_active(
     assert isinstance(daily_spend, (int, float)), "daily_spend must be numeric"
     assert isinstance(monthly_spend, (int, float)), "monthly_spend must be numeric"
 
-    daily_threshold = config.get('cost_down_threshold_daily', 100.0)
-    monthly_threshold = config.get('cost_down_threshold_monthly', 1000.0)
+    daily_threshold: float = float(config.get('cost_down_threshold_daily', 100.0))
+    monthly_threshold: float = float(config.get('cost_down_threshold_monthly', 1000.0))
 
     return daily_spend >= daily_threshold or monthly_spend >= monthly_threshold
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from typing import Any
 
 import structlog
 
@@ -62,7 +63,7 @@ class DispatchContext:
     registry: BackendRegistry
     budget_tracker: BudgetTracker
     health_tracker: HealthTracker
-    config: dict
+    config: dict[str, Any]
 
 
 def _estimate_token_count(char_count: int) -> int:
@@ -153,12 +154,12 @@ def _run_mbr_stage(
     assert isinstance(ctx, DispatchContext), "ctx must be DispatchContext instance"
 
     mbr_result = filter_by_capabilities(ctx.registry, order)
-    if mbr_result.is_err():
+    if isinstance(mbr_result, Err):
         logger.debug("MBR stage failed", error=str(mbr_result.error))
-        return mbr_result
+        return Err(mbr_result.error)
 
     logger.debug("MBR stage complete", candidate_count=len(mbr_result.value))
-    return mbr_result
+    return Ok(mbr_result.value)
 
 
 def _run_cbr_stage(
@@ -308,7 +309,7 @@ def _run_cascade(
     )
 
     mbr_result = _run_mbr_stage(order, ctx)
-    if mbr_result.is_err():
+    if isinstance(mbr_result, Err):
         return mbr_result
 
     # HAZ-001: Enforce caller-specified trust floor before cost/rate scoring
@@ -321,7 +322,7 @@ def _run_cascade(
         ))
 
     cbr_result = _run_cbr_stage(order, trust_filtered, ctx)
-    if cbr_result.is_err():
+    if isinstance(cbr_result, Err):
         return cbr_result
 
     return _run_lbr_stage(order, cbr_result.value, ctx)
@@ -332,7 +333,7 @@ def route(
     registry: BackendRegistry,
     budget_tracker: BudgetTracker,
     health_tracker: HealthTracker,
-    config: dict,
+    config: dict[str, Any],
 ) -> Result[BackendConfig, Exception]:
     """Run the MBR -> CBR -> LBR cascade and return the selected BackendConfig.
 
@@ -357,7 +358,7 @@ def route(
         config=config,
     )
     cascade_result = _run_cascade(order, ctx)
-    if cascade_result.is_err():
+    if isinstance(cascade_result, Err):
         return cascade_result
 
     candidates = cascade_result.value
@@ -372,11 +373,11 @@ def route(
 
 def _build_dispatch_context(
     order: DispatchOrder,
-) -> dict:
+) -> dict[str, Any]:
     """Build the base context dict for context filtering from a DispatchOrder."""
     assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
 
-    base_context: dict = {}
+    base_context: dict[str, Any] = {}
     if order.system_prompt:
         base_context["system"] = {"prompt": order.system_prompt}
     base_context["task"] = order.operator_message
@@ -384,7 +385,7 @@ def _build_dispatch_context(
 
 
 def _build_messages(
-    filtered_context: dict,
+    filtered_context: dict[str, Any],
     fallback_message: str,
 ) -> list[dict[str, str]]:
     """Build the messages list from filtered context for adapter generation."""
@@ -404,7 +405,7 @@ def _build_messages(
 
 async def _try_adapter_dispatch(
     backend_config: BackendConfig,
-    base_context: dict,
+    base_context: dict[str, Any],
     order: DispatchOrder,
     ctx: DispatchContext,
     fallback_chain: list[str],
@@ -530,7 +531,7 @@ def _apply_fallback_policy(
 
 async def _handle_fallback_chain(
     candidates: list[BackendConfig],
-    base_context: dict,
+    base_context: dict[str, Any],
     order: DispatchOrder,
     ctx: DispatchContext,
 ) -> Result[EngineResponse, Exception]:
@@ -568,7 +569,7 @@ async def _handle_fallback_chain(
         f"Last error: {last_error}"
     )
     logger.error("dispatch exhausted all backends", fallback_chain=fallback_chain)
-    return Err(DispatchFailure(
+    return Err(DispatchFailure(  # type: ignore[arg-type]
         message=exhaustion_msg,
         attempted_backends=list(fallback_chain),
         error_details={"error_type": type(last_error).__name__ if last_error else "unknown"},
@@ -580,7 +581,7 @@ async def dispatch(
     registry: BackendRegistry,
     budget_tracker: BudgetTracker,
     health_tracker: HealthTracker,
-    config: dict,
+    config: dict[str, Any],
 ) -> Result[EngineResponse, Exception]:
     """Execute the full dispatch pipeline with fallback and return an EngineResponse.
 
@@ -601,7 +602,7 @@ async def dispatch(
     logger.debug("starting dispatch pipeline")
 
     cascade_result = _run_cascade(order, ctx)
-    if cascade_result.is_err():
+    if isinstance(cascade_result, Err):
         logger.debug("dispatch failed at cascade stage", error=str(cascade_result.error))
         return Err(cascade_result.error)
 
@@ -614,7 +615,7 @@ async def dispatch(
 
 async def _try_streaming_dispatch(
     backend_config: BackendConfig,
-    base_context: dict,
+    base_context: dict[str, Any],
     order: DispatchOrder,
     ctx: DispatchContext,
     fallback_chain: list[str],
@@ -682,7 +683,7 @@ async def dispatch_stream(
     registry: BackendRegistry,
     budget_tracker: BudgetTracker,
     health_tracker: HealthTracker,
-    config: dict,
+    config: dict[str, Any],
 ) -> AsyncIterator[StreamChunk]:
     """Execute the cascade and stream tokens as they arrive from the LLM.
 
@@ -703,7 +704,7 @@ async def dispatch_stream(
     logger.debug("starting streaming dispatch pipeline")
 
     cascade_result = _run_cascade(order, ctx)
-    if cascade_result.is_err():
+    if isinstance(cascade_result, Err):
         yield StreamChunk(
             event_type="error",
             error_message=str(cascade_result.error),

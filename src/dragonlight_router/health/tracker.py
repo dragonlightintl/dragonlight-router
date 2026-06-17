@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
+from typing import Any
 
 import structlog
 
@@ -144,14 +145,14 @@ class HealthTracker:
         """Return current consecutive error count."""
         return self._error_counts.get(model_id, 0)
 
-    def get_state(self) -> dict:
+    def get_state(self) -> dict[str, Any]:
         """Export health tracker state for persistence (HAZ-003/HAZ-012).
 
         Exports retired models and circuit breaker states so they survive
         process restarts. EMA latency data is intentionally excluded as
         it is stale on restart and will rebuild from live probes.
         """
-        breaker_states: dict[str, dict] = {}
+        breaker_states: dict[str, dict[str, Any]] = {}
         for model_id, breaker in self._breakers.items():
             breaker_states[model_id] = breaker.get_state()
 
@@ -161,7 +162,7 @@ class HealthTracker:
             "breaker_states": breaker_states,
         }
 
-    def restore_state(self, state: dict) -> None:
+    def restore_state(self, state: dict[str, Any]) -> None:
         """Restore health tracker state from persistence (HAZ-003/HAZ-012).
 
         Restores retired models and circuit breaker states. Error counts

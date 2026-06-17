@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 import structlog
@@ -128,16 +129,17 @@ class CohereBackend(GenerativeBackend):
             elif event_type == "message-end":
                 break
 
-    def _extract_delta_text(self, chunk: dict) -> str:
+    def _extract_delta_text(self, chunk: dict[str, Any]) -> str:
         """Extract text from a Cohere content-delta event."""
-        return (
+        text: str = (
             chunk.get("delta", {})
             .get("message", {})
             .get("content", {})
             .get("text", "")
         )
+        return text
 
-    def _extract_non_stream_content(self, response_data: dict) -> str:
+    def _extract_non_stream_content(self, response_data: dict[str, Any]) -> str:
         """Extract content from a non-streaming Cohere v2 response."""
         message = response_data.get("message", {})
         content_parts = message.get("content", [])

@@ -15,6 +15,7 @@ from __future__ import annotations
 import random
 import time
 from enum import Enum, unique
+from typing import Any
 
 
 @unique
@@ -130,7 +131,7 @@ class CircuitBreaker:
             self._opened_at = now
             self._effective_cooldown_s = self._compute_jittered_cooldown()
 
-    def get_state(self) -> dict:
+    def get_state(self) -> dict[str, Any]:
         """Export circuit breaker state for persistence (HAZ-012).
 
         Returns the state name, opened_at timestamp, and error timestamps
@@ -142,7 +143,7 @@ class CircuitBreaker:
             "error_timestamps": list(self._error_timestamps),
         }
 
-    def restore_state(self, state: dict) -> None:
+    def restore_state(self, state: dict[str, Any]) -> None:
         """Restore circuit breaker state from persistence (HAZ-012).
 
         Only restores OPEN state -- CLOSED and HALF_OPEN start fresh.

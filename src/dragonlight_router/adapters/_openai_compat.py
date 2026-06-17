@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 import structlog
@@ -78,10 +79,9 @@ class OpenAICompatibleBackend(GenerativeBackend):
 
     def _make_client(self, timeout: float) -> httpx.AsyncClient:
         """Build an AsyncClient, optionally using an injected transport."""
-        kwargs: dict[str, object] = {"timeout": timeout}
         if self._transport is not None:
-            kwargs["transport"] = self._transport
-        return httpx.AsyncClient(**kwargs)
+            return httpx.AsyncClient(timeout=timeout, transport=self._transport)  # type: ignore[arg-type]
+        return httpx.AsyncClient(timeout=timeout)
 
     def _build_request_payload(
         self,
@@ -182,18 +182,18 @@ class OpenAICompatibleBackend(GenerativeBackend):
             return None
         return self._extract_stream_content(chunk)
 
-    def _extract_stream_content(self, chunk: dict) -> str | None:
+    def _extract_stream_content(self, chunk: dict[str, Any]) -> str | None:
         """Extract content from a streaming SSE JSON chunk."""
         choices = chunk.get("choices")
         if not choices:
             return None
         delta = choices[0].get("delta", {})
-        content = delta.get("content")
+        content: str | None = delta.get("content")
         if content is not None:
             assert isinstance(content, str), "streamed content must be a string"
         return content
 
-    def _extract_non_stream_content(self, response_data: dict) -> str:
+    def _extract_non_stream_content(self, response_data: dict[str, Any]) -> str:
         """Extract content from a non-streaming response."""
         choices = response_data.get("choices")
         if not choices:

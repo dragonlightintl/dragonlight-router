@@ -11,7 +11,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import yaml
 
-from dragonlight_router.server.middleware import RateLimitMiddleware, _TokenBucket
+from dragonlight_router.server.middleware import (
+    CORSMiddleware,
+    RateLimitMiddleware,
+    _TokenBucket,
+    get_cors_config,
+)
 from dragonlight_router.server.routes import _sanitize_prompt, _validate_llm_response
 
 
@@ -273,3 +278,107 @@ class TestRateLimitMiddlewareDispatch:
         assert req.client is None
         ip = mw._get_client_ip(req)
         assert ip == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# CORS middleware configuration
+# ---------------------------------------------------------------------------
+
+
+class TestCORSConfig:
+    def test_default_cors_config(self, monkeypatch):
+        """Default CORS config allows all origins."""
+        monkeypatch.delenv("DRAGONLIGHT_CORS_ORIGINS", raising=False)
+        monkeypatch.delenv("DRAGONLIGHT_CORS_METHODS", raising=False)
+        monkeypatch.delenv("DRAGONLIGHT_CORS_HEADERS", raising=False)
+        config = get_cors_config()
+        assert config["allow_origins"] == ["*"]
+        assert config["allow_credentials"] is True
+        assert "GET" in config["allow_methods"]
+        assert "POST" in config["allow_methods"]
+        assert "OPTIONS" in config["allow_methods"]
+        assert config["allow_headers"] == ["*"]
+
+    def test_custom_cors_origins(self, monkeypatch):
+        """Custom origins are parsed from comma-separated env var."""
+        monkeypatch.setenv("DRAGONLIGHT_CORS_ORIGINS", "https://app.example.com,https://admin.example.com")
+        monkeypatch.delenv("DRAGONLIGHT_CORS_METHODS", raising=False)
+        monkeypatch.delenv("DRAGONLIGHT_CORS_HEADERS", raising=False)
+        config = get_cors_config()
+        assert config["allow_origins"] == ["https://app.example.com", "https://admin.example.com"]
+
+    def test_custom_cors_methods(self, monkeypatch):
+        """Custom methods are parsed from comma-separated env var."""
+        monkeypatch.setenv("DRAGONLIGHT_CORS_METHODS", "GET,POST,PUT,DELETE")
+        monkeypatch.delenv("DRAGONLIGHT_CORS_ORIGINS", raising=False)
+        monkeypatch.delenv("DRAGONLIGHT_CORS_HEADERS", raising=False)
+        config = get_cors_config()
+        assert config["allow_methods"] == ["GET", "POST", "PUT", "DELETE"]
+
+    def test_custom_cors_headers(self, monkeypatch):
+        """Custom headers are parsed from comma-separated env var."""
+        monkeypatch.setenv("DRAGONLIGHT_CORS_HEADERS", "Content-Type,Authorization,X-Request-ID")
+        monkeypatch.delenv("DRAGONLIGHT_CORS_ORIGINS", raising=False)
+        monkeypatch.delenv("DRAGONLIGHT_CORS_METHODS", raising=False)
+        config = get_cors_config()
+        assert config["allow_headers"] == ["Content-Type", "Authorization", "X-Request-ID"]
+
+    def test_cors_preflight_request(self, tmp_path):
+        """CORS preflight OPTIONS request receives correct headers."""
+        from starlette.applications import Starlette
+        from starlette.routing import Route
+        from starlette.responses import JSONResponse
+        from starlette.testclient import TestClient
+
+        async def _dummy(request):
+            return JSONResponse({"ok": True})
+
+        app = Starlette(routes=[Route("/v1/health", _dummy, methods=["GET"])])
+        app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["*"])
+        client = TestClient(app)
+
+        response = client.options(
+            "/v1/health",
+            headers={
+                "Origin": "https://example.com",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        assert response.status_code == 200
+        assert "access-control-allow-origin" in response.headers
+
+    def test_cors_actual_request(self, tmp_path):
+        """CORS actual request receives Access-Control-Allow-Origin header."""
+        from starlette.applications import Starlette
+        from starlette.routing import Route
+        from starlette.responses import JSONResponse
+        from starlette.testclient import TestClient
+
+        async def _dummy(request):
+            return JSONResponse({"ok": True})
+
+        app = Starlette(routes=[Route("/v1/health", _dummy, methods=["GET"])])
+        app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"])
+        client = TestClient(app)
+
+        response = client.get("/v1/health", headers={"Origin": "https://example.com"})
+        assert response.status_code == 200
+        assert response.headers.get("access-control-allow-origin") == "*"
+
+    def test_cors_restricted_origin(self, tmp_path):
+        """CORS with restricted origins rejects unlisted origins."""
+        from starlette.applications import Starlette
+        from starlette.routing import Route
+        from starlette.responses import JSONResponse
+        from starlette.testclient import TestClient
+
+        async def _dummy(request):
+            return JSONResponse({"ok": True})
+
+        app = Starlette(routes=[Route("/v1/health", _dummy, methods=["GET"])])
+        app.add_middleware(CORSMiddleware, allow_origins=["https://allowed.com"], allow_methods=["GET"], allow_headers=["*"])
+        client = TestClient(app)
+
+        response = client.get("/v1/health", headers={"Origin": "https://evil.com"})
+        assert response.status_code == 200
+        assert "access-control-allow-origin" not in response.headers

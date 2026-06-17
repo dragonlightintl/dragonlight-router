@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+from typing import Any, MutableMapping, Mapping
 
 import structlog
 
@@ -41,8 +42,8 @@ def _scrub_value(value: object) -> object:
 def scrub_secrets(
     logger: object,
     method_name: str,
-    event_dict: dict[str, object],
-) -> dict[str, object]:
+    event_dict: MutableMapping[str, Any],
+) -> Mapping[str, Any]:
     """Structlog processor that scrubs secrets from event dicts.
 
     HAZ-006 mitigation: Runs before the final renderer to ensure no

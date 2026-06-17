@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Any
 
 import structlog
 
@@ -68,7 +69,7 @@ def filter_by_trust_tier(candidates: list[TrustTier], required_tier: TrustTier) 
     return filtered
 
 
-def filter_context_for_provider(context: dict, provider_trust_tier: ProviderTrustTier) -> dict:
+def filter_context_for_provider(context: dict[str, Any], provider_trust_tier: ProviderTrustTier) -> dict[str, Any]:
     """Filter context based on provider trust tier.
 
     Args:
@@ -106,13 +107,13 @@ def filter_context_for_provider(context: dict, provider_trust_tier: ProviderTrus
     return result
 
 
-def _filter_trusted(context: dict) -> dict:
+def _filter_trusted(context: dict[str, Any]) -> dict[str, Any]:
     """TRUSTED providers receive full system-level context (minus PII, already absent)."""
     logger.debug("trusted provider: passing through full context")
     return context
 
 
-def _filter_semi_trusted(context: dict) -> dict:
+def _filter_semi_trusted(context: dict[str, Any]) -> dict[str, Any]:
     """SEMI_TRUSTED: remove behavioral rules, redact persona names, limit history."""
     assert isinstance(context, dict), "context must be a dict"
     assert "task" not in context or isinstance(context.get("task"), str), "task must be a string if present"
@@ -131,7 +132,7 @@ def _filter_semi_trusted(context: dict) -> dict:
     return context
 
 
-def _redact_system_fields(context: dict) -> dict:
+def _redact_system_fields(context: dict[str, Any]) -> dict[str, Any]:
     """Remove behavioral rules and redact persona names from system context."""
     assert isinstance(context, dict), "context must be a dict"
     assert "system" not in context or isinstance(context.get("system"), dict), "system must be a dict if present"
@@ -143,7 +144,7 @@ def _redact_system_fields(context: dict) -> dict:
     return context
 
 
-def _redact_persona_fields(system: dict) -> dict:
+def _redact_persona_fields(system: dict[str, Any]) -> dict[str, Any]:
     """Replace persona-related fields with redaction placeholder."""
     assert isinstance(system, dict), "system must be a dict"
 
@@ -154,7 +155,7 @@ def _redact_persona_fields(system: dict) -> dict:
     return system
 
 
-def _limit_history(context: dict, max_turns: int) -> dict:
+def _limit_history(context: dict[str, Any], max_turns: int) -> dict[str, Any]:
     """Limit conversation history to the most recent N turns."""
     assert isinstance(context, dict), "context must be a dict"
     assert max_turns > 0, "max_turns must be positive"
@@ -165,14 +166,14 @@ def _limit_history(context: dict, max_turns: int) -> dict:
     return context
 
 
-def _filter_untrusted(context: dict) -> dict:
+def _filter_untrusted(context: dict[str, Any]) -> dict[str, Any]:
     """UNTRUSTED providers receive task-specific instruction only."""
     logger.debug("untrusted provider: returning task instruction only")
     task = context.get("task", "")
     return {"task": task} if task else {}
 
 
-def _filter_local(context: dict) -> dict:
+def _filter_local(context: dict[str, Any]) -> dict[str, Any]:
     """LOCAL providers receive full context (no network egress risk)."""
     logger.debug("local provider: passing through full context (no network egress)")
     return context

@@ -44,10 +44,9 @@ class AnthropicBackend(GenerativeBackend):
 
     def _make_client(self, timeout: float) -> httpx.AsyncClient:
         """Build an AsyncClient, optionally using an injected transport."""
-        kwargs: dict[str, object] = {"timeout": timeout}
         if self._transport is not None:
-            kwargs["transport"] = self._transport
-        return httpx.AsyncClient(**kwargs)
+            return httpx.AsyncClient(timeout=timeout, transport=self._transport)  # type: ignore[arg-type]
+        return httpx.AsyncClient(timeout=timeout)
 
     def _build_headers(self) -> dict[str, str]:
         """Build Anthropic-specific request headers."""

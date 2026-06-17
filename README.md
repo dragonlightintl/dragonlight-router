@@ -1,6 +1,6 @@
 # dragonlight-router
 
-**Multi-provider LLM routing engine — intelligent model selection across 8 providers.**
+**Multi-provider LLM routing engine — intelligent model selection and cascade dispatch across 11 providers.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
@@ -23,7 +23,8 @@ Every non-trivial LLM application ends up with the same ad-hoc pile: a giant if/
 ## Install
 
 ```bash
-pip install dragonlight-router[all]
+# From local source (not yet published to PyPI)
+pip install -e ".[all]"
 ```
 
 **Extras:**
@@ -194,9 +195,14 @@ Bootstrap from the provided example: `cp config/model_role_matrix.json router_st
 | `GEMINI_API_KEY` | Gemini provider | — |
 | `MISTRAL_API_KEY` | Mistral provider | — |
 | `ANTHROPIC_API_KEY` | Anthropic provider | — |
+| `OPENAI_API_KEY` | OpenAI provider | — |
+| `COHERE_API_KEY` | Cohere provider | — |
+| `TOGETHER_API_KEY` | Together provider | — |
 | `DRAGONLIGHT_ROUTER_CONFIG` | Custom config path | `config/router.yaml` |
 | `DRAGONLIGHT_HOST` | Server bind address | `127.0.0.1` |
 | `DRAGONLIGHT_PORT` | Server port | `8100` |
+| `DRAGONLIGHT_GRACEFUL_SHUTDOWN_TIMEOUT` | Graceful shutdown (seconds) | `10` |
+| `DRAGONLIGHT_ADMIN_API_KEY` | Admin endpoint auth | — (open) |
 
 Ollama is local and requires no API key. Copy `.env.example` to `.env` and fill in only the providers you intend to use.
 
@@ -207,10 +213,13 @@ Ollama is local and requires no API key. Copy `.env.example` to `.env` and fill 
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/v1/select` | Return ranked model IDs for a role |
+| `POST` | `/v1/dispatch` | Full cascade dispatch (MBR/CBR/LBR + adapter call) |
 | `POST` | `/v1/record` | Record request outcome (budget + health) |
 | `GET` | `/v1/health` | Live health snapshot of all tracked models |
 | `GET` | `/v1/catalog` | Current in-memory provider model catalog |
-| `POST` | `/v1/catalog/refresh` | Trigger immediate catalog refresh from providers |
+| `POST` | `/v1/catalog/refresh` | Trigger immediate catalog refresh (admin) |
+| `POST` | `/v1/retire` | Retire a backend from the active pool (admin) |
+| `POST` | `/v1/reinstate` | Reinstate a previously retired backend (admin) |
 
 **POST /v1/select** body:
 
@@ -267,35 +276,69 @@ dragonlight-router is composed of 11 subsystems. Each has a single responsibilit
 | Gemini | ✅ | `GEMINI_API_KEY` |
 | Mistral | ✅ | `MISTRAL_API_KEY` |
 | Anthropic | ❌ (static) | `ANTHROPIC_API_KEY`; no public `/v1/models` endpoint |
+| OpenAI | ✅ | `OPENAI_API_KEY` |
+| Cohere | ✅ | `COHERE_API_KEY` |
+| Together | ✅ | `TOGETHER_API_KEY` |
 | Ollama | ✅ | No key needed; defaults to `localhost:11434` |
 
 ---
 
-## v0.1 scope — what this is and isn't
+## Dual interface
 
-dragonlight-router **selects** models. It does **not** dispatch requests.
+dragonlight-router supports two modes of operation:
 
-The `dispatch/` and `adapters/` packages are reserved stubs for a future release. In v0.1, the router returns a ranked list of model IDs and your application owns the actual API call. This is intentional: it lets you plug dragonlight-router into any existing client (OpenAI SDK, httpx, LangChain, etc.) without wrapping or replacing it.
+**Select mode** — returns a ranked model list, your app owns the API call:
 
 ```
 Your app
-  │
   ├─ POST /v1/select → ["groq/llama-3.3-70b-versatile", ...]
-  │
   ├─ calls groq with its own SDK ← you own this
-  │
   └─ POST /v1/record (outcome) → budget + health updated
 ```
+
+**Dispatch mode** — the router handles the full cascade (MBR/CBR/LBR), adapter call, and fallback:
+
+```
+Your app
+  └─ POST /v1/dispatch → { content, backend_used, latency_ms, ... }
+       Router handles: model selection → context filtering → adapter call → fallback
+```
+
+Both modes share the same budget tracking, health scoring, and circuit breaking.
 
 ---
 
 ## Running tests
 
 ```bash
-pip install -e ".[dev,server,cache]"
-pytest                     # full suite with coverage
-pytest tests/unit/         # unit tests only
+make dev                   # install with dev dependencies
+make test                  # full suite (939 tests)
+make test-cov              # full suite with coverage report
+make lint                  # ruff linter
+make typecheck             # mypy strict mode
 ```
+
+Or directly:
+
+```bash
+pip install -e ".[all,dev]"
+python3 -m pytest --no-cov -q
+```
+
+---
+
+## Docker
+
+```bash
+# Build and run
+make docker-build
+make docker-run            # reads API keys from .env
+
+# Or with docker-compose
+docker-compose up -d
+```
+
+The Docker image runs as a non-root user, persists state to a volume, and includes a health check.
 
 ---
 

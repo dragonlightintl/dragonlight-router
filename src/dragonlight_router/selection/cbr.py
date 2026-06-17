@@ -7,9 +7,11 @@ from __future__ import annotations
 import statistics
 import structlog
 from dataclasses import dataclass
+from typing import Any
 
 from dragonlight_router.budget.tracker import BudgetTracker
 from dragonlight_router.core.types import BackendConfig, BackendCostProfile, DispatchOrder
+from dragonlight_router.health.tracker import HealthTracker
 from dragonlight_router.result import Err, Ok, Result
 from dragonlight_router.selection.scoring import (
     ScoringWeightsConfig,
@@ -20,14 +22,22 @@ from dragonlight_router.selection.scoring import (
 
 logger = structlog.get_logger(__name__)
 
+__all__ = [
+    "CostFilterParams",
+    "filter_by_cost",
+    "filter_by_cost_efficiency",
+    "filter_by_absolute_cost",
+    "score_candidate",
+]
+
 
 @dataclass(frozen=True)
 class CostFilterParams:
     """Grouped parameters for cost filtering beyond core (candidates, order, budget_tracker)."""
     daily_spend: float = 0.0
     monthly_spend: float = 0.0
-    config: dict | None = None
-    health_tracker: object | None = None
+    config: dict[str, Any] | None = None
+    health_tracker: HealthTracker | None = None
 
 
 def filter_by_cost(
@@ -37,8 +47,8 @@ def filter_by_cost(
     *,
     daily_spend: float = 0.0,
     monthly_spend: float = 0.0,
-    config: dict | None = None,
-    health_tracker: object | None = None,
+    config: dict[str, Any] | None = None,
+    health_tracker: HealthTracker | None = None,
 ) -> list[BackendConfig]:
     """Filter candidates based on cost effectiveness given available budget.
 

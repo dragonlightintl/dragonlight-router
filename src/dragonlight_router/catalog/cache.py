@@ -11,6 +11,7 @@ import os
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
 import structlog
 
@@ -128,9 +129,9 @@ class CatalogCache:
         return result
 
     @staticmethod
-    def _serialize(catalog: dict[str, list[CatalogEntry]]) -> dict[str, list[dict]]:
+    def _serialize(catalog: dict[str, list[CatalogEntry]]) -> dict[str, list[dict[str, Any]]]:
         """Convert catalog to JSON-serializable dict."""
-        result: dict[str, list[dict]] = {}
+        result: dict[str, list[dict[str, Any]]] = {}
         for provider, entries in catalog.items():
             result[provider] = [
                 {"model_id": e.model_id, "provider": e.provider, "created": e.created}
@@ -139,14 +140,14 @@ class CatalogCache:
         return result
 
     @staticmethod
-    def _deserialize(data: dict[str, list[dict]]) -> dict[str, list[CatalogEntry]]:
+    def _deserialize(data: dict[str, list[dict[str, Any]]]) -> dict[str, list[CatalogEntry]]:
         """Convert JSON dict back to CatalogEntry objects."""
         result: dict[str, list[CatalogEntry]] = {}
         for provider, entries in data.items():
             result[provider] = [
                 CatalogEntry(
-                    model_id=e["model_id"],
-                    provider=e["provider"],
+                    model_id=str(e["model_id"]),
+                    provider=str(e["provider"]),
                     created=e.get("created"),
                 )
                 for e in entries

@@ -10,17 +10,23 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
-        run: pip install -e ".[dev,server,cache]"
+        run: pip install -e ".[all,dev]"
       - name: Lint
         run: ruff check src tests
       - name: Type check
-        run: mypy src
+        run: mypy src/dragonlight_router/
+      - name: Security scan
+        run: bandit -r src/dragonlight_router/ -c pyproject.toml
       - name: Test
         run: pytest --cov=dragonlight_router --cov-report=term-missing
+      - name: Smoke test
+        run: |
+          python -c "from dragonlight_router import __version__; print(f'Version: {__version__}')"
+          python -c "from dragonlight_router import RouterEngine; print('RouterEngine imported successfully')"

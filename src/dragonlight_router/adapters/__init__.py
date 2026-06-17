@@ -55,4 +55,4 @@ def create_adapter(config: BackendConfig) -> GenerativeBackend:
     cls = _PROVIDER_MAP.get(config.provider)
     if cls is None:
         raise ValueError(f"No adapter registered for provider: {config.provider!r}")
-    return cls(config)
+    return cls(config)  # type: ignore[call-arg]

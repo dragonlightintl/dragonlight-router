@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 import structlog
@@ -27,14 +28,14 @@ _DEFAULT_TIMEOUT = 60.0
 
 def _convert_messages(
     messages: list[dict[str, str]],
-) -> tuple[list[dict], dict | None]:
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     """Convert OpenAI-style messages to Gemini format.
 
     Returns (contents, system_instruction | None).
     """
     assert isinstance(messages, list), "messages must be a list"
-    contents: list[dict] = []
-    system_instruction: dict | None = None
+    contents: list[dict[str, Any]] = []
+    system_instruction: dict[str, Any] | None = None
 
     for msg in messages:
         role = msg.get("role", "user")
@@ -50,7 +51,7 @@ def _convert_messages(
     return contents, system_instruction
 
 
-def _extract_text_from_chunk(data: dict) -> str | None:
+def _extract_text_from_chunk(data: dict[str, Any]) -> str | None:
     """Extract generated text from a Gemini streaming JSON chunk."""
     try:
         candidates = data.get("candidates", [])
@@ -59,7 +60,8 @@ def _extract_text_from_chunk(data: dict) -> str | None:
         parts = candidates[0].get("content", {}).get("parts", [])
         if not parts:
             return None
-        return parts[0].get("text")
+        text: str | None = parts[0].get("text")
+        return text
     except (IndexError, KeyError, TypeError):
         return None
 
@@ -89,7 +91,8 @@ class GoogleBackend(GenerativeBackend):
         """Resolve the API key from the environment."""
         if not self._config.env_key:
             return None
-        return os.getenv(self._config.env_key)
+        key: str | None = os.getenv(self._config.env_key)
+        return key
 
     def _build_url(self, model: str) -> str:
         """Build the streaming endpoint URL."""
@@ -157,10 +160,10 @@ class GoogleBackend(GenerativeBackend):
         *,
         max_tokens: int,
         temperature: float,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Construct the Gemini API request body."""
         contents, system_instruction = _convert_messages(messages)
-        body: dict = {
+        body: dict[str, Any] = {
             "contents": contents,
             "generationConfig": {
                 "maxOutputTokens": max_tokens,
@@ -172,7 +175,7 @@ class GoogleBackend(GenerativeBackend):
         return body
 
     async def _execute_stream(
-        self, url: str, headers: dict[str, str], body: dict,
+        self, url: str, headers: dict[str, str], body: dict[str, Any],
     ) -> AsyncIterator[str]:
         """Execute the streaming request and yield text chunks."""
         async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:

@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-import sys
 import time
 from collections import defaultdict, deque
+from typing import Any
 
 import structlog
 
@@ -256,7 +256,7 @@ class BudgetTracker:
         assert remaining >= 0, f"Remaining daily token cap must be non-negative, got {remaining}"
         return remaining
 
-    def get_state(self) -> dict:
+    def get_state(self) -> dict[str, Any]:
         """Export serializable budget state for persistence (HAZ-012 mitigation).
 
         Returns daily counters and reset timestamp. Sliding windows (RPM/TPM)
@@ -269,7 +269,7 @@ class BudgetTracker:
             "day_reset_at": self._day_reset_at,
         }
 
-    def restore_state(self, state: dict) -> None:
+    def restore_state(self, state: dict[str, Any]) -> None:
         """Restore budget state from persistence (HAZ-012 mitigation).
 
         Only restores daily counters if the persisted reset boundary has not

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 import structlog
@@ -89,7 +90,7 @@ class LocalBackend(GenerativeBackend):
         max_tokens: int,
         temperature: float,
         stream: bool,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Construct the request payload for Ollama."""
         return {
             "model": self._config.model,
@@ -100,7 +101,7 @@ class LocalBackend(GenerativeBackend):
         }
 
     async def _stream_response(
-        self, url: str, body: dict, headers: dict[str, str],
+        self, url: str, body: dict[str, Any], headers: dict[str, str],
     ) -> AsyncIterator[str]:
         """Handle SSE streaming from the OpenAI-compatible endpoint."""
         async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
@@ -141,7 +142,7 @@ class LocalBackend(GenerativeBackend):
         return delta if delta else None
 
     async def _non_stream_response(
-        self, url: str, body: dict, headers: dict[str, str],
+        self, url: str, body: dict[str, Any], headers: dict[str, str],
     ) -> AsyncIterator[str]:
         """Handle non-streaming response."""
         async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:

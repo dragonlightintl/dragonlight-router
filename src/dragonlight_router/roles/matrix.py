@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 import structlog
 
@@ -80,11 +81,11 @@ class RoleMatrix:
 
         assert isinstance(self._matrix, dict), "matrix must be a dict after load"
 
-    def _read_json(self) -> dict | None:
+    def _read_json(self) -> dict[str, Any] | None:
         """Read and parse the JSON matrix file. Returns None on failure."""
         try:
             text = self._path.read_text()
-            raw = json.loads(text)
+            raw: dict[str, Any] = json.loads(text)
             self._mtime = os.path.getmtime(self._path)
             return raw
         except (json.JSONDecodeError, OSError) as exc:
@@ -92,7 +93,7 @@ class RoleMatrix:
             return None
 
     @staticmethod
-    def _parse_full_schema(roles_raw: dict) -> dict[str, dict[str, int]]:
+    def _parse_full_schema(roles_raw: dict[str, Any]) -> dict[str, dict[str, int]]:
         """Parse the full schema format with version/roles structure."""
         matrix: dict[str, dict[str, int]] = {}
         for role, entries in roles_raw.items():

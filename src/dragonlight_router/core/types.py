@@ -247,7 +247,7 @@ class GenerativeBackend(Protocol):
     def config(self) -> BackendConfig: ...
     @property
     def status(self) -> BackendStatus: ...
-    async def generate(
+    def generate(
         self,
         messages: list[dict[str, str]],
         *,

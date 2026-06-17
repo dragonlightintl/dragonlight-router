@@ -167,7 +167,7 @@ def _setup_fallback_env(tmp_path: Path) -> tuple[Path, list[BackendConfig]]:
 
 
 VALID_DISPATCH_BODY = {
-    "intent_category": "code_generation",
+    "intent_category": "general",
     "specific_intent": "write_function",
     "operator_message": "Write a Python function to calculate fibonacci numbers",
     "system_prompt": "You are a helpful coding assistant",

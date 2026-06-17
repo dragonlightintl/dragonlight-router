@@ -33,6 +33,10 @@ logger = structlog.get_logger(__name__)
 # Penalty multiplier applied to scores of DEGRADED backends (0.5 = halve the score).
 _DEGRADED_SCORE_PENALTY = 0.5
 
+# HAZ-010: Default chars-per-token ratio for estimation when provider
+# does not report usage. The heuristic is ~4 chars/token for English text.
+_CHARS_PER_TOKEN_ESTIMATE = 4
+
 # Mapping from caller-specified trust tier strings to ProviderTrustTier ordering.
 # Higher numeric value = more restrictive trust requirement.
 _TRUST_TIER_RANK: dict[str, int] = {
@@ -59,6 +63,38 @@ class DispatchContext:
     budget_tracker: BudgetTracker
     health_tracker: HealthTracker
     config: dict
+
+
+def _estimate_token_count(char_count: int) -> int:
+    """HAZ-010: Estimate token count from character count.
+
+    Uses a simple chars/4 heuristic. This function centralizes the
+    estimation so it can be replaced with a tokenizer library or
+    provider-reported usage in the future.
+    """
+    assert char_count >= 0, "char_count must be non-negative"
+    return max(1, char_count // _CHARS_PER_TOKEN_ESTIMATE)
+
+
+def _log_token_estimation(
+    estimated: int,
+    actual_chars: int,
+    backend_name: str,
+    direction: str,
+) -> None:
+    """HAZ-010: Log token estimation details for observability.
+
+    Logs the estimation ratio so operators can monitor estimation
+    accuracy and adjust if needed.
+    """
+    logger.debug(
+        "token_estimation",
+        backend=backend_name,
+        direction=direction,
+        estimated_tokens=estimated,
+        char_count=actual_chars,
+        chars_per_token=_CHARS_PER_TOKEN_ESTIMATE,
+    )
 
 
 def _tier_to_provider_trust(tier: BackendTier) -> ProviderTrustTier:
@@ -399,8 +435,13 @@ async def _try_adapter_dispatch(
     latency_ms = (time.monotonic() - t0) * 1000.0
 
     content = "".join(content_parts)
-    tokens_in = sum(len(m.get("content", "")) for m in messages) // 4
-    tokens_out = len(content) // 4
+    # HAZ-010: Centralized token estimation with logging
+    input_chars = sum(len(m.get("content", "")) for m in messages)
+    tokens_in = _estimate_token_count(input_chars)
+    tokens_out = _estimate_token_count(len(content))
+    _log_token_estimation(tokens_in, input_chars, backend_config.name, "input")
+    _log_token_estimation(tokens_out, len(content), backend_config.name, "output")
+
     cost_usd = (
         (tokens_in / 1_000_000) * backend_config.cost.input_per_mtok
         + (tokens_out / 1_000_000) * backend_config.cost.output_per_mtok
@@ -450,19 +491,63 @@ def _record_adapter_failure(
     ctx.health_tracker.record_error(backend_config.model, http_status=http_status)
 
 
+def _apply_fallback_policy(
+    candidates: list[BackendConfig],
+    order: DispatchOrder,
+) -> list[BackendConfig]:
+    """HAZ-004 mitigation: Filter candidates based on fallback_policy.
+
+    - "allow" (default): all candidates eligible for fallback
+    - "deny": only the first (primary) candidate is tried
+    - "same_tier": only candidates at the same tier as the primary
+    """
+    policy = order.fallback_policy
+    assert policy in ("allow", "deny", "same_tier"), f"invalid fallback_policy: {policy}"
+
+    if policy == "allow" or len(candidates) <= 1:
+        return candidates
+
+    if policy == "deny":
+        logger.debug(
+            "fallback_policy_deny",
+            primary=candidates[0].name,
+            filtered_count=len(candidates) - 1,
+        )
+        return candidates[:1]
+
+    # same_tier: keep only candidates matching the primary's tier
+    primary_tier = candidates[0].tier
+    filtered = [c for c in candidates if c.tier == primary_tier]
+    logger.debug(
+        "fallback_policy_same_tier",
+        primary_tier=primary_tier.value,
+        original_count=len(candidates),
+        filtered_count=len(filtered),
+    )
+    assert len(filtered) >= 1, "same_tier filter must keep at least the primary"
+    return filtered
+
+
 async def _handle_fallback_chain(
     candidates: list[BackendConfig],
     base_context: dict,
     order: DispatchOrder,
     ctx: DispatchContext,
 ) -> Result[EngineResponse, Exception]:
-    """Iterate through candidates attempting generation, falling back on failure."""
+    """Iterate through candidates attempting generation, falling back on failure.
+
+    HAZ-004: Applies fallback_policy before iterating to restrict which
+    candidates are eligible for fallback dispatch.
+    """
     assert len(candidates) > 0, "candidates must not be empty"
+
+    # HAZ-004: Apply fallback policy to restrict candidate pool
+    eligible = _apply_fallback_policy(candidates, order)
 
     fallback_chain: list[str] = []
     last_error: RuntimeError | ValueError | ConnectionError | OSError | TypeError | None = None
 
-    for backend_config in candidates:
+    for backend_config in eligible:
         logger.debug("attempting generation", backend=backend_config.name, attempt=len(fallback_chain) + 1)
         try:
             result = await _try_adapter_dispatch(backend_config, base_context, order, ctx, fallback_chain)
@@ -563,8 +648,13 @@ async def _try_streaming_dispatch(
         yield StreamChunk(event_type="token", content=chunk)
 
     latency_ms = (time.monotonic() - t0) * 1000.0
-    tokens_in = sum(len(m.get("content", "")) for m in messages) // 4
-    tokens_out = tokens_out_chars // 4
+    # HAZ-010: Centralized token estimation with logging
+    input_chars = sum(len(m.get("content", "")) for m in messages)
+    tokens_in = _estimate_token_count(input_chars)
+    tokens_out = _estimate_token_count(tokens_out_chars)
+    _log_token_estimation(tokens_in, input_chars, backend_config.name, "input")
+    _log_token_estimation(tokens_out, tokens_out_chars, backend_config.name, "output")
+
     cost_usd = (
         (tokens_in / 1_000_000) * backend_config.cost.input_per_mtok
         + (tokens_out / 1_000_000) * backend_config.cost.output_per_mtok
@@ -623,10 +713,13 @@ async def dispatch_stream(
     candidates = cascade_result.value
     assert len(candidates) > 0, "cascade must return at least one candidate"
 
+    # HAZ-004: Apply fallback policy to restrict candidate pool
+    eligible = _apply_fallback_policy(candidates, order)
+
     base_context = _build_dispatch_context(order)
     fallback_chain: list[str] = []
 
-    for backend_config in candidates:
+    for backend_config in eligible:
         try:
             async for chunk in _try_streaming_dispatch(
                 backend_config, base_context, order, ctx, fallback_chain,

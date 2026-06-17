@@ -187,7 +187,7 @@ def _build_app_with_backends(tmp_path: Path) -> TestClient:
 
 
 VALID_DISPATCH_BODY = {
-    "intent_category": "code_generation",
+    "intent_category": "general",
     "specific_intent": "write_function",
     "operator_message": "Write a Python function to calculate fibonacci numbers",
     "system_prompt": "You are a helpful coding assistant",
@@ -311,7 +311,7 @@ class TestDispatchMissingFields:
         """
         client = _build_app_with_backends(tmp_path)
         body = {
-            "intent_category": "code_generation",
+            "intent_category": "general",
             "specific_intent": "write_function",
             # operator_message deliberately missing
             "context_tokens": 100,
@@ -330,7 +330,7 @@ class TestDispatchMissingFields:
         """
         client = _build_app_with_backends(tmp_path)
         body = {
-            "intent_category": "code_generation",
+            "intent_category": "general",
             "specific_intent": "write_function",
             "operator_message": "Hello",
             # context_tokens deliberately missing
@@ -823,7 +823,7 @@ class TestContextFilteringE2E:
 
         # System prompt with sensitive behavioral rules
         sensitive_body = {
-            "intent_category": "code_generation",
+            "intent_category": "general",
             "specific_intent": "write_function",
             "operator_message": "Write a function to sort a list",
             "system_prompt": "You are a helpful assistant. BEHAVIORAL RULE: always be kind. PERSONA: Korrigon.",
@@ -934,7 +934,7 @@ class TestContextFilteringE2E:
         system_prompt_text = "You are a sovereign operator assistant. BEHAVIORAL RULE: dharmic alignment. PERSONA: Korrigon."
 
         full_context_body = {
-            "intent_category": "code_generation",
+            "intent_category": "general",
             "specific_intent": "write_function",
             "operator_message": "Write a sorting function",
             "system_prompt": system_prompt_text,

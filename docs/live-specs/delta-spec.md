@@ -1,28 +1,28 @@
 # Dragonlight Router -- Implementation Delta (Final)
 
-**Delta ID:** dragonlight-router-delta-v0.2.5-2026-06-17
+**Delta ID:** dragonlight-router-delta-v0.2.6-2026-06-17
 **Spec Baseline:** live-spec-v0.2.0
-**Prior Deltas:** v0.2.0 (pre-remediation audit), v0.2.1 (post-blocker-fix), v0.2.2 (quality remediation), v0.2.3 (hazard remediation), v0.2.4 (streaming dispatch)
-**Auditor:** GOIBNIU + LUGH (co-embodied MEDIUM-risk hazard mitigation)
-**Method:** MEDIUM-risk hazard mitigation, production hardening, full test verification
+**Prior Deltas:** v0.2.0 (pre-remediation audit), v0.2.1 (post-blocker-fix), v0.2.2 (quality remediation), v0.2.3 (hazard remediation), v0.2.4 (streaming dispatch), v0.2.5 (MEDIUM-risk hazard pass 1)
+**Auditor:** GOIBNIU + LUGH (co-embodied — final MEDIUM-risk hazard mitigation)
+**Method:** Final MEDIUM-risk hazard mitigation, production hardening, full test verification
 
 ---
 
 ## Executive Summary
 
-The dragonlight-router has reached **~99.5% spec parity** across all 12 task modules. All 5 critical blockers resolved. 11 of 12 TMs at 100% AC coverage. The only partial TM is TM-004 (cascade dispatch) at 83% — the "transactional budget" AC is best-effort (in-memory state, no DB rollback semantics needed). All 4 HIGH-risk hazard register items mitigated. Streaming dispatch implemented via SSE (Server-Sent Events). Five MEDIUM-risk hazard items now mitigated: secret scrubbing (HAZ-006), circuit breaker jitter (HAZ-009), admin endpoint auth (HAZ-011), automatic catalog refresh (HAZ-008), and adapter status isolation (HAZ-014).
+The dragonlight-router has reached **~99.5% spec parity** across all 12 task modules. All 5 critical blockers resolved. 11 of 12 TMs at 100% AC coverage. The only partial TM is TM-004 (cascade dispatch) at 83% — the "transactional budget" AC is best-effort (in-memory state, no DB rollback semantics needed). **All 4 HIGH-risk and all 10 MEDIUM-risk hazard register items now mitigated.** Streaming dispatch implemented via SSE (Server-Sent Events). All MEDIUM-risk hazards resolved: secret scrubbing (HAZ-006), circuit breaker jitter (HAZ-009), admin endpoint auth (HAZ-011), automatic catalog refresh (HAZ-008), adapter status isolation (HAZ-014), cascade exhaustion (HAZ-003), fallback policy (HAZ-004), intent validation (HAZ-007), token estimation (HAZ-010), and complexity misrouting (HAZ-013).
 
-| Metric | Pre-Remediation | v0.2.4 | v0.2.5 (Current) | Target |
+| Metric | Pre-Remediation | v0.2.5 | v0.2.6 (Current) | Target |
 |--------|----------------|--------|-------------------|--------|
 | Spec Parity | 25% | 99.5% | 99.5% | 100% |
-| Standards Compliance | 40% | 98% | 99% | 100% |
+| Standards Compliance | 40% | 99% | 100% | 100% |
 | Test Coverage | 60% | 100% | 100% | 80%+ |
-| Tests Passing | 76% (179/234) | 100% (824/824) | 100% (880/880) | 100% |
+| Tests Passing | 76% (179/234) | 100% (880/880) | 100% (929/929) | 100% |
 | Critical Blockers | 5 | 0 | 0 | 0 |
 | Adapters (real) | 1 | 11 | 11 | 8 |
 | Quality Disparities | 125 | 0 | 0 | 0 |
 | HIGH-risk Hazards | 4 | 0 | 0 | 0 |
-| MEDIUM-risk Hazards | 10 | 10 | 5 | 0 |
+| MEDIUM-risk Hazards | 10 | 5 | 0 | 0 |
 
 ---
 
@@ -190,8 +190,13 @@ All ACs complete. Async dispatch, cascade delegation, real EngineResponse, postc
 - **Hard capacity gate**: LBR enforces `has_capacity()` before median scoring — zero-capacity providers removed before any soft scoring (HAZ-005)
 - **Retire/reinstate**: BackendStatus.RETIRED, API endpoints, registry methods
 - **Catalog resilience**: Graceful degradation when refresh fails
-- **State persistence**: Budget state saved at shutdown, restored at startup (HAZ-012)
-- **824 tests**, 100% coverage, 0 failures
+- **State persistence**: Budget + health state saved at shutdown, restored at startup (HAZ-012, HAZ-003)
+- **Fallback policy**: Caller-specified `fallback_policy` (allow/deny/same_tier) controls cascade behavior (HAZ-004)
+- **Intent validation**: `intent_category` validated against allowed set, rejecting adversarial values (HAZ-007)
+- **Intent-aware routing**: `intent_category` sets minimum tier floor for complexity estimation (HAZ-013)
+- **Token estimation**: Centralized `_estimate_token_count()` with observability logging (HAZ-010)
+- **Availability status**: Router-level availability (healthy/degraded/unavailable) in health endpoint (HAZ-003)
+- **929 tests**, 100% coverage, 0 failures
 
 ---
 
@@ -264,8 +269,8 @@ All 4 HIGH-risk hazard register items resolved:
 2. **Coverage**: 100% overall. All modules at 100%.
 3. **Privacy rotation**: LBR spec mentions privacy rotation for untrusted tier — deferred to implementation per spec notes.
 4. ~~**Streaming dispatch**~~: **RESOLVED** in v0.2.4. SSE streaming from `/v1/dispatch` with `stream: true`. Full fallback support, error events, metadata events.
-5. **Security hardening**: All 8 QA items resolved (QA-020 through QA-027). All 4 HIGH-risk and 5 MEDIUM-risk hazard register items now mitigated.
-6. **Remaining MEDIUM-risk hazards**: 5 MEDIUM-risk items remain for production readiness review (HAZ-003, HAZ-004, HAZ-007, HAZ-010, HAZ-013).
+5. **Security hardening**: All 8 QA items resolved (QA-020 through QA-027). All 4 HIGH-risk and all 10 MEDIUM-risk hazard register items now mitigated.
+6. ~~**Remaining MEDIUM-risk hazards**~~: **ALL RESOLVED** in v0.2.6. All 10 MEDIUM-risk hazards now mitigated.
 
 ---
 
@@ -305,8 +310,25 @@ All 4 HIGH-risk hazard register items resolved:
 
 ---
 
+## Final MEDIUM-Risk Hazard Mitigations (v0.2.6)
+
+**5 remaining MEDIUM-risk hazard register items resolved:**
+
+| ID | Hazard | Mitigation | Files Changed | Tests |
+|----|--------|------------|---------------|-------|
+| HAZ-003 | Cascade Exhaustion | `HealthTracker.get_state()`/`restore_state()` persists retired models + circuit breaker states across restarts. `availability_status()` returns router-level health (`healthy`/`degraded`/`unavailable`). Health endpoint now includes `status` field. Health state persistence wired into `RouterEngine.save_state()` and `_restore_health_state()`. | `health/tracker.py`, `router.py`, `server/routes.py` | 14 tests |
+| HAZ-004 | Silent Fallback | `fallback_policy` field on `DispatchOrder` (`allow`/`deny`/`same_tier`). `_apply_fallback_policy()` in cascade restricts candidate pool before dispatch. `deny` = primary only, `same_tier` = same BackendTier only. Applied in both streaming and non-streaming paths. Validated in request handler. | `core/types.py`, `dispatch/cascade.py`, `server/routes.py` | 10 tests |
+| HAZ-007 | Prompt Injection (Intent) | `_ALLOWED_INTENT_CATEGORIES` frozenset validates `intent_category` in `_validate_dispatch_request()`. Unknown intent values are rejected with 400. Prevents adversarial intent injection affecting MBR tier routing. | `server/routes.py` | 5 tests |
+| HAZ-010 | Token Estimation | `_estimate_token_count()` centralizes the char/4 heuristic with observability logging via `_log_token_estimation()`. All dispatch paths (streaming + non-streaming) use the centralized function. Logs estimation details for operator monitoring. | `dispatch/cascade.py` | 6 tests |
+| HAZ-013 | Complexity Misrouting | `_INTENT_TIER_FLOOR` dict maps intent categories to minimum BackendTier. `estimate_complexity()` applies intent floor after heuristic — floor can only raise tier, never lower. Covers 10 intent categories across 4 tiers. | `selection/mbr.py` | 14 tests |
+
+**Tests:** 49 new tests. 929 total tests, 100% coverage.
+
+---
+
 *Generated by FIRINNE ground truth audit panel — 2026-06-16*
 *Quality remediation completed — 2026-06-16*
 *Hazard remediation (4 HIGH-risk items) completed — 2026-06-17*
 *Streaming dispatch implemented — 2026-06-17*
 *MEDIUM-risk hazard mitigation (5 items) completed — 2026-06-17*
+*Final MEDIUM-risk hazard mitigation (5 items) completed — 2026-06-17. All 14 hazards mitigated.*

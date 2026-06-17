@@ -24,6 +24,25 @@ logger = structlog.get_logger(__name__)
 TIER_ORDER: tuple[BackendTier, ...] = (BackendTier.LOCAL, BackendTier.SIMPLE, BackendTier.MODERATE, BackendTier.COMPLEX)
 _TIER_RANK = {tier: idx for idx, tier in enumerate(TIER_ORDER)}
 
+# HAZ-013 mitigation: Intent categories that require higher-tier backends.
+# Maps intent_category values to their minimum required BackendTier.
+# Intent categories not listed here default to heuristic-based estimation.
+_INTENT_TIER_FLOOR: dict[str, BackendTier] = {
+    # Complex reasoning / strategic work requires COMPLEX tier
+    "complex_reasoning": BackendTier.COMPLEX,
+    "strategic_planning": BackendTier.COMPLEX,
+    "architecture": BackendTier.COMPLEX,
+    # Engineering tasks require at least MODERATE tier
+    "engineering_build": BackendTier.MODERATE,
+    "code_review": BackendTier.MODERATE,
+    "debugging": BackendTier.MODERATE,
+    "spec_writing": BackendTier.MODERATE,
+    "code_generation": BackendTier.MODERATE,
+    # Analytical tasks benefit from SIMPLE at minimum
+    "data_analysis": BackendTier.SIMPLE,
+    "summarization": BackendTier.SIMPLE,
+}
+
 
 def filter_by_capabilities(
     registry: BackendRegistry,
@@ -212,8 +231,36 @@ def _enforce_no_downgrade(
         )
 
 
+def _apply_intent_floor(tier: BackendTier, intent_category: str) -> BackendTier:
+    """HAZ-013: Apply intent-based tier floor — never lower, only raise.
+
+    If the intent has a mapped floor tier that is higher than the
+    heuristic-estimated tier, upgrade to the floor. Otherwise return
+    the tier unchanged.
+    """
+    intent_floor = _INTENT_TIER_FLOOR.get(intent_category)
+    if intent_floor is None:
+        return tier
+
+    floor_rank = _TIER_RANK.get(intent_floor, 0)
+    current_rank = _TIER_RANK.get(tier, 0)
+    if floor_rank > current_rank:
+        logger.debug(
+            "intent_floor_applied",
+            intent=intent_category,
+            previous_tier=tier.value,
+            floor_tier=intent_floor.value,
+        )
+        return intent_floor
+    return tier
+
+
 def estimate_complexity(order: DispatchOrder) -> BackendTier:
     """Estimate the required backend tier based on dispatch order complexity.
+
+    HAZ-013 mitigation: Uses intent_category to set a minimum tier floor
+    via _apply_intent_floor(), ensuring tasks like code_review or architecture
+    are routed to appropriately capable backends.
 
     Args:
         order: Dispatch order to analyze.
@@ -231,6 +278,8 @@ def estimate_complexity(order: DispatchOrder) -> BackendTier:
         tier = BackendTier.MODERATE
     if order.context_tokens > 8192:
         tier = BackendTier.COMPLEX
+
+    tier = _apply_intent_floor(tier, order.intent_category)
 
     assert tier in BackendTier, "tier must be a valid BackendTier"
 

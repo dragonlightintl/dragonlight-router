@@ -151,6 +151,11 @@ class DispatchOrder:
     request_id: int | None = None
     stream_id: str | None = None
     context_trust_tier: str | None = None
+    # HAZ-004: Fallback policy — controls cascade behavior on primary failure.
+    #   "allow" (default): fall back to next candidate in ranked list
+    #   "deny": fail immediately if primary candidate fails (no fallback)
+    #   "same_tier": only fall back to candidates at the same BackendTier
+    fallback_policy: str = "allow"
 
 @dataclass(frozen=True)
 class EngineResponse:

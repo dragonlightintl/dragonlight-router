@@ -143,3 +143,78 @@ class HealthTracker:
     def get_error_count(self, model_id: str) -> int:
         """Return current consecutive error count."""
         return self._error_counts.get(model_id, 0)
+
+    def get_state(self) -> dict:
+        """Export health tracker state for persistence (HAZ-003/HAZ-012).
+
+        Exports retired models and circuit breaker states so they survive
+        process restarts. EMA latency data is intentionally excluded as
+        it is stale on restart and will rebuild from live probes.
+        """
+        breaker_states: dict[str, dict] = {}
+        for model_id, breaker in self._breakers.items():
+            breaker_states[model_id] = breaker.get_state()
+
+        return {
+            "retired": dict(self._retired),
+            "error_counts": dict(self._error_counts),
+            "breaker_states": breaker_states,
+        }
+
+    def restore_state(self, state: dict) -> None:
+        """Restore health tracker state from persistence (HAZ-003/HAZ-012).
+
+        Restores retired models and circuit breaker states. Error counts
+        are restored but will be overwritten by live health check probes.
+        """
+        assert isinstance(state, dict), "state must be a dict"
+
+        # Restore retired models
+        retired = state.get("retired", {})
+        for model_id, timestamp in retired.items():
+            self._retired[model_id] = timestamp
+
+        # Restore error counts
+        error_counts = state.get("error_counts", {})
+        for model_id, count in error_counts.items():
+            self._error_counts[model_id] = count
+
+        # Restore circuit breaker states
+        breaker_states = state.get("breaker_states", {})
+        for model_id, breaker_state in breaker_states.items():
+            self._breakers[model_id].restore_state(breaker_state)
+
+        logger.info(
+            "health_state_restored",
+            retired_count=len(retired),
+            breaker_count=len(breaker_states),
+        )
+
+    def availability_status(self) -> str:
+        """Return router-level availability status (HAZ-003 mitigation).
+
+        Assesses overall router availability based on circuit breaker
+        states and retired model count:
+        - "healthy": majority of tracked models are available
+        - "degraded": some models unavailable but at least one is healthy
+        - "unavailable": all tracked models are unavailable
+
+        Returns "healthy" if no models are tracked (no state = fresh start).
+        """
+        all_models = set(self._breakers.keys()) | set(self._retired.keys())
+        if not all_models:
+            return "healthy"
+
+        available_count = 0
+        for model_id in all_models:
+            if model_id in self._retired:
+                continue
+            if self._breakers[model_id].allow_request():
+                available_count += 1
+
+        total = len(all_models)
+        if available_count == 0:
+            return "unavailable"
+        if available_count < total:
+            return "degraded"
+        return "healthy"

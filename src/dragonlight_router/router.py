@@ -90,6 +90,7 @@ class RouterEngine:
         self._ensure_matrix_in_state_dir()
         self._register_backends_from_matrix()
         self._restore_budget_state()
+        self._restore_health_state()
         self._init_health_check()
 
         assert isinstance(self._budget, BudgetTracker), "_budget must be a BudgetTracker instance"
@@ -136,6 +137,22 @@ class RouterEngine:
         self._matrix = RoleMatrix(matrix_path=state_dir / "model_role_matrix.json")
         self._registry = BackendRegistry()
         self._provider_configs = {p.name: p for p in provider_configs}
+
+    def _restore_health_state(self) -> None:
+        """HAZ-003/HAZ-012 mitigation: Restore persisted health state at startup.
+
+        Loads retired models and circuit breaker states from disk so
+        the router does not lose health tracking on process restart.
+        """
+        health_path = self._config.state_dir / "health_state.json"
+        result = load_budget_state(health_path)
+        if isinstance(result, Ok) and result.value is not None:
+            self._health.restore_state(result.value)
+            logger.info("health_state_loaded", path=str(health_path))
+        elif isinstance(result, Ok):
+            logger.debug("no_persisted_health_state", path=str(health_path))
+        else:
+            logger.warning("health_state_load_error", error=str(result.error))
 
     def _init_health_check(self) -> None:
         """Set up the background health check loop from registry state.
@@ -184,10 +201,10 @@ class RouterEngine:
             logger.warning("budget_state_load_error", error=str(result.error))
 
     def save_state(self) -> None:
-        """HAZ-012 mitigation: Persist budget state to disk.
+        """HAZ-012/HAZ-003 mitigation: Persist budget and health state to disk.
 
         Called at shutdown (or periodically) to preserve daily spend
-        counters across process restarts.
+        counters and health/retirement state across process restarts.
         """
         budget_path = self._config.state_dir / "budget_state.json"
         state = self._budget.get_state()
@@ -196,6 +213,15 @@ class RouterEngine:
             logger.info("budget_state_saved", path=str(budget_path))
         else:
             logger.warning("budget_state_save_failed", error=str(result.error))
+
+        # HAZ-003: Persist health tracker state (retirements + circuit breakers)
+        health_path = self._config.state_dir / "health_state.json"
+        health_state = self._health.get_state()
+        result = save_budget_state(health_state, health_path)
+        if isinstance(result, Ok):
+            logger.info("health_state_saved", path=str(health_path))
+        else:
+            logger.warning("health_state_save_failed", error=str(result.error))
 
     def _ensure_matrix_in_state_dir(self) -> None:
         """Copy config/model_role_matrix.json to state_dir if not already present."""

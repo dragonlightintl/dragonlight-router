@@ -26,6 +26,22 @@ _MAX_RESPONSE_LENGTH = 500_000
 _SELECT_MAX_TOP_N = 500
 _DISPATCH_REQUIRED_FIELDS = ("intent_category", "specific_intent", "operator_message", "context_tokens")
 
+# HAZ-007: Allowed intent_category values — rejects unknown values to prevent
+# adversarial intent injection affecting routing decisions.
+_ALLOWED_INTENT_CATEGORIES: frozenset[str] = frozenset({
+    "code_generation", "code_review", "debugging", "architecture",
+    "engineering_build", "spec_writing", "documentation",
+    "session_lifecycle", "strategic_planning", "complex_reasoning",
+    "casual_chat", "creative_writing", "data_analysis",
+    "summarization", "translation", "search", "general",
+    "test",  # For test/development usage
+})
+
+# HAZ-004: Allowed fallback_policy values.
+_ALLOWED_FALLBACK_POLICIES: frozenset[str] = frozenset({
+    "allow", "deny", "same_tier",
+})
+
 # Matches control characters EXCEPT newline (\n), carriage return (\r), and tab (\t)
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
@@ -240,10 +256,15 @@ async def record_handler(request: Request) -> JSONResponse:
 
 
 async def health_handler(request: Request) -> JSONResponse:
-    """GET /v1/health — full health and budget snapshot."""
+    """GET /v1/health — full health and budget snapshot.
+
+    HAZ-003 mitigation: Includes router-level availability status so
+    callers can detect degraded/unavailable state before dispatching.
+    """
     engine: RouterEngine = request.app.state.engine
 
     return JSONResponse({
+        "status": engine._health.availability_status(),
         "budget": engine.budget_snapshot(),
         "health": engine.health_snapshot(),
     })
@@ -335,6 +356,16 @@ def _validate_dispatch_request(body: dict) -> str | None:
     if not isinstance(ct, int) or ct < 0:
         return "invalid context_tokens: must be a non-negative integer"
 
+    # HAZ-007: Validate intent_category against allowed set
+    intent = body["intent_category"]
+    if intent not in _ALLOWED_INTENT_CATEGORIES:
+        return f"invalid intent_category: '{intent}' not in allowed set"
+
+    # HAZ-004: Validate fallback_policy if provided
+    fp = body.get("fallback_policy", "allow")
+    if fp not in _ALLOWED_FALLBACK_POLICIES:
+        return f"invalid fallback_policy: must be one of {sorted(_ALLOWED_FALLBACK_POLICIES)}"
+
     return None
 
 
@@ -352,6 +383,7 @@ def _build_dispatch_order(body: dict) -> DispatchOrder:
         request_id=body.get("request_id"),
         stream_id=body.get("stream_id"),
         context_trust_tier=body.get("context_trust_tier"),
+        fallback_policy=body.get("fallback_policy", "allow"),
     )
 
 

@@ -141,7 +141,7 @@ def _setup_env_with_cached_catalog(
 
 
 VALID_DISPATCH_BODY = {
-    "intent_category": "code_generation",
+    "intent_category": "general",
     "specific_intent": "write_function",
     "operator_message": "Write a Python function to calculate fibonacci numbers",
     "system_prompt": "You are a helpful coding assistant",

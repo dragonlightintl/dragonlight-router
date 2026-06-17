@@ -511,7 +511,7 @@ class TestValidateDispatchRequest:
     def test_invalid_system_prompt_too_long(self):
         """[TM-009 AC-2] system_prompt exceeding max length returns validation error."""
         body = {
-            "intent_category": "cat",
+            "intent_category": "general",
             "specific_intent": "spec",
             "operator_message": "msg",
             "context_tokens": 0,
@@ -524,7 +524,7 @@ class TestValidateDispatchRequest:
     def test_invalid_context_tokens_negative(self):
         """[TM-009 AC-2] Negative context_tokens returns validation error."""
         body = {
-            "intent_category": "cat",
+            "intent_category": "general",
             "specific_intent": "spec",
             "operator_message": "msg",
             "context_tokens": -1,
@@ -536,7 +536,7 @@ class TestValidateDispatchRequest:
     def test_invalid_context_tokens_string(self):
         """[TM-009 AC-2] Non-integer context_tokens returns validation error."""
         body = {
-            "intent_category": "cat",
+            "intent_category": "general",
             "specific_intent": "spec",
             "operator_message": "msg",
             "context_tokens": "many",
@@ -594,7 +594,7 @@ class TestDispatchEndpoint:
         client = TestClient(app)
         response = client.post(
             "/v1/dispatch",
-            json={"intent_category": "coding"},
+            json={"intent_category": "general"},
         )
         assert response.status_code == 400
 
@@ -612,7 +612,7 @@ class TestDispatchEndpoint:
         response = client.post(
             "/v1/dispatch",
             json={
-                "intent_category": "coding",
+                "intent_category": "general",
                 "specific_intent": "write a function",
                 "operator_message": "hello",
                 "context_tokens": 100,
@@ -864,7 +864,7 @@ class TestDispatchOkPath:
         response = client.post(
             "/v1/dispatch",
             json={
-                "intent_category": "coding",
+                "intent_category": "general",
                 "specific_intent": "write a function",
                 "operator_message": "hello",
                 "context_tokens": 100,
@@ -898,7 +898,7 @@ class TestDispatchOkPath:
         response = client.post(
             "/v1/dispatch",
             json={
-                "intent_category": "coding",
+                "intent_category": "general",
                 "specific_intent": "write a function",
                 "operator_message": "hello",
                 "context_tokens": 100,
@@ -923,7 +923,7 @@ class TestDispatchOkPath:
         response = client.post(
             "/v1/dispatch",
             json={
-                "intent_category": "coding",
+                "intent_category": "general",
                 "specific_intent": "write a function",
                 "operator_message": "hello",
                 "context_tokens": 100,
@@ -1026,7 +1026,7 @@ class TestStreamingDispatchEndpoint:
         response = client.post(
             "/v1/dispatch",
             json={
-                "intent_category": "coding",
+                "intent_category": "general",
                 "specific_intent": "write a function",
                 "operator_message": "hello",
                 "context_tokens": 100,
@@ -1078,7 +1078,7 @@ class TestStreamingDispatchEndpoint:
         response = client.post(
             "/v1/dispatch",
             json={
-                "intent_category": "coding",
+                "intent_category": "general",
                 "specific_intent": "write a function",
                 "operator_message": "hello",
                 "context_tokens": 100,
@@ -1104,7 +1104,7 @@ class TestStreamingDispatchEndpoint:
         response = client.post(
             "/v1/dispatch",
             json={
-                "intent_category": "coding",
+                "intent_category": "general",
                 "specific_intent": "write a function",
                 "operator_message": "hello",
                 "context_tokens": 100,
@@ -1136,7 +1136,7 @@ class TestStreamingDispatchEndpoint:
         response = client.post(
             "/v1/dispatch",
             json={
-                "intent_category": "coding",
+                "intent_category": "general",
                 "specific_intent": "write a function",
                 "operator_message": "hello",
                 "context_tokens": 100,
@@ -1161,7 +1161,7 @@ class TestStreamingDispatchEndpoint:
         response = client.post(
             "/v1/dispatch",
             json={
-                "intent_category": "coding",
+                "intent_category": "general",
                 "stream": True,
             },
         )
@@ -1183,7 +1183,7 @@ class TestStreamingDispatchEndpoint:
         response = client.post(
             "/v1/dispatch",
             json={
-                "intent_category": "coding",
+                "intent_category": "general",
                 "specific_intent": "test",
                 "operator_message": "hi",
                 "context_tokens": 0,

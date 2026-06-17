@@ -760,9 +760,10 @@ class TestMain:
 
         captured = {}
 
-        def _fake_run(app, host="127.0.0.1", port=8100):
+        def _fake_run(app, host="127.0.0.1", port=8100, **kwargs):
             captured["host"] = host
             captured["port"] = port
+            captured["timeout_graceful_shutdown"] = kwargs.get("timeout_graceful_shutdown")
 
         with patch("dragonlight_router.server.app.create_app", return_value=MagicMock()), \
              patch("dragonlight_router.server.app.uvicorn.run", side_effect=_fake_run):

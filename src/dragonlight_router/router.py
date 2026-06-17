@@ -15,7 +15,6 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
-import aiohttp
 import structlog
 
 from dragonlight_router.adapters import create_adapter, _PROVIDER_MAP
@@ -659,7 +658,7 @@ class RouterEngine:
 
         DEVIATION QA-002: except Exception at I/O boundary.
         Justification: Provider adapters raise heterogeneous exception types including
-          RuntimeError, OSError, httpx.HTTPError, aiohttp.ClientError, and provider SDK
+          RuntimeError, OSError, httpx.HTTPError, and provider SDK
           errors. Enumerating all possible types is infeasible and brittle.
         Approved by: architect. Mitigations: exception is logged, never silenced.
         Scope: this coroutine only. Expiration: revisit when adapters adopt Result returns.

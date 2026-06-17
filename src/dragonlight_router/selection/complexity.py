@@ -1,4 +1,4 @@
-"""Complexity estimation — maps dispatch orders to required backend tiers.
+"""Complexity estimation -- maps dispatch orders to required backend tiers.
 
 Uses heuristics based on intent category, context size, tool use,
 and message characteristics to estimate which tier is needed.
@@ -36,54 +36,92 @@ def estimate_complexity(order: DispatchOrder) -> ComplexityEstimate:
 
     Returns ComplexityEstimate with tier, confidence, and reasoning signals.
     """
-    # Precondition
     assert order is not None, "order must not be None"
+    assert isinstance(order, DispatchOrder), "order must be a DispatchOrder"
+
     signals: list[str] = []
+
+    # Check OPUS-gate first (early return for highest tier)
+    if order.intent_category in _OPUS_INTENTS:
+        signals.append(f"intent_category={order.intent_category} requires OPUS")
+        return _build_estimate(BackendTier.COMPLEX, 0.9, signals)
+
+    tier, confidence = _evaluate_sonnet_gates(order, signals)
+    tier, confidence = _evaluate_message_characteristics(order, tier, confidence, signals)
+
+    if not signals:
+        signals.append("default tier assignment")
+
+    return _build_estimate(tier, confidence, signals)
+
+
+def _evaluate_sonnet_gates(
+    order: DispatchOrder,
+    signals: list[str],
+) -> tuple[BackendTier, float]:
+    """Check SONNET-tier gates: intent category, tool use, large context."""
+    assert isinstance(signals, list), "signals must be a list"
+    assert isinstance(order, DispatchOrder), "order must be a DispatchOrder"
+
     tier = BackendTier.LOCAL
     confidence = 0.8
 
-    # OPUS gates
-    if order.intent_category in _OPUS_INTENTS:
-        signals.append(f"intent_category={order.intent_category} requires OPUS")
-        return ComplexityEstimate(tier=BackendTier.COMPLEX, confidence=0.9, signals=signals)
-
-    # SONNET gates
     if order.intent_category in _SONNET_INTENTS:
         signals.append(f"intent_category={order.intent_category} requires SONNET")
         tier = BackendTier.MODERATE
         confidence = 0.85
 
     if order.requires_tool_use:
-        signals.append("requires_tool_use → SONNET minimum")
+        signals.append("requires_tool_use -> SONNET minimum")
         if tier.value in ("local", "haiku"):
             tier = BackendTier.MODERATE
             confidence = 0.85
 
     if order.requires_long_context or order.context_tokens >= _LARGE_CONTEXT_THRESHOLD:
-        signals.append(f"large_context ({order.context_tokens} tokens) → SONNET minimum")
+        signals.append(f"large_context ({order.context_tokens} tokens) -> SONNET minimum")
         if tier.value in ("local", "haiku"):
             tier = BackendTier.MODERATE
             confidence = 0.8
 
-    # If still LOCAL or HAIKU, check message characteristics
-    if tier == BackendTier.LOCAL:
-        msg_len = len(order.operator_message)
-        if msg_len <= _SHORT_MESSAGE_THRESHOLD and order.context_tokens < _MEDIUM_CONTEXT_THRESHOLD:
-            signals.append(f"short_message ({msg_len} chars) + low context → LOCAL")
-        elif order.context_tokens >= _MEDIUM_CONTEXT_THRESHOLD:
-            signals.append(f"medium_context ({order.context_tokens} tokens) → HAIKU")
-            tier = BackendTier.SIMPLE
-            confidence = 0.7
-        else:
-            signals.append(f"moderate_message ({msg_len} chars) → HAIKU")
-            tier = BackendTier.SIMPLE
-            confidence = 0.7
+    return tier, confidence
 
-    if not signals:
-        signals.append("default tier assignment")
 
+def _evaluate_message_characteristics(
+    order: DispatchOrder,
+    tier: BackendTier,
+    confidence: float,
+    signals: list[str],
+) -> tuple[BackendTier, float]:
+    """If still LOCAL, check message length and context size for HAIKU upgrade."""
+    assert isinstance(tier, BackendTier), "tier must be a BackendTier"
+    assert 0.0 <= confidence <= 1.0, "confidence must be in [0.0, 1.0]"
+
+    if tier != BackendTier.LOCAL:
+        return tier, confidence
+
+    msg_len = len(order.operator_message)
+    if msg_len <= _SHORT_MESSAGE_THRESHOLD and order.context_tokens < _MEDIUM_CONTEXT_THRESHOLD:
+        signals.append(f"short_message ({msg_len} chars) + low context -> LOCAL")
+        return tier, confidence
+
+    if order.context_tokens >= _MEDIUM_CONTEXT_THRESHOLD:
+        signals.append(f"medium_context ({order.context_tokens} tokens) -> HAIKU")
+    else:
+        signals.append(f"moderate_message ({msg_len} chars) -> HAIKU")
+
+    return BackendTier.SIMPLE, 0.7
+
+
+def _build_estimate(
+    tier: BackendTier,
+    confidence: float,
+    signals: list[str],
+) -> ComplexityEstimate:
+    """Construct and validate a ComplexityEstimate."""
     result = ComplexityEstimate(tier=tier, confidence=confidence, signals=signals)
+
     assert isinstance(result.tier, BackendTier), "tier must be a BackendTier"
     assert 0.0 <= result.confidence <= 1.0, "confidence must be between 0.0 and 1.0"
     assert isinstance(result.signals, list), "signals must be a list"
+
     return result

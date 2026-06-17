@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import structlog
-from typing import List
 
 from dragonlight_router.core.errors import MBRNoCandidatesError
 from dragonlight_router.core.registry import BackendRegistry
+from dragonlight_router.core.state import invariant
 from dragonlight_router.core.types import (
     BackendCapabilities,
     BackendConfig,
@@ -20,11 +20,15 @@ from dragonlight_router.core.types import (
 
 logger = structlog.get_logger(__name__)
 
+# Canonical tier ordering — index position defines rank (0 = lowest).
+TIER_ORDER: tuple[BackendTier, ...] = (BackendTier.LOCAL, BackendTier.SIMPLE, BackendTier.MODERATE, BackendTier.COMPLEX)
+_TIER_RANK = {tier: idx for idx, tier in enumerate(TIER_ORDER)}
+
 
 def filter_by_capabilities(
     registry: BackendRegistry,
     order: DispatchOrder,
-) -> Result[List[BackendConfig], MBRNoCandidatesError]:
+) -> Result[list[BackendConfig], MBRNoCandidatesError]:
     """Filter candidates by capability tier and health, with graceful upgrade.
 
     Args:
@@ -35,10 +39,23 @@ def filter_by_capabilities(
         Ok(list of candidates that meet the capability tier (or one above) and are healthy) or
         Err(MBRNoCandidatesError) if no candidates meet the requirements.
     """
-    # Precondition assertion
     assert isinstance(registry, BackendRegistry), "registry must be a BackendRegistry instance"
     assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
 
+    _log_capability_filter_entry(order)
+
+    requested_tier = estimate_complexity(order)
+    logger.debug("estimated complexity tier", tier=requested_tier.value)
+
+    tiers_to_try = _resolve_tiers_to_try(requested_tier)
+    if isinstance(tiers_to_try, Err):
+        return tiers_to_try
+
+    return _try_tiers(registry, order, tiers_to_try.value, requested_tier)
+
+
+def _log_capability_filter_entry(order: DispatchOrder) -> None:
+    """Log entry point for capability filtering."""
     logger.debug(
         "filtering candidates by capability tier and health",
         intent_category=order.intent_category,
@@ -48,75 +65,43 @@ def filter_by_capabilities(
         has_system_prompt=bool(order.system_prompt),
     )
 
-    # Estimate the complexity tier
-    requested_tier = estimate_complexity(order)
-    logger.debug("estimated complexity tier", tier=requested_tier.value)
 
-    # Determine the tiers to try: requested tier and the next tier (if exists and we are not at the highest)
-    tier_order = [BackendTier.LOCAL, BackendTier.SIMPLE, BackendTier.MODERATE, BackendTier.COMPLEX]
+def _resolve_tiers_to_try(
+    requested_tier: BackendTier,
+) -> Result[list[BackendTier], MBRNoCandidatesError]:
+    """Determine the tiers to try: requested tier and the next tier (if exists)."""
+    assert isinstance(requested_tier, BackendTier), "requested_tier must be a BackendTier"
+
     try:
-        requested_index = tier_order.index(requested_tier)
+        requested_index = TIER_ORDER.index(requested_tier)
     except ValueError:
-        # This should not happen because requested_tier is a BackendTier
         logger.error("unknown tier", tier=requested_tier)
         return Err(MBRNoCandidatesError(f"Unknown tier: {requested_tier}"))
 
-    tiers_to_try = [requested_tier]
-    if requested_index < len(tier_order) - 1:
-        next_tier = tier_order[requested_index + 1]
-        tiers_to_try.append(next_tier)
+    tiers = [requested_tier]
+    if requested_index < len(TIER_ORDER) - 1:
+        tiers.append(TIER_ORDER[requested_index + 1])
 
-    # Try each tier in order
+    assert len(tiers) >= 1, "must have at least one tier to try"
+    return Ok(tiers)
+
+
+def _try_tiers(
+    registry: BackendRegistry,
+    order: DispatchOrder,
+    tiers_to_try: list[BackendTier],
+    requested_tier: BackendTier,
+) -> Result[list[BackendConfig], MBRNoCandidatesError]:
+    """Try each tier in order, returning the first with healthy candidates."""
+    assert len(tiers_to_try) >= 1, "must have at least one tier to try"
+    assert all(isinstance(t, BackendTier) for t in tiers_to_try), "all tiers must be BackendTier"
+
     for tier in tiers_to_try:
         logger.debug("trying tier", tier=tier.value)
-        # Get candidates for this tier
-        tier_candidates = registry.get_by_tier(tier)
-        if not tier_candidates:
-            logger.debug("no candidates in tier", tier=tier.value)
-            continue
+        healthy = _candidates_for_tier(registry, order, tier, requested_tier)
+        if healthy:
+            return Ok(healthy)
 
-        # Filter by capabilities
-        capable_candidates = _filter_by_capabilities(tier_candidates, order)
-        if not capable_candidates:
-            logger.debug("no capable candidates in tier", tier=tier.value)
-            continue
-
-        # Filter by health: exclude circuit_open
-        healthy_candidates = []
-        for candidate in capable_candidates:
-            backend, state = registry.get(candidate.name)
-            if backend is None or state is None:
-                # This should not happen if the registry is consistent, but skip if missing
-                logger.warning(
-                    "backend or state missing",
-                    backend_name=candidate.name,
-                    backend_found=backend is not None,
-                    state_found=state is not None,
-                )
-                continue
-            if state.status != BackendStatus.CIRCUIT_OPEN:
-                healthy_candidates.append(candidate)
-            else:
-                logger.debug(
-                    "skipping circuit open backend",
-                    backend_name=candidate.name,
-                    tier=tier.value,
-                )
-
-        if healthy_candidates:
-            logger.debug(
-                "found healthy candidates",
-                tier=tier.value,
-                count=len(healthy_candidates),
-            )
-            return Ok(healthy_candidates)
-        else:
-            logger.debug(
-                "no healthy candidates in tier after health filter",
-                tier=tier.value,
-            )
-
-    # If we tried all tiers and got zero candidates
     logger.warning(
         "no candidates found after trying tiers",
         tried_tiers=[t.value for t in tiers_to_try],
@@ -125,6 +110,106 @@ def filter_by_capabilities(
         f"No candidates meet the required capability tier (requested: {requested_tier.value}) "
         f"and health after trying tiers: {[t.value for t in tiers_to_try]}"
     ))
+
+
+def _candidates_for_tier(
+    registry: BackendRegistry,
+    order: DispatchOrder,
+    tier: BackendTier,
+    requested_tier: BackendTier,
+) -> list[BackendConfig]:
+    """Get healthy, capable candidates for a single tier."""
+    assert isinstance(tier, BackendTier), "tier must be a BackendTier"
+    assert isinstance(requested_tier, BackendTier), "requested_tier must be a BackendTier"
+
+    tier_candidates = registry.get_by_tier(tier)
+    if not tier_candidates:
+        logger.debug("no candidates in tier", tier=tier.value)
+        return []
+
+    capable_candidates = _filter_by_capabilities(tier_candidates, order)
+    if not capable_candidates:
+        logger.debug("no capable candidates in tier", tier=tier.value)
+        return []
+
+    healthy = _filter_healthy(registry, capable_candidates, tier)
+    if not healthy:
+        logger.debug("no healthy candidates in tier after health filter", tier=tier.value)
+        return []
+
+    _enforce_no_downgrade(healthy, requested_tier)
+    logger.debug("found healthy candidates", tier=tier.value, count=len(healthy))
+    return healthy
+
+
+def _filter_healthy(
+    registry: BackendRegistry,
+    candidates: list[BackendConfig],
+    tier: BackendTier,
+) -> list[BackendConfig]:
+    """Filter candidates by health: exclude circuit_open / rate-limited.
+
+    AC5: LOCAL tier backends bypass all rate-limit and circuit-breaker
+    checks -- they run on-box so capacity is unlimited.
+    """
+    assert isinstance(candidates, list), "candidates must be a list"
+
+    healthy: list[BackendConfig] = []
+    for candidate in candidates:
+        if candidate.tier == BackendTier.LOCAL:
+            healthy.append(candidate)
+            logger.debug("local backend passthrough", backend_name=candidate.name, tier=tier.value)
+            continue
+
+        if _is_backend_healthy(registry, candidate, tier):
+            healthy.append(candidate)
+
+    assert all(isinstance(c, BackendConfig) for c in healthy), "all healthy candidates must be BackendConfig"
+    return healthy
+
+
+def _is_backend_healthy(
+    registry: BackendRegistry,
+    candidate: BackendConfig,
+    tier: BackendTier,
+) -> bool:
+    """Check if a non-LOCAL backend is healthy (not circuit-open)."""
+    assert isinstance(candidate, BackendConfig), "candidate must be BackendConfig"
+    assert candidate.tier != BackendTier.LOCAL, "LOCAL backends bypass health checks"
+
+    backend, state = registry.get(candidate.name)
+    if backend is None or state is None:
+        logger.warning(
+            "backend or state missing",
+            backend_name=candidate.name,
+            backend_found=backend is not None,
+            state_found=state is not None,
+        )
+        return False
+
+    if state.status == BackendStatus.CIRCUIT_OPEN:
+        logger.debug("skipping circuit open backend", backend_name=candidate.name, tier=tier.value)
+        return False
+
+    return True
+
+
+def _enforce_no_downgrade(
+    candidates: list[BackendConfig],
+    requested_tier: BackendTier,
+) -> None:
+    """AC4 postcondition: MBR NEVER downgrades. Every candidate must be at the requested tier or above."""
+    assert len(candidates) > 0, "cannot enforce downgrade check on empty list"
+    assert requested_tier in _TIER_RANK, "requested_tier must be a known tier"
+
+    requested_rank = _TIER_RANK[requested_tier]
+    for c in candidates:
+        invariant(
+            _TIER_RANK[c.tier] >= requested_rank,
+            f"MBR invariant violated: candidate '{c.name}' tier "
+            f"'{c.tier.value}' is below requested tier "
+            f"'{requested_tier.value}'",
+        )
 
 
 def estimate_complexity(order: DispatchOrder) -> BackendTier:
@@ -136,13 +221,10 @@ def estimate_complexity(order: DispatchOrder) -> BackendTier:
     Returns:
         BackendTier estimate for the order's complexity requirements.
     """
-    # Precondition assertion
     assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
 
-    # Start with BASE tier (which is LOCAL in our BackendTier enum)
     tier = BackendTier.LOCAL
 
-    # Upgrade based on requirements
     if order.requires_long_context or order.context_tokens > 4096:
         tier = BackendTier.SIMPLE
     if order.requires_tool_use:
@@ -150,7 +232,6 @@ def estimate_complexity(order: DispatchOrder) -> BackendTier:
     if order.context_tokens > 8192:
         tier = BackendTier.COMPLEX
 
-    # Postcondition assertion
     assert tier in BackendTier, "tier must be a valid BackendTier"
 
     logger.debug(
@@ -166,52 +247,36 @@ def estimate_complexity(order: DispatchOrder) -> BackendTier:
 
 
 def _filter_by_capabilities(
-    candidates: List[BackendConfig],
+    candidates: list[BackendConfig],
     order: DispatchOrder,
-) -> List[BackendConfig]:
-    """Filter candidates based on capability requirements from the dispatch order.
-
-    Args:
-        candidates: List of backend configurations to filter.
-        order: Dispatch order containing capability requirements.
-
-    Returns:
-        List of candidates that meet all required capabilities.
-    """
-    # Precondition assertions
+) -> list[BackendConfig]:
+    """Filter candidates based on capability requirements from the dispatch order."""
     assert isinstance(candidates, list), "candidates must be a list"
-    assert all(
-        isinstance(c, BackendConfig) for c in candidates
-    ), "all candidates must be BackendConfig instances"
+    assert all(isinstance(c, BackendConfig) for c in candidates), "all candidates must be BackendConfig instances"
     assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
 
+    _log_capability_filter_details(len(candidates), order)
+
+    if not _has_any_requirements(order):
+        logger.debug("no capability requirements, returning all candidates")
+        return candidates
+
+    filtered = [c for c in candidates if _meets_requirements(c.capabilities, order)]
+    logger.debug("filtering complete", original_count=len(candidates), filtered_count=len(filtered))
+    return filtered
+
+
+def _log_capability_filter_details(candidate_count: int, order: DispatchOrder) -> None:
+    """Log capability filtering parameters."""
     logger.debug(
         "filtering candidates by capabilities",
-        candidate_count=len(candidates),
+        candidate_count=candidate_count,
         intent_category=order.intent_category,
         context_tokens=order.context_tokens,
         requires_tool_use=order.requires_tool_use,
         requires_long_context=order.requires_long_context,
         has_system_prompt=bool(order.system_prompt),
     )
-
-    # If no requirements, return all candidates
-    if not _has_any_requirements(order):
-        logger.debug("no capability requirements, returning all candidates")
-        return candidates
-
-    filtered = []
-    for candidate in candidates:
-        if _meets_requirements(candidate.capabilities, order):
-            filtered.append(candidate)
-
-    logger.debug(
-        "filtering complete",
-        original_count=len(candidates),
-        filtered_count=len(filtered),
-    )
-
-    return filtered
 
 
 def _has_any_requirements(order: DispatchOrder) -> bool:
@@ -221,30 +286,24 @@ def _has_any_requirements(order: DispatchOrder) -> bool:
         or order.requires_tool_use
         or order.requires_long_context
         or bool(order.system_prompt)
-        # Note: JSON mode and streaming are harder to infer from order,
-        # but could be added if needed in the future
     )
 
 
 def _meets_requirements(caps: BackendCapabilities, order: DispatchOrder) -> bool:
     """Check if a backend's capabilities meet the order's requirements."""
-    # Context tokens requirement
+    assert isinstance(caps, BackendCapabilities), "caps must be BackendCapabilities"
+    assert isinstance(order, DispatchOrder), "order must be DispatchOrder"
+
     if order.context_tokens > 0 and caps.max_context_tokens < order.context_tokens:
         return False
 
-    # Tool use requirement
     if order.requires_tool_use and not caps.supports_tool_use:
         return False
 
-    # Long context requirement (same as context tokens for now)
     if order.requires_long_context and caps.max_context_tokens < order.context_tokens:
         return False
 
-    # System prompt requirement
     if bool(order.system_prompt) and not caps.supports_system_prompts:
         return False
-
-    # TODO: Could add streaming and JSON mode requirements if we can infer them from order
-    # For now, we don't have explicit flags for these in DispatchOrder
 
     return True

@@ -7,9 +7,72 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional, Tuple
 
+from dragonlight_router.budget.tracker import BudgetTracker
 from dragonlight_router.core.types import BackendConfig, DispatchOrder
+from dragonlight_router.health.tracker import HealthTracker
+
+
+def compute_budget_score(
+    rpm_remaining: int,
+    rpm_limit: int,
+    rpd_remaining: int | None,
+    rpd_limit: int | None,
+) -> float:
+    """Score budget availability on 0-100 scale.
+
+    Returns the minimum of RPM and RPD utilization ratios, scaled to 0-100.
+    None RPD limits are treated as unlimited (100% available).
+    """
+    assert rpm_limit > 0, f"rpm_limit must be > 0, got {rpm_limit}"
+    assert 0 <= rpm_remaining <= rpm_limit, (
+        f"rpm_remaining must be in [0, rpm_limit], got {rpm_remaining}"
+    )
+
+    rpm_ratio = rpm_remaining / rpm_limit * 100.0
+    rpd_ratio = _compute_rpd_ratio(rpd_remaining, rpd_limit)
+
+    result = min(rpm_ratio, rpd_ratio)
+    assert 0.0 <= result <= 100.0, f"budget score out of bounds: {result}"
+    return result
+
+
+def _compute_rpd_ratio(rpd_remaining: int | None, rpd_limit: int | None) -> float:
+    """Compute RPD utilization ratio, treating None as unlimited."""
+    if rpd_remaining is None or rpd_limit is None:
+        return 100.0
+
+    assert rpd_limit > 0, f"rpd_limit must be > 0, got {rpd_limit}"
+    assert 0 <= rpd_remaining <= rpd_limit, (
+        f"rpd_remaining must be in [0, rpd_limit], got {rpd_remaining}"
+    )
+    return rpd_remaining / rpd_limit * 100.0
+
+
+def compute_health_score(
+    error_count: int,
+    circuit_open: bool,
+    last_success_age_s: float,
+) -> float:
+    """Score backend health on 0-100 scale.
+
+    - Circuit open -> always 0.
+    - 0 errors -> 100.
+    - 1-2 errors -> 70.
+    - 3+ errors -> 30.
+    """
+    assert error_count >= 0, f"error_count must be >= 0, got {error_count}"
+    assert last_success_age_s >= 0, f"last_success_age_s must be >= 0, got {last_success_age_s}"
+
+    if circuit_open:
+        return 0.0
+
+    if error_count == 0:
+        return 100.0
+    elif error_count <= 2:
+        return 70.0
+    else:
+        return 30.0
 
 
 def compute_composite_score(rank: int, budget_score: float, health_score: float) -> float:
@@ -17,21 +80,18 @@ def compute_composite_score(rank: int, budget_score: float, health_score: float)
 
     All inputs should be on 0-100 scale. Output is 0-100.
     """
-    # Precondition assertions
     assert 0 <= rank <= 100, f'rank must be between 0 and 100, got {rank}'
     assert 0 <= budget_score <= 100, f'budget_score must be between 0 and 100, got {budget_score}'
     assert 0 <= health_score <= 100, f'health_score must be between 0 and 100, got {health_score}'
 
     result = rank * 0.6 + budget_score * 0.25 + health_score * 0.15
 
-    # Postcondition assertion
     assert 0 <= result <= 100, f'computed score {result} must be between 0 and 100'
-
     return result
 
 
 class ScoringWeights(Enum):
-    """Canonical scoring weights for the dispatch path (MBR→CBR→LBR cascade).
+    """Canonical scoring weights for the dispatch path (MBR->CBR->LBR cascade).
 
     Default values per canonical spec:
     - cost: 0.35
@@ -48,7 +108,6 @@ class ScoringWeights(Enum):
 
     def __post_init__(self):
         """Validate that weights sum to 1.0."""
-        # For Enum, we need to check the sum of all values
         total = sum(member.value for member in ScoringWeights)
         assert abs(total - 1.0) < 1e-9, f"Weights must sum to 1.0, got {total}"
 
@@ -68,18 +127,26 @@ class ScoringWeightsConfig:
         assert abs(total - 1.0) < 1e-9, f"Weights must sum to 1.0, got {total}"
 
 
+@dataclass(frozen=True)
+class ScoringContext:
+    """Grouped context for candidate scoring (QA-004 compliance)."""
+    config: BackendConfig
+    order: DispatchOrder
+    weights: ScoringWeightsConfig
+    budget_tracker: BudgetTracker
+    health_tracker: HealthTracker | None
+
+
 def normalize_rank(rank: int) -> float:
     """Normalize rank to [0.0, 1.0] where 1.0 is best rank.
-    
+
     Args:
         rank: Rank position (1 = best, higher numbers = worse)
-        
+
     Returns:
         Normalized score in [0.0, 1.0]
     """
     assert rank >= 1, f"Rank must be >= 1, got {rank}"
-    # Convert to 0-100 scale where 1 = 100, then normalize to 0-1
-    # Using exponential decay: better ranks get exponentially higher scores
     normalized = max(0.0, min(1.0, 2.0 ** (1 - rank / 10.0)))
     assert 0.0 <= normalized <= 1.0, f"Normalized rank out of bounds: {normalized}"
     return normalized
@@ -87,10 +154,10 @@ def normalize_rank(rank: int) -> float:
 
 def normalize_budget_score(budget_score: float) -> float:
     """Normalize budget score to [0.0, 1.0].
-    
+
     Args:
         budget_score: Budget availability score (0-100)
-        
+
     Returns:
         Normalized score in [0.0, 1.0]
     """
@@ -102,10 +169,10 @@ def normalize_budget_score(budget_score: float) -> float:
 
 def normalize_latency_score(latency_score: float) -> float:
     """Normalize latency score to [0.0, 1.0] where 1.0 is best latency.
-    
+
     Args:
         latency_score: Latency score (0-100, higher = better)
-        
+
     Returns:
         Normalized score in [0.0, 1.0]
     """
@@ -117,15 +184,14 @@ def normalize_latency_score(latency_score: float) -> float:
 
 def normalize_priority_score(priority: int) -> float:
     """Normalize priority to [0.0, 1.0] where higher priority = better.
-    
+
     Args:
         priority: Priority value (typically 0-100)
-        
+
     Returns:
         Normalized score in [0.0, 1.0]
     """
     assert priority >= 0, f"Priority must be >= 0, got {priority}"
-    # Cap at 100 for normalization
     capped_priority = min(priority, 100)
     normalized = capped_priority / 100.0
     assert 0.0 <= normalized <= 1.0, f"Normalized priority out of bounds: {normalized}"
@@ -134,17 +200,16 @@ def normalize_priority_score(priority: int) -> float:
 
 def normalize_queue_score(queue_depth: int, max_queue_depth: int = 100) -> float:
     """Normalize queue depth to [0.0, 1.0] where 1.0 is best (empty queue).
-    
+
     Args:
         queue_depth: Current queue depth
         max_queue_depth: Maximum expected queue depth for normalization
-        
+
     Returns:
         Normalized score in [0.0, 1.0] (1.0 = no queue, 0.0 = max queue)
     """
     assert queue_depth >= 0, f"Queue depth must be >= 0, got {queue_depth}"
     assert max_queue_depth > 0, f"Max queue depth must be > 0, got {max_queue_depth}"
-    # Invert so lower queue depth = higher score
     normalized = max(0.0, min(1.0, 1.0 - (queue_depth / max_queue_depth)))
     assert 0.0 <= normalized <= 1.0, f"Normalized queue score out of bounds: {normalized}"
     return normalized
@@ -152,10 +217,10 @@ def normalize_queue_score(queue_depth: int, max_queue_depth: int = 100) -> float
 
 def normalize_health_score(health_score: float) -> float:
     """Normalize health score to [0.0, 1.0].
-    
+
     Args:
         health_score: Health score (0-100, higher = healthier)
-        
+
     Returns:
         Normalized score in [0.0, 1.0]
     """
@@ -169,72 +234,113 @@ def score_candidate(
     config: BackendConfig,
     order: DispatchOrder,
     weights: ScoringWeightsConfig,
-    budget_tracker,
-    health_tracker,
+    budget_tracker: BudgetTracker,
+    health_tracker: HealthTracker | None,
 ) -> float:
     """Score a single candidate using canonical ScoringWeights.
-    
+
     Args:
         config: Backend configuration to score
         order: Dispatch order for context
         weights: Scoring weights to apply
         budget_tracker: Budget tracker for budget/latency scores
         health_tracker: Health tracker for health/priority scores
-        
+
     Returns:
         Composite score in [0.0, 1.0]
     """
-    # Get raw scores from trackers
+    assert isinstance(config, BackendConfig), "config must be BackendConfig"
+    assert isinstance(weights, ScoringWeightsConfig), "weights must be ScoringWeightsConfig"
+
+    raw = _extract_raw_scores(config, budget_tracker, health_tracker)
+    normalized = _normalize_all_dimensions(raw)
+    composite = _apply_weights(normalized, weights)
+
+    assert 0.0 <= composite <= 1.0, f"Composite score out of bounds: {composite}"
+    return composite
+
+
+@dataclass(frozen=True)
+class _RawScores:
+    """Raw scores extracted from trackers before normalization."""
+    budget: float
+    health: float
+    rank: float
+    latency: float
+    priority: float
+    queue: float
+
+
+@dataclass(frozen=True)
+class _NormalizedScores:
+    """Scores normalized to [0.0, 1.0] range."""
+    rank: float
+    budget: float
+    latency: float
+    priority: float
+    queue: float
+    health: float
+
+
+def _extract_raw_scores(
+    config: BackendConfig,
+    budget_tracker: BudgetTracker,
+    health_tracker: HealthTracker | None,
+) -> _RawScores:
+    """Extract raw scores from trackers for a candidate."""
+    assert isinstance(config, BackendConfig), "config must be BackendConfig"
+    assert isinstance(budget_tracker, BudgetTracker), "budget_tracker must be BudgetTracker"
+
     budget_result = budget_tracker.score(config.provider)
     budget_score = budget_result.value if hasattr(budget_result, 'value') else 50.0
-    
-    health_result = health_tracker.score(config.model)
-    health_score = health_result.value if hasattr(health_result, 'value') else 50.0
-    
-    # For latency, we'll use health tracker's latency EMA or approximate from health
-    # For priority, we'll use the config's priority field
-    # For queue depth, we'll approximate from budget tracker or use a default
-    
-    # Normalize each dimension to [0.0, 1.0]
-    # Rank: we'll use a simple heuristic based on cost (lower cost = better rank)
-    # In a full implementation, this would come from role matrix
+
+    health_score = 50.0
+    if health_tracker is not None:
+        health_result = health_tracker.score(config.model)
+        health_score = health_result.value if hasattr(health_result, 'value') else 50.0
+
     avg_cost = (config.cost.input_per_mtok + config.cost.output_per_mtok) / 2.0
-    # Lower cost = better rank (rank 1 = best)
-    rank_score = 100.0 / (avg_cost + 1.0) if avg_cost >= 0 else 50.0
-    rank_score = min(rank_score, 100.0)  # Cap at 100
-    
-    # Latency: approximate from health or use a default
-    latency_score = health_score  # Simplified - in reality would track latency separately
-    
-    # Priority: from config
-    priority_score = config.priority
-    
-    # Queue depth: approximate from budget utilization (lower utilization = shorter queue)
-    # Higher budget score = lower utilization = shorter queue = better score
-    queue_score = budget_score  # Simplified
-    
-    # Health: from health tracker
-    
-    # Normalize all scores
-    norm_rank = normalize_rank(int(rank_score)) if rank_score >= 1 else 0.5
-    norm_budget = normalize_budget_score(budget_score)
-    norm_latency = normalize_latency_score(latency_score)
-    norm_priority = normalize_priority_score(int(priority_score))
-    norm_queue = normalize_queue_score(int(100 - budget_score))  # Invert for queue depth
-    norm_health = normalize_health_score(health_score)
-    
-    # Apply weights
-    composite = (
-        norm_rank * weights.cost +
-        norm_latency * weights.latency +
-        norm_priority * weights.priority +
-        norm_queue * weights.queue +
-        norm_health * weights.health
+    rank_score = min(100.0 / (avg_cost + 1.0), 100.0) if avg_cost >= 0 else 50.0
+
+    assert 0.0 <= budget_score <= 100.0, f"budget_score out of range: {budget_score}"
+    return _RawScores(
+        budget=budget_score,
+        health=health_score,
+        rank=rank_score,
+        latency=health_score,
+        priority=config.priority,
+        queue=budget_score,
     )
-    
-    # Ensure result is in [0.0, 1.0]
-    assert 0.0 <= composite <= 1.0, f"Composite score out of bounds: {composite}"
-    
+
+
+def _normalize_all_dimensions(raw: _RawScores) -> _NormalizedScores:
+    """Normalize all raw scores to [0.0, 1.0]."""
+    assert isinstance(raw, _RawScores), "raw must be _RawScores"
+    assert raw.budget >= 0, "budget score must be non-negative"
+
+    return _NormalizedScores(
+        rank=normalize_rank(int(raw.rank)) if raw.rank >= 1 else 0.5,
+        budget=normalize_budget_score(raw.budget),
+        latency=normalize_latency_score(raw.latency),
+        priority=normalize_priority_score(int(raw.priority)),
+        queue=normalize_queue_score(int(100 - raw.budget)),
+        health=normalize_health_score(raw.health),
+    )
+
+
+def _apply_weights(normalized: _NormalizedScores, weights: ScoringWeightsConfig) -> float:
+    """Compute weighted composite from normalized scores."""
+    assert isinstance(weights, ScoringWeightsConfig), "weights must be ScoringWeightsConfig"
+
+    composite = (
+        normalized.rank * weights.cost +
+        normalized.latency * weights.latency +
+        normalized.priority * weights.priority +
+        normalized.queue * weights.queue +
+        normalized.health * weights.health
+    )
+
+    assert 0.0 <= composite <= 1.0, f"Composite out of bounds: {composite}"
     return composite
 
 
@@ -244,32 +350,33 @@ def cost_governor_active(
     config: dict,
 ) -> bool:
     """Check if cost governor should be active.
-    
+
     Args:
         daily_spend: Current daily spend in USD
         monthly_spend: Current monthly spend in USD
         config: Router configuration containing thresholds
-        
+
     Returns:
         True if cost governor should override weights
     """
+    assert isinstance(daily_spend, (int, float)), "daily_spend must be numeric"
+    assert isinstance(monthly_spend, (int, float)), "monthly_spend must be numeric"
+
     daily_threshold = config.get('cost_down_threshold_daily', 100.0)
     monthly_threshold = config.get('cost_down_threshold_monthly', 1000.0)
-    
+
     return daily_spend >= daily_threshold or monthly_spend >= monthly_threshold
 
 
 def cost_adjusted_weights(base_weights: ScoringWeightsConfig) -> ScoringWeightsConfig:
     """Adjust weights when cost governor is active.
-    
+
     Shifts to: cost=0.70, latency=0.10, priority=0.10, queue=0.05, health=0.05
-    
-    Args:
-        base_weights: Base scoring weights
-        
-    Returns:
-        Adjusted scoring weights
     """
+    assert isinstance(base_weights, ScoringWeightsConfig), "base_weights must be ScoringWeightsConfig"
+    assert abs(sum([base_weights.cost, base_weights.latency, base_weights.priority,
+                    base_weights.queue, base_weights.health]) - 1.0) < 1e-9, "base weights must sum to 1.0"
+
     return ScoringWeightsConfig(
         cost=0.70,
         latency=0.10,

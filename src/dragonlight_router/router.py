@@ -138,7 +138,12 @@ class RouterEngine:
         self._provider_configs = {p.name: p for p in provider_configs}
 
     def _init_health_check(self) -> None:
-        """Set up the background health check loop from registry state."""
+        """Set up the background health check loop from registry state.
+
+        HAZ-008 mitigation: Wires automatic catalog refresh into the health
+        check loop so stale catalogs are refreshed without manual intervention.
+        Catalog refresh runs every 120 cycles (default: 120 * 30s = ~1 hour).
+        """
         backends_dict = {}
         states_dict = {}
         for name, backend, state in self._registry.all_backends():
@@ -146,9 +151,18 @@ class RouterEngine:
             states_dict[name] = state
 
         latency_slos_dict = {name: LatencySLO(latency_ms=5000.0) for name in backends_dict}
+
+        # HAZ-008: Catalog refresh every 120 cycles (~1 hour at 30s intervals)
+        catalog_refresh_interval = max(
+            1,
+            (self._config.catalog_ttl_hours * 3600) // 30 // 2,
+        )
+
         self._health_check_loop = HealthCheckLoop(
             backends=backends_dict, states=states_dict,
             latency_slos=latency_slos_dict, interval_s=30.0, timeout_s=10.0,
+            on_cycle=self._async_refresh_catalog,
+            on_cycle_interval=catalog_refresh_interval,
         )
 
     def _restore_budget_state(self) -> None:

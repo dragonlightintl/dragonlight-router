@@ -364,6 +364,7 @@ class TestFilterByTrustFloor:
 def _make_mock_adapter(chunks: list[str]):
     """Create a mock adapter whose generate() yields the given chunks."""
     adapter = MagicMock()
+    adapter.status = BackendStatus.AVAILABLE  # HAZ-014: fresh adapter starts AVAILABLE
 
     async def _gen(*args, **kwargs):
         for chunk in chunks:
@@ -377,6 +378,7 @@ def _make_mock_adapter(chunks: list[str]):
 def _make_failing_adapter(exc: Exception):
     """Create a mock adapter whose generate() raises an exception."""
     adapter = MagicMock()
+    adapter.status = BackendStatus.AVAILABLE  # HAZ-014: fresh adapter starts AVAILABLE
 
     async def _gen(*args, **kwargs):
         raise exc

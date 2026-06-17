@@ -373,10 +373,18 @@ async def _try_adapter_dispatch(
     ctx: DispatchContext,
     fallback_chain: list[str],
 ) -> Result[EngineResponse, RuntimeError]:
-    """Attempt a single adapter call and return Ok(EngineResponse) or Err on failure."""
+    """Attempt a single adapter call and return Ok(EngineResponse) or Err on failure.
+
+    HAZ-014 mitigation: Creates a fresh adapter per dispatch attempt so
+    concurrent requests do not share mutable adapter state (_status).
+    """
     assert isinstance(backend_config, BackendConfig), "backend_config must be BackendConfig"
 
+    # HAZ-014: Fresh adapter instance prevents concurrent status mutation
     adapter = _adapters_mod.create_adapter(backend_config)
+    assert adapter.status == BackendStatus.AVAILABLE, (
+        f"Fresh adapter must start AVAILABLE, got {adapter.status}"
+    )
 
     provider_trust = _tier_to_provider_trust(backend_config.tier)
     filtered_context = filter_context_for_provider(base_context, provider_trust)
@@ -531,10 +539,16 @@ async def _try_streaming_dispatch(
     Yields token chunks as they arrive, then a final metadata chunk
     with cost/latency/fallback info. On adapter failure, yields an
     error chunk and returns (caller handles fallback).
+
+    HAZ-014 mitigation: Creates a fresh adapter per dispatch attempt.
     """
     assert isinstance(backend_config, BackendConfig), "backend_config must be BackendConfig"
 
+    # HAZ-014: Fresh adapter instance prevents concurrent status mutation
     adapter = _adapters_mod.create_adapter(backend_config)
+    assert adapter.status == BackendStatus.AVAILABLE, (
+        f"Fresh adapter must start AVAILABLE, got {adapter.status}"
+    )
     provider_trust = _tier_to_provider_trust(backend_config.tier)
     filtered_context = filter_context_for_provider(base_context, provider_trust)
     messages = _build_messages(filtered_context, order.operator_message)

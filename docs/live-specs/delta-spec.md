@@ -1,27 +1,28 @@
 # Dragonlight Router -- Implementation Delta (Final)
 
-**Delta ID:** dragonlight-router-delta-v0.2.4-2026-06-17
+**Delta ID:** dragonlight-router-delta-v0.2.5-2026-06-17
 **Spec Baseline:** live-spec-v0.2.0
-**Prior Deltas:** v0.2.0 (pre-remediation audit), v0.2.1 (post-blocker-fix), v0.2.2 (quality remediation), v0.2.3 (hazard remediation)
-**Auditor:** GOIBNIU + LUGH (co-embodied streaming dispatch implementation)
-**Method:** Streaming dispatch SSE implementation, full test verification
+**Prior Deltas:** v0.2.0 (pre-remediation audit), v0.2.1 (post-blocker-fix), v0.2.2 (quality remediation), v0.2.3 (hazard remediation), v0.2.4 (streaming dispatch)
+**Auditor:** GOIBNIU + LUGH (co-embodied MEDIUM-risk hazard mitigation)
+**Method:** MEDIUM-risk hazard mitigation, production hardening, full test verification
 
 ---
 
 ## Executive Summary
 
-The dragonlight-router has reached **~99.5% spec parity** across all 12 task modules. All 5 critical blockers resolved. 11 of 12 TMs at 100% AC coverage. The only partial TM is TM-004 (cascade dispatch) at 83% — the "transactional budget" AC is best-effort (in-memory state, no DB rollback semantics needed). All 4 HIGH-risk hazard register items mitigated. Streaming dispatch implemented via SSE (Server-Sent Events) — tokens stream to clients as they arrive from the LLM. The medium-severity streaming spec gap is now resolved.
+The dragonlight-router has reached **~99.5% spec parity** across all 12 task modules. All 5 critical blockers resolved. 11 of 12 TMs at 100% AC coverage. The only partial TM is TM-004 (cascade dispatch) at 83% — the "transactional budget" AC is best-effort (in-memory state, no DB rollback semantics needed). All 4 HIGH-risk hazard register items mitigated. Streaming dispatch implemented via SSE (Server-Sent Events). Five MEDIUM-risk hazard items now mitigated: secret scrubbing (HAZ-006), circuit breaker jitter (HAZ-009), admin endpoint auth (HAZ-011), automatic catalog refresh (HAZ-008), and adapter status isolation (HAZ-014).
 
-| Metric | Pre-Remediation | v0.2.3 | v0.2.4 (Current) | Target |
+| Metric | Pre-Remediation | v0.2.4 | v0.2.5 (Current) | Target |
 |--------|----------------|--------|-------------------|--------|
-| Spec Parity | 25% | 99% | 99.5% | 100% |
-| Standards Compliance | 40% | 98% | 98% | 100% |
+| Spec Parity | 25% | 99.5% | 99.5% | 100% |
+| Standards Compliance | 40% | 98% | 99% | 100% |
 | Test Coverage | 60% | 100% | 100% | 80%+ |
-| Tests Passing | 76% (179/234) | 100% (805/805) | 100% (824/824) | 100% |
+| Tests Passing | 76% (179/234) | 100% (824/824) | 100% (880/880) | 100% |
 | Critical Blockers | 5 | 0 | 0 | 0 |
 | Adapters (real) | 1 | 11 | 11 | 8 |
 | Quality Disparities | 125 | 0 | 0 | 0 |
 | HIGH-risk Hazards | 4 | 0 | 0 | 0 |
+| MEDIUM-risk Hazards | 10 | 10 | 5 | 0 |
 
 ---
 
@@ -248,7 +249,12 @@ All 4 HIGH-risk hazard register items resolved:
 | HAZ-001 | Context sent to wrong trust tier | HIGH | `_filter_by_trust_floor()` in cascade: enforces `context_trust_tier` from DispatchOrder as a floor, filtering backends whose provider trust rank is below the caller's request. Inserted between MBR and CBR stages. 9 unit tests. | MITIGATED |
 | HAZ-002 | Budget enforcement race condition | HIGH | `asyncio.Lock` added to BudgetTracker. New `check_and_reserve()` method atomically checks capacity and records spend under the lock. 4 unit tests including concurrent race prevention. | MITIGATED |
 | HAZ-005 | Provider rate limit violation | HIGH | `_hard_capacity_gate()` in LBR: hard `has_capacity()` check before median filtering removes providers with zero remaining capacity. LOCAL tier bypasses. 5 unit tests. | MITIGATED |
+| HAZ-006 | API key exposure in logs | MEDIUM | `scrub_secrets` structlog processor in `server/logging.py`: scrubs Bearer tokens, API key patterns (sk-, gsk_, nvapi-, AIza), and known secret keys from all event dicts before rendering. Configured at app startup via `configure_logging()`. 14 unit tests. | MITIGATED |
+| HAZ-008 | Stale catalog routing | MEDIUM | Automatic catalog refresh wired into `HealthCheckLoop` via `on_cycle` callback. Fires every `catalog_ttl_hours / 2` worth of cycles (~1 hour at default settings). Failures are caught and logged without crashing the health check loop. 8 unit tests. | MITIGATED |
+| HAZ-009 | Circuit breaker flapping | MEDIUM | Jittered cooldown via `jitter_factor` (default 0.25) adds random offset to each breaker's cooldown so breakers tripped simultaneously recover at staggered times. Jitter recomputed on each re-open to prevent settling into lockstep. 10 unit tests. | MITIGATED |
+| HAZ-011 | Unauthenticated admin endpoints | MEDIUM | `admin_api_key` config field + `_check_admin_auth()` helper. When set, `/v1/retire`, `/v1/reinstate`, and `/v1/catalog/refresh` require `Authorization: Bearer <key>`. Non-admin endpoints unaffected. Backward compatible (no key = open access). 14 unit tests. | MITIGATED |
 | HAZ-012 | In-memory state loss on restart | HIGH | Budget state persistence wired into RouterEngine: `save_state()` at shutdown (server lifespan), `_restore_budget_state()` at startup. Daily counters (RPD, daily tokens) survive restarts. Circuit breaker `get_state()`/`restore_state()` for OPEN state persistence. 19 unit tests across tracker, circuit breaker, router engine, and server. | MITIGATED |
+| HAZ-014 | Concurrent adapter state mutation | MEDIUM | `create_adapter()` creates a fresh adapter per dispatch attempt (verified by defensive assertion in cascade dispatch). Adapter `_status` is never shared between concurrent requests. 4 unit tests verifying instance isolation across all 11 providers. | MITIGATED |
 
 ---
 
@@ -258,8 +264,8 @@ All 4 HIGH-risk hazard register items resolved:
 2. **Coverage**: 100% overall. All modules at 100%.
 3. **Privacy rotation**: LBR spec mentions privacy rotation for untrusted tier — deferred to implementation per spec notes.
 4. ~~**Streaming dispatch**~~: **RESOLVED** in v0.2.4. SSE streaming from `/v1/dispatch` with `stream: true`. Full fallback support, error events, metadata events.
-5. **Security hardening**: All 8 items resolved (QA-020 through QA-027). All 4 HIGH-risk hazard register items now mitigated.
-6. **Remaining MEDIUM-risk hazards**: 10 MEDIUM-risk items in hazard register remain for production readiness review (HAZ-003, HAZ-004, HAZ-006 through HAZ-011, HAZ-013, HAZ-014).
+5. **Security hardening**: All 8 QA items resolved (QA-020 through QA-027). All 4 HIGH-risk and 5 MEDIUM-risk hazard register items now mitigated.
+6. **Remaining MEDIUM-risk hazards**: 5 MEDIUM-risk items remain for production readiness review (HAZ-003, HAZ-004, HAZ-007, HAZ-010, HAZ-013).
 
 ---
 
@@ -283,7 +289,24 @@ All 4 HIGH-risk hazard register items resolved:
 
 ---
 
+## MEDIUM-Risk Hazard Mitigations (v0.2.5)
+
+**5 MEDIUM-risk hazard register items resolved:**
+
+| ID | Hazard | Mitigation | Files Changed | Tests |
+|----|--------|------------|---------------|-------|
+| HAZ-006 | API Key Exposure in Logs | `scrub_secrets` structlog processor scrubs Bearer tokens, API key patterns (sk-, gsk_, nvapi-, AIza), and known secret keys from all log event dicts. Installed at app startup via `configure_logging()`. | `server/logging.py` (new), `server/app.py` | 14 tests |
+| HAZ-008 | Stale Catalog Routing | Automatic periodic catalog refresh via `on_cycle` callback in `HealthCheckLoop`. Fires every `catalog_ttl_hours / 2` worth of cycles. Callback failures logged but do not crash the loop. | `health/check_loop.py`, `router.py` | 8 tests |
+| HAZ-009 | Circuit Breaker Flapping | Jittered cooldown (`jitter_factor=0.25` default) adds random offset to each breaker's cooldown. Jitter recomputed on each re-open. Multiple breakers tripped simultaneously now recover at staggered times. | `health/circuit_breaker.py` | 10 tests |
+| HAZ-011 | Unauthenticated Admin Endpoints | `admin_api_key` in `RouterConfig` + `_check_admin_auth()` in routes. When configured, `/v1/retire`, `/v1/reinstate`, `/v1/catalog/refresh` require `Authorization: Bearer <key>`. Non-admin endpoints unaffected. Backward compatible. | `config/schema.py`, `server/routes.py` | 14 tests |
+| HAZ-014 | Concurrent Adapter State Mutation | Defensive assertion confirms `create_adapter()` returns fresh AVAILABLE adapter per dispatch. Verified across all 11 provider adapters. | `dispatch/cascade.py`, `adapters/__init__.py` | 4 tests |
+
+**Tests:** 56 new tests. 880 total tests, 100% coverage.
+
+---
+
 *Generated by FIRINNE ground truth audit panel — 2026-06-16*
 *Quality remediation completed — 2026-06-16*
 *Hazard remediation (4 HIGH-risk items) completed — 2026-06-17*
 *Streaming dispatch implemented — 2026-06-17*
+*MEDIUM-risk hazard mitigation (5 items) completed — 2026-06-17*

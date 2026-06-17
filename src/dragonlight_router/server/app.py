@@ -17,6 +17,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route
 
 from dragonlight_router.router import RouterEngine
+from dragonlight_router.server.logging import configure_logging
 from dragonlight_router.server.middleware import RateLimitMiddleware
 from dragonlight_router.server.routes import (
     catalog_handler,
@@ -34,7 +35,9 @@ def create_app(config_path: Path | None = None, **overrides: Any) -> Starlette:
     """Create and configure the Starlette application.
 
     Accepts a config_path for testing; uses default resolution otherwise.
+    HAZ-006: Configures structlog with secret-scrubbing before any logging.
     """
+    configure_logging()
     engine = RouterEngine(config_path=config_path, **overrides)
 
     import structlog as _structlog

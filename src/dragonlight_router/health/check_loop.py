@@ -5,12 +5,17 @@ based on error count and circuit state. Handles model retirement on 404.
 
 Implements SLO enforcement: providers exceeding latency SLO for 3 consecutive
 checks transition to degraded state.
+
+HAZ-008 mitigation: Supports an optional on_cycle callback that fires every
+N cycles (default: every cycle). This enables automatic periodic catalog
+refresh without coupling the health check loop to catalog internals.
 """
 from __future__ import annotations
 
 import asyncio
 import contextlib
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 import structlog
@@ -54,9 +59,24 @@ class HealthCheckLoop:
         latency_slos: dict[str, LatencySLO],
         interval_s: float = 30.0,
         timeout_s: float = 10.0,
+        on_cycle: Callable[[], Awaitable[None]] | None = None,
+        on_cycle_interval: int = 1,
     ) -> None:
+        """Initialize the health check loop.
+
+        Args:
+            backends: Backend adapters to probe.
+            states: Mutable backend state objects.
+            latency_slos: Per-backend latency SLOs.
+            interval_s: Seconds between health check cycles.
+            timeout_s: Per-probe timeout.
+            on_cycle: Optional async callback invoked every on_cycle_interval cycles.
+                      HAZ-008: Used for automatic catalog refresh.
+            on_cycle_interval: Invoke on_cycle every N cycles (default: 1 = every cycle).
+        """
         assert isinstance(backends, dict), "backends must be a dict"
         assert isinstance(states, dict), "states must be a dict"
+        assert on_cycle_interval > 0, "on_cycle_interval must be positive"
         self._backends = backends
         self._states = states
         self._latency_slos = latency_slos
@@ -70,6 +90,10 @@ class HealthCheckLoop:
         self._slo_violation_counts: dict[str, int] = {
             name: 0 for name in backends
         }
+        # HAZ-008: on-cycle callback for periodic tasks (e.g., catalog refresh)
+        self._on_cycle = on_cycle
+        self._on_cycle_interval = on_cycle_interval
+        self._cycle_count = 0
 
     async def start(self) -> None:
         """Start the background health check loop."""
@@ -87,13 +111,39 @@ class HealthCheckLoop:
         self._task = None
 
     async def _run_loop(self) -> None:
-        """Run the health check loop until cancelled."""
+        """Run the health check loop until cancelled.
+
+        HAZ-008: Invokes on_cycle callback every on_cycle_interval cycles
+        for periodic maintenance tasks (e.g., catalog refresh).
+        """
         while True:
             await self._probe_all_backends()
+            self._cycle_count += 1
+            await self._invoke_on_cycle()
             try:
                 await asyncio.sleep(self._interval)
             except asyncio.CancelledError:
                 break
+
+    async def _invoke_on_cycle(self) -> None:
+        """Invoke the on_cycle callback if due.
+
+        HAZ-008 mitigation: Enables automatic catalog refresh by calling
+        the registered callback at configured intervals. Failures are
+        logged but do not crash the health check loop.
+        """
+        if self._on_cycle is None:
+            return
+        if self._cycle_count % self._on_cycle_interval != 0:
+            return
+        try:
+            await self._on_cycle()
+        except (OSError, ValueError, RuntimeError, ConnectionError) as exc:
+            logger.warning(
+                "on_cycle_callback_failed",
+                error=str(exc),
+                cycle=self._cycle_count,
+            )
 
     async def _probe_all_backends(self) -> None:
         """Probe all backends and update their state."""

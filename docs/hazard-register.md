@@ -127,8 +127,8 @@ This register uses FMEA methodology adapted for LLM routing infrastructure. Each
 | **Severity** | Critical |
 | **Likelihood** | Low |
 | **Risk Score** | **MEDIUM** |
-| **Current Mitigation** | API keys are passed in HTTP headers (`Authorization: Bearer ...`), not in URLs or request bodies. The `_build_auth_headers()` method constructs headers programmatically without logging them. Error handling in `_openai_compat.py` wraps provider exceptions in `RuntimeError` with a descriptive message, and `structlog` is used throughout (structured logging avoids accidental string interpolation of sensitive objects). The router does not include raw exception tracebacks in HTTP responses -- errors are returned as structured JSON via `_format_error_response()` and `_format_dispatch_failure()` in `server/routes.py`. |
-| **Residual Risk** | No explicit secret-scrubbing processor is configured on the structlog pipeline. If `exc_info=True` is passed to a logger call (as it is in `dispatch_handler()` and `catalog_refresh_handler()`), the full traceback -- including any captured locals that reference the `headers` dict -- could be written to log output. The `_api_key` attribute is a plain string on the adapter instance, accessible from any code with a reference to the adapter object. No audit of log output has been performed to verify that no downstream log processor or sink captures header values. |
+| **Current Mitigation** | API keys are passed in HTTP headers (`Authorization: Bearer ...`), not in URLs or request bodies. The `_build_auth_headers()` method constructs headers programmatically without logging them. Error handling in `_openai_compat.py` wraps provider exceptions in `RuntimeError` with a descriptive message, and `structlog` is used throughout (structured logging avoids accidental string interpolation of sensitive objects). The router does not include raw exception tracebacks in HTTP responses -- errors are returned as structured JSON via `_format_error_response()` and `_format_dispatch_failure()` in `server/routes.py`. **v0.2.5:** `server/logging.py` adds a `scrub_secrets()` structlog processor to the pipeline via `configure_logging()`, called at app startup. The processor recursively scrubs Bearer tokens (case-insensitive), API key prefixes (`sk-`, `gsk_`, `nvapi-`, `AIza`, `key-`, `xai-`), and known secret key names (`authorization`, `api_key`, `api-key`, `token`, `secret`) from all log event dicts. Values are replaced with `[REDACTED]`. 14 unit tests. |
+| **Residual Risk** | The `_api_key` attribute is a plain string on the adapter instance, accessible from any code with a reference to the adapter object. The scrubber operates on structlog event dicts only -- log output from non-structlog sinks (e.g., raw `print()`, third-party library loggers) is not scrubbed. The regex-based pattern matching could miss novel key formats not covered by the current prefix list. |
 | **Owner** | `adapters/_openai_compat.py`, `server/routes.py` |
 
 ---
@@ -159,8 +159,8 @@ This register uses FMEA methodology adapted for LLM routing infrastructure. Each
 | **Severity** | Medium |
 | **Likelihood** | Medium |
 | **Risk Score** | **MEDIUM** |
-| **Current Mitigation** | `HealthTracker.record_error()` in `health/tracker.py` treats HTTP 404 responses at inference time as model retirement events, immediately evicting the model via `_retire_model()`. The circuit breaker trips after 3 errors in 120s, preventing repeated dispatch to a failing model. `CatalogCache.is_stale()` returns true when the cache age exceeds TTL, and `CatalogCache.get()` returns `Err(StaleCatalogError)` for stale caches. `RoleMatrix` in `roles/matrix.py` supports hot-reload via mtime check. |
-| **Residual Risk** | No automatic periodic catalog refresh is scheduled -- staleness detection exists but automatic refresh does not. A model that returns 200 with degraded output (e.g., a model nearing deprecation that returns quality warnings but still generates) would not trigger the 404 retirement path. The 24-hour TTL default means up to 24 hours of routing to a deprecated model before cache staleness is detected. Reinstated models (`reinstate_model()`) have their error counts reset to 0, which could re-enable a model that was retired for good reason. The role matrix hot-reload checks file mtime but does not validate that the referenced model IDs still exist in the catalog. |
+| **Current Mitigation** | `HealthTracker.record_error()` in `health/tracker.py` treats HTTP 404 responses at inference time as model retirement events, immediately evicting the model via `_retire_model()`. The circuit breaker trips after 3 errors in 120s, preventing repeated dispatch to a failing model. `CatalogCache.is_stale()` returns true when the cache age exceeds TTL, and `CatalogCache.get()` returns `Err(StaleCatalogError)` for stale caches. `RoleMatrix` in `roles/matrix.py` supports hot-reload via mtime check. **v0.2.5:** `HealthCheckLoop` now accepts an `on_cycle` async callback and `on_cycle_interval` parameter. `RouterEngine._init_health_check()` wires `_async_refresh_catalog` as the `on_cycle` callback, with interval derived from `catalog_ttl_hours` (`max(1, (ttl * 3600) // 30 // 2)` cycles). Callback failures are caught with specific exception types and do not crash the health check loop. 8 unit tests. |
+| **Residual Risk** | A model that returns 200 with degraded output (e.g., a model nearing deprecation that returns quality warnings but still generates) would not trigger the 404 retirement path. Reinstated models (`reinstate_model()`) have their error counts reset to 0, which could re-enable a model that was retired for good reason. The role matrix hot-reload checks file mtime but does not validate that the referenced model IDs still exist in the catalog. The refresh interval is derived from TTL but is approximate -- actual refresh timing depends on health check interval and cycle count. |
 | **Owner** | `catalog/cache.py`, `catalog/refresher.py`, `health/tracker.py` |
 
 ---
@@ -175,8 +175,8 @@ This register uses FMEA methodology adapted for LLM routing infrastructure. Each
 | **Severity** | High |
 | **Likelihood** | Low |
 | **Risk Score** | **MEDIUM** |
-| **Current Mitigation** | Circuit breakers in `health/circuit_breaker.py` are per-model, so different models can be in different states. The HALF_OPEN state allows exactly one probe request, limiting blast radius of a failed probe. Error timestamps are pruned to a configurable window (`error_window_s`, default 120s). The error threshold is configurable (`error_threshold`, default 3). `record_success()` immediately resets the circuit to CLOSED and clears the error history. |
-| **Residual Risk** | No jitter or randomization is applied to the cooldown period, so breakers tripped at the same time recover at the same time. No exponential backoff exists -- the cooldown is fixed regardless of how many times the circuit has flapped. The HALF_OPEN state allows only one probe request, which creates a single point of failure for recovery determination. There is no health check loop that probes backends independently of user requests -- recovery depends entirely on user traffic arriving at the right time during HALF_OPEN. The `check_loop.py` health check loop exists in the codebase but its integration with the circuit breaker recovery path is not visible in the dispatch pipeline. |
+| **Current Mitigation** | Circuit breakers in `health/circuit_breaker.py` are per-model, so different models can be in different states. The HALF_OPEN state allows exactly one probe request, limiting blast radius of a failed probe. Error timestamps are pruned to a configurable window (`error_window_s`, default 120s). The error threshold is configurable (`error_threshold`, default 3). `record_success()` immediately resets the circuit to CLOSED and clears the error history. **v0.2.5:** `CircuitBreaker.__init__` now accepts a `jitter_factor` parameter (default 0.25). Each time the circuit opens or re-opens (`record_error()`), `_compute_jittered_cooldown()` adds `random.uniform(0, jitter_factor * cooldown_s)` to the base cooldown, storing the result in `_effective_cooldown_s`. `allow_request()` and `restore_state()` use the jittered value. This desynchronizes recovery timing across breakers tripped by the same correlated failure. 10 unit tests. |
+| **Residual Risk** | No exponential backoff exists -- the cooldown is fixed (with jitter) regardless of how many times the circuit has flapped. The HALF_OPEN state allows only one probe request, which creates a single point of failure for recovery determination. The jitter range is bounded to `[0, 0.25 * cooldown_s]` by default, so breakers tripped within the jitter window could still recover close together. The `check_loop.py` health check loop probes backends independently but its integration with the circuit breaker recovery path routes through `HealthTracker`, not directly through `CircuitBreaker.record_success()`. |
 | **Owner** | `health/circuit_breaker.py`, `health/tracker.py` |
 
 ---
@@ -207,8 +207,8 @@ This register uses FMEA methodology adapted for LLM routing infrastructure. Each
 | **Severity** | Critical |
 | **Likelihood** | Low |
 | **Risk Score** | **MEDIUM** |
-| **Current Mitigation** | `RateLimitMiddleware` enforces per-IP rate limiting (default: 60 req/min token bucket). The router is expected to be deployed behind a reverse proxy or VPN that restricts access to the admin API. The `retire_handler()` returns 404 for unknown backend names, limiting blind enumeration. |
-| **Residual Risk** | No authentication mechanism exists in the router codebase -- all endpoints are open to any network-reachable client. The `reinstate_handler()` can undo safety-motivated retirements (e.g., models retired due to 404 errors in `HealthTracker`). The `/v1/catalog/refresh` endpoint triggers outbound HTTP requests to all configured provider catalog URLs, which could be used to probe internal network resources if providers are misconfigured. The `/v1/health` endpoint (`GET`) exposes budget and health state, including provider names, model IDs, and spend data, to any unauthenticated caller. No audit log records who called admin endpoints. |
+| **Current Mitigation** | `RateLimitMiddleware` enforces per-IP rate limiting (default: 60 req/min token bucket). The router is expected to be deployed behind a reverse proxy or VPN that restricts access to the admin API. The `retire_handler()` returns 404 for unknown backend names, limiting blind enumeration. **v0.2.5:** `RouterConfig` now includes an `admin_api_key: str | None` field. `_check_admin_auth()` in `server/routes.py` validates `Authorization: Bearer <key>` headers on all admin paths (`/v1/retire`, `/v1/reinstate`, `/v1/catalog/refresh`). Returns 401 JSON for missing or invalid auth. When `admin_api_key` is `None` (unconfigured), auth is bypassed for backward compatibility. Non-admin endpoints (`/v1/dispatch`, `/v1/health`) are unaffected. 14 unit tests. |
+| **Residual Risk** | The `/v1/health` endpoint (`GET`) remains unauthenticated and exposes budget and health state, including provider names, model IDs, and spend data. When `admin_api_key` is not configured, admin endpoints remain open (backward-compatible default). The `admin_api_key` is a single shared secret with no per-user or per-role granularity. No audit log records who called admin endpoints. The auth check uses constant-time comparison but the key is stored as a plain string in the config object. |
 | **Owner** | `server/routes.py`, `server/middleware.py` |
 
 ---
@@ -255,8 +255,8 @@ This register uses FMEA methodology adapted for LLM routing infrastructure. Each
 | **Severity** | Medium |
 | **Likelihood** | Medium |
 | **Risk Score** | **MEDIUM** |
-| **Current Mitigation** | The health tracker provides a separate, per-model health scoring system that is used for routing decisions, so the adapter's `_status` field has limited routing impact. Circuit breakers in `health/circuit_breaker.py` track errors independently of adapter status. Adapter instances are created per-dispatch via `_adapters_mod.create_adapter()` in `cascade.py`, which may create fresh instances (mitigating shared-state issues if the factory creates new objects). |
-| **Residual Risk** | If adapter instances are cached or shared (factory implementation not reviewed), concurrent status mutations create race conditions. The `_status` field is set in multiple exception handlers without any atomicity guarantee. The `health_check()` method also mutates `_status`, meaning a concurrent health check and generation request can interfere. The `record_usage()` method is a no-op ("no-op until usage tracking is wired"), leaving a gap in usage tracking integration. |
+| **Current Mitigation** | The health tracker provides a separate, per-model health scoring system that is used for routing decisions, so the adapter's `_status` field has limited routing impact. Circuit breakers in `health/circuit_breaker.py` track errors independently of adapter status. **v0.2.5:** `create_adapter()` in `adapters/__init__.py` is verified to return a fresh instance per call -- no caching or sharing. `_try_adapter_dispatch()` and `_try_streaming_dispatch()` in `cascade.py` now assert `adapter.status == BackendStatus.AVAILABLE` immediately after `create_adapter()`, catching any factory regression that would return a stale or shared adapter. 4 unit tests verify fresh-instance isolation across all 11 providers. |
+| **Residual Risk** | The `_status` field is set in multiple exception handlers without any atomicity guarantee, but since each dispatch uses a fresh adapter instance, concurrent mutations cannot cross-contaminate. The `health_check()` method also mutates `_status`, but health checks operate on the `HealthCheckLoop`'s own backend instances, not dispatch adapters. The `record_usage()` method is a no-op ("no-op until usage tracking is wired"), leaving a gap in usage tracking integration. |
 | **Owner** | `adapters/_openai_compat.py` |
 
 ---
@@ -270,22 +270,23 @@ This register uses FMEA methodology adapted for LLM routing infrastructure. Each
 | HAZ-003 | Availability | Cascade exhaustion | Critical | Low | **MEDIUM** | |
 | HAZ-004 | Quality | Silent fallback to lower capability | Medium | High | **MEDIUM** | |
 | HAZ-005 | Cost / Availability | Provider rate limit violation | High | Medium | ~~HIGH~~ **MITIGATED** | Hard capacity gate in LBR |
-| HAZ-006 | Security | API key exposure in logs | Critical | Low | **MEDIUM** | |
+| HAZ-006 | Security | API key exposure in logs | Critical | Low | ~~MEDIUM~~ **MITIGATED** | scrub_secrets structlog processor |
 | HAZ-007 | Security | Prompt injection affecting routing | High | Low | **MEDIUM** | |
-| HAZ-008 | Quality / Availability | Stale catalog routing | Medium | Medium | **MEDIUM** | |
-| HAZ-009 | Availability | Circuit breaker flapping | High | Low | **MEDIUM** | |
+| HAZ-008 | Quality / Availability | Stale catalog routing | Medium | Medium | ~~MEDIUM~~ **MITIGATED** | Automatic catalog refresh in health check loop |
+| HAZ-009 | Availability | Circuit breaker flapping | High | Low | ~~MEDIUM~~ **MITIGATED** | Jittered cooldown (jitter_factor=0.25) |
 | HAZ-010 | Cost | Token count estimation inaccuracy | Medium | High | **MEDIUM** | |
-| HAZ-011 | Security | Unauthenticated admin endpoints | Critical | Low | **MEDIUM** | |
+| HAZ-011 | Security | Unauthenticated admin endpoints | Critical | Low | ~~MEDIUM~~ **MITIGATED** | admin_api_key bearer token auth |
 | HAZ-012 | Availability / Cost | In-memory state loss on restart | High | Medium | ~~HIGH~~ **MITIGATED** | Budget persistence at startup/shutdown |
 | HAZ-013 | Quality | Complexity estimation misrouting | Medium | Medium | **MEDIUM** | |
-| HAZ-014 | Availability | Concurrent adapter state mutation | Medium | Medium | **MEDIUM** | |
+| HAZ-014 | Availability | Concurrent adapter state mutation | Medium | Medium | ~~MEDIUM~~ **MITIGATED** | Fresh adapter per dispatch (create_adapter isolation) |
 
 ---
 
 ## Risk Distribution
 
 - **HIGH risk (all mitigated):** HAZ-001 (trust floor), HAZ-002 (async lock), HAZ-005 (capacity gate), HAZ-012 (state persistence)
-- **MEDIUM risk (require mitigation before production):** HAZ-003, HAZ-004, HAZ-006, HAZ-007, HAZ-008, HAZ-009, HAZ-010, HAZ-011, HAZ-013, HAZ-014
+- **MEDIUM risk (mitigated):** HAZ-006 (secret scrubbing), HAZ-008 (auto catalog refresh), HAZ-009 (jittered cooldown), HAZ-011 (admin auth), HAZ-014 (adapter isolation)
+- **MEDIUM risk (remaining):** HAZ-003, HAZ-004, HAZ-007, HAZ-010, HAZ-013
 - **LOW risk:** None identified
 
 ---
@@ -297,3 +298,4 @@ This register uses FMEA methodology adapted for LLM routing infrastructure. Each
 | 2026-06-16 | QA Pipeline | Initial FMEA hazard register created (QA-026 finding) |
 | 2026-06-17 | GOIBNIU + LUGH | Mitigated all 4 HIGH-risk items: HAZ-001 (trust floor), HAZ-002 (async lock), HAZ-005 (capacity gate), HAZ-012 (state persistence). 37 new tests, 805 total, 100% coverage. |
 | 2026-06-17 | GOIBNIU + LUGH | Streaming dispatch (SSE) implemented — resolves medium-severity spec gap. No hazard register items changed. 19 new tests, 824 total, 100% coverage. |
+| 2026-06-17 | GOIBNIU + LUGH | Mitigated 5 MEDIUM-risk hazards: HAZ-006 (secret-scrubbing structlog processor), HAZ-008 (automatic catalog refresh via on_cycle callback), HAZ-009 (jittered circuit breaker cooldown), HAZ-011 (admin_api_key bearer token auth), HAZ-014 (fresh adapter per dispatch with assertion). 56 new tests, 880 total, 100% coverage. |

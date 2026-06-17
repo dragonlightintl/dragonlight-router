@@ -30,12 +30,43 @@ _DISPATCH_REQUIRED_FIELDS = ("intent_category", "specific_intent", "operator_mes
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
+# --- Admin endpoint paths requiring auth (HAZ-011) ---
+
+_ADMIN_PATHS = frozenset({"/v1/retire", "/v1/reinstate", "/v1/catalog/refresh"})
+
+
 # --- Shared helpers ---
 
 
 def _format_error_response(message: str, status_code: int) -> JSONResponse:
     """Build a standardized error JSONResponse."""
     return JSONResponse({"error": message}, status_code=status_code)
+
+
+def _check_admin_auth(request: Request) -> JSONResponse | None:
+    """Verify admin bearer token for protected endpoints.
+
+    HAZ-011 mitigation: Admin endpoints (retire, reinstate, catalog/refresh)
+    require a valid Authorization header when admin_api_key is configured.
+    Returns a 401 JSONResponse if auth fails, or None if auth passes.
+    """
+    engine: RouterEngine = request.app.state.engine
+    admin_key = engine._config.admin_api_key
+
+    # No admin key configured — open access (backward compatible)
+    if not admin_key:
+        return None
+
+    auth_header = request.headers.get("authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return _format_error_response("Missing or invalid Authorization header", 401)
+
+    provided_token = auth_header[7:]  # Strip "Bearer "
+    if provided_token != admin_key:
+        logger.warning("admin_auth_failed", path=request.url.path)
+        return _format_error_response("Invalid admin API key", 401)
+
+    return None
 
 
 def _sanitize_prompt(text: str) -> str:
@@ -259,7 +290,14 @@ async def _execute_catalog_refresh(engine: RouterEngine) -> JSONResponse:
 
 
 async def catalog_refresh_handler(request: Request) -> JSONResponse:
-    """POST /v1/catalog/refresh — trigger a catalog refresh."""
+    """POST /v1/catalog/refresh — trigger a catalog refresh.
+
+    HAZ-011: Requires admin auth when admin_api_key is configured.
+    """
+    auth_error = _check_admin_auth(request)
+    if auth_error is not None:
+        return auth_error
+
     engine: RouterEngine = request.app.state.engine
 
     try:
@@ -458,7 +496,13 @@ async def retire_handler(request: Request) -> JSONResponse:
 
     Accepts a backend name and marks it as retired so the cascade
     skips it until explicitly reinstated.
+
+    HAZ-011: Requires admin auth when admin_api_key is configured.
     """
+    auth_error = _check_admin_auth(request)
+    if auth_error is not None:
+        return auth_error
+
     engine: RouterEngine = request.app.state.engine
 
     try:
@@ -482,7 +526,13 @@ async def reinstate_handler(request: Request) -> JSONResponse:
 
     Accepts a backend name and returns it to the active pool so
     the cascade considers it again.
+
+    HAZ-011: Requires admin auth when admin_api_key is configured.
     """
+    auth_error = _check_admin_auth(request)
+    if auth_error is not None:
+        return auth_error
+
     engine: RouterEngine = request.app.state.engine
 
     try:

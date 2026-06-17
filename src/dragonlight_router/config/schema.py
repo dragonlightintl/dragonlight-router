@@ -45,3 +45,7 @@ class RouterConfig(BaseModel):
     default_top_n: int = 12
     max_consecutive_same_provider: int = 2
     providers: list[ProviderSchema] = Field(default_factory=list)
+    # HAZ-011: Bearer token for admin endpoints (retire, reinstate, catalog/refresh).
+    # When set, admin endpoints require Authorization: Bearer <token>.
+    # When empty/None, admin endpoints are open (backward compatible).
+    admin_api_key: str | None = None

@@ -4,9 +4,15 @@ State machine: CLOSED → OPEN → HALF_OPEN → CLOSED (or back to OPEN).
 3 consecutive errors within error_window_s → OPEN for cooldown_s.
 After cooldown: HALF_OPEN (allow 1 probe request).
 Success in HALF_OPEN → CLOSED. Failure → re-OPEN.
+
+HAZ-009 mitigation: Jittered cooldown prevents synchronized recovery
+across breakers tripped simultaneously. Each breaker adds a random
+offset (0 to jitter_factor * cooldown_s) so HALF_OPEN probes are
+staggered, reducing the risk of correlated flapping.
 """
 from __future__ import annotations
 
+import random
 import time
 from enum import Enum, unique
 
@@ -19,42 +25,71 @@ class CircuitState(Enum):
 
 
 class CircuitBreaker:
-    """Per-model circuit breaker with configurable thresholds."""
+    """Per-model circuit breaker with configurable thresholds.
+
+    HAZ-009 mitigation: jitter_factor adds randomized offset to cooldown
+    so breakers tripped simultaneously do not recover in lockstep.
+    """
 
     def __init__(
         self,
         error_threshold: int = 3,
         error_window_s: float = 120.0,
         cooldown_s: float = 60.0,
+        jitter_factor: float = 0.25,
     ) -> None:
-        """Per-model circuit breaker with configurable thresholds."""
+        """Per-model circuit breaker with configurable thresholds.
+
+        Args:
+            error_threshold: Number of errors within window to trip circuit.
+            error_window_s: Time window for error accumulation.
+            cooldown_s: Base cooldown before HALF_OPEN probe.
+            jitter_factor: Random jitter as fraction of cooldown_s (0.0-1.0).
+                           HAZ-009: prevents synchronized recovery flapping.
+        """
         # Precondition assertions
         assert error_threshold > 0, "error_threshold must be positive"
         assert error_window_s > 0, "error_window_s must be positive"
         assert cooldown_s > 0, "cooldown_s must be positive"
+        assert 0.0 <= jitter_factor <= 1.0, "jitter_factor must be in [0.0, 1.0]"
 
         self._error_threshold = error_threshold
         self._error_window_s = error_window_s
         self._cooldown_s = cooldown_s
+        self._jitter_factor = jitter_factor
 
         self._state = CircuitState.CLOSED
         self._error_timestamps: list[float] = []
         self._opened_at: float = 0.0
+        # HAZ-009: jittered cooldown for this specific breaker instance
+        self._effective_cooldown_s = self._compute_jittered_cooldown()
 
     @property
     def state(self) -> CircuitState:
         return self._state
 
+    def _compute_jittered_cooldown(self) -> float:
+        """Compute a jittered cooldown duration.
+
+        HAZ-009 mitigation: adds random offset so multiple breakers
+        tripped at the same time don't all recover simultaneously.
+        """
+        jitter = random.uniform(0, self._jitter_factor * self._cooldown_s)
+        result = self._cooldown_s + jitter
+        assert result >= self._cooldown_s, "jittered cooldown must be >= base cooldown"
+        return result
+
     def allow_request(self) -> bool:
         """Check if a request should be allowed through.
 
         Returns True if CLOSED or if cooldown has elapsed (transitions to HALF_OPEN).
+        Uses jittered cooldown (HAZ-009) to prevent synchronized recovery.
         """
         if self._state == CircuitState.CLOSED or self._state == CircuitState.HALF_OPEN:
             result = True
         else:
-            # OPEN — check if cooldown elapsed
-            if time.time() >= self._opened_at + self._cooldown_s:
+            # OPEN — check if jittered cooldown elapsed (HAZ-009)
+            if time.time() >= self._opened_at + self._effective_cooldown_s:
                 self._state = CircuitState.HALF_OPEN
                 result = True
             else:
@@ -71,13 +106,18 @@ class CircuitBreaker:
         assert len(self._error_timestamps) == 0, "error_timestamps must be empty after record_success"
 
     def record_error(self) -> None:
-        """Record a failed request — may trip the circuit."""
+        """Record a failed request — may trip the circuit.
+
+        HAZ-009: recomputes jittered cooldown each time the circuit opens
+        so repeated flaps do not synchronize across breakers.
+        """
         now = time.time()
 
         if self._state == CircuitState.HALF_OPEN:
-            # Failure during probe — re-open
+            # Failure during probe — re-open with fresh jitter
             self._state = CircuitState.OPEN
             self._opened_at = now
+            self._effective_cooldown_s = self._compute_jittered_cooldown()
             return
 
         # Prune errors outside the window
@@ -88,6 +128,7 @@ class CircuitBreaker:
         if len(self._error_timestamps) >= self._error_threshold:
             self._state = CircuitState.OPEN
             self._opened_at = now
+            self._effective_cooldown_s = self._compute_jittered_cooldown()
 
     def get_state(self) -> dict:
         """Export circuit breaker state for persistence (HAZ-012).
@@ -106,13 +147,15 @@ class CircuitBreaker:
 
         Only restores OPEN state -- CLOSED and HALF_OPEN start fresh.
         Error timestamps are pruned to the current window.
+        Uses jittered cooldown (HAZ-009) for restored OPEN state.
         """
         assert isinstance(state, dict), "state must be a dict"
         saved_state_name = state.get("state", "closed")
         if saved_state_name == CircuitState.OPEN.value:
             opened_at = state.get("opened_at", 0.0)
             now = time.time()
-            if now < opened_at + self._cooldown_s:
+            # Use jittered cooldown for consistency with HAZ-009
+            if now < opened_at + self._effective_cooldown_s:
                 self._state = CircuitState.OPEN
                 self._opened_at = opened_at
             else:

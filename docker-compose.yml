@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  router:
+    build: .
+    ports:
+      - "${DRAGONLIGHT_PORT:-8100}:8100"
+    env_file:
+      - .env
+    environment:
+      - DRAGONLIGHT_HOST=0.0.0.0
+      - DRAGONLIGHT_PORT=8100
+      - DRAGONLIGHT_STATE_DIR=/app/state
+      - DRAGONLIGHT_GRACEFUL_SHUTDOWN_TIMEOUT=15
+    volumes:
+      - router-state:/app/state
+      - ./config:/app/config:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/v1/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  router-state:

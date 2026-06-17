@@ -5,14 +5,17 @@ Spec traceability: TM-016 (Configuration loading and schema)
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import yaml
 
-from dragonlight_router.config.loader import load_config
+from dragonlight_router.config.loader import load_config, _resolve_config_path, _load_yaml_config, _load_from_yaml
 from dragonlight_router.config.schema import RouterConfig, ProviderSchema, RateLimitSchema
-from dragonlight_router.result import Ok
+from dragonlight_router.core.errors import RouterConfigError
+from dragonlight_router.result import Err, Ok
 
 
 class TestRouterConfigDefaults:
@@ -104,3 +107,70 @@ class TestRateLimitSchema:
         """[TM-016 AC-3] Rate limit schema preserves all values when set."""
         r = RateLimitSchema(rpm=60, rpd=14400, tpm=200000)
         assert r.rpd == 14400
+
+
+class TestResolveConfigPathEnvVar:
+    def test_env_var_path_returned_when_no_explicit_path(self, tmp_path: Path, monkeypatch):
+        """[TM-010 AC-1] _resolve_config_path returns Path from env var when config_path is None."""
+        env_config = tmp_path / "env_router.yaml"
+        monkeypatch.setenv("DRAGONLIGHT_ROUTER_CONFIG", str(env_config))
+        result = _resolve_config_path(None)
+        assert result == env_config
+
+    def test_explicit_path_takes_priority_over_env_var(self, tmp_path: Path, monkeypatch):
+        """[TM-010 AC-1] _resolve_config_path returns explicit path even when env var is set."""
+        explicit = tmp_path / "explicit.yaml"
+        monkeypatch.setenv("DRAGONLIGHT_ROUTER_CONFIG", str(tmp_path / "env.yaml"))
+        result = _resolve_config_path(explicit)
+        assert result == explicit
+
+    def test_returns_none_when_no_path_and_no_env_var(self, monkeypatch):
+        """[TM-010 AC-1] _resolve_config_path returns None when both sources absent."""
+        monkeypatch.delenv("DRAGONLIGHT_ROUTER_CONFIG", raising=False)
+        result = _resolve_config_path(None)
+        assert result is None
+
+    def test_load_config_uses_env_var_path(self, tmp_path: Path, monkeypatch):
+        """[TM-010 AC-1] load_config resolves config from env var when no path given."""
+        config_path = tmp_path / "router.yaml"
+        config_path.write_text(yaml.dump({"catalog_ttl_hours": 6}))
+        monkeypatch.setenv("DRAGONLIGHT_ROUTER_CONFIG", str(config_path))
+        result = load_config(config_path=None)
+        assert isinstance(result, Ok)
+        assert result.unwrap().catalog_ttl_hours == 6
+
+
+class TestLoadYamlConfigErrorPath:
+    def test_load_yaml_config_yaml_error_returns_err(self, tmp_path: Path):
+        """[TM-010 AC-2] _load_yaml_config returns Err(RouterConfigError) on yaml.YAMLError."""
+        bad_yaml = tmp_path / "bad.yaml"
+        bad_yaml.write_text("key: [unclosed")
+        result = _load_yaml_config(bad_yaml)
+        assert isinstance(result, Err)
+        assert isinstance(result.error, RouterConfigError)
+
+    def test_load_yaml_config_oserror_returns_err(self, tmp_path: Path):
+        """[TM-010 AC-2] _load_yaml_config returns Err(RouterConfigError) on OSError."""
+        path = tmp_path / "readable.yaml"
+        path.write_text("catalog_ttl_hours: 3")
+        with patch("dragonlight_router.config.loader._load_from_yaml", side_effect=OSError("disk error")):
+            result = _load_yaml_config(path)
+        assert isinstance(result, Err)
+        assert isinstance(result.error, RouterConfigError)
+
+
+class TestLoadFromYamlErrorPath:
+    def test_load_from_yaml_yaml_error_reraises(self, tmp_path: Path):
+        """[TM-010 AC-3] _load_from_yaml re-raises yaml.YAMLError on parse failure."""
+        bad_yaml = tmp_path / "bad.yaml"
+        bad_yaml.write_text("key: [unclosed")
+        with pytest.raises(yaml.YAMLError):
+            _load_from_yaml(bad_yaml)
+
+    def test_load_from_yaml_oserror_reraises(self, tmp_path: Path):
+        """[TM-010 AC-3] _load_from_yaml re-raises OSError on read failure."""
+        path = tmp_path / "file.yaml"
+        path.write_text("a: 1")
+        with patch("pathlib.Path.read_text", side_effect=OSError("no disk")):
+            with pytest.raises(OSError):
+                _load_from_yaml(path)

@@ -5,7 +5,7 @@ Spec traceability: TM-003 (LBR rate-limit filtering)
 
 from __future__ import annotations
 
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -224,6 +224,54 @@ def test_local_and_non_local_mixed():
     # All three should be present: local bypasses, good_cloud above median,
     # bad_cloud exactly at median.
     assert result_names == {"local-llm", "good-cloud", "bad-cloud"}
+
+
+def test_select_final_candidate_returns_first():
+    """[TM-003 AC-6] select_final_candidate returns the first element of the list."""
+    from dragonlight_router.selection.lbr import select_final_candidate
+    config_a = _make_backend_config(name="a", provider="prov_a")
+    config_b = _make_backend_config(name="b", provider="prov_b")
+    result = select_final_candidate([config_a, config_b])
+    assert result is config_a
+
+
+def test_select_final_candidate_empty_raises():
+    """[TM-003 AC-6] select_final_candidate raises ValueError for empty list."""
+    from dragonlight_router.selection.lbr import select_final_candidate
+    with pytest.raises(ValueError, match="Cannot select from empty candidate list"):
+        select_final_candidate([])
+
+
+def test_extract_score_non_ok_with_value_attribute():
+    """[TM-003 AC-5] _extract_score returns float(result.value) when result is not Ok but has .value."""
+    from dragonlight_router.selection.lbr import _extract_score
+    budget_tracker = MagicMock()
+    non_ok_result = MagicMock(spec=[])
+    non_ok_result.value = 42.5
+    budget_tracker.score.return_value = non_ok_result
+    score = _extract_score(budget_tracker, "some_provider")
+    assert score == pytest.approx(42.5)
+
+
+def test_extract_score_non_ok_no_value_returns_zero():
+    """[TM-003 AC-5] _extract_score returns 0.0 when result is not Ok and has no .value."""
+    from dragonlight_router.selection.lbr import _extract_score
+    budget_tracker = MagicMock()
+    budget_tracker.score.return_value = object()
+    score = _extract_score(budget_tracker, "some_provider")
+    assert score == 0.0
+
+
+def test_collect_provider_scores_deduplicates_same_provider():
+    """[TM-003 AC-5] _collect_provider_scores hits the continue branch for repeated provider."""
+    from dragonlight_router.selection.lbr import _collect_provider_scores
+    config_a = _make_backend_config(name="a", provider="shared_prov")
+    config_b = _make_backend_config(name="b", provider="shared_prov")
+    budget_tracker = MagicMock()
+    budget_tracker.score.return_value = Ok(50.0)
+    scores = _collect_provider_scores([config_a, config_b], budget_tracker)
+    assert scores == {"shared_prov": 50.0}
+    budget_tracker.score.assert_called_once_with("shared_prov")
 
 
 def test_filter_by_rate_limit_guard_clauses():

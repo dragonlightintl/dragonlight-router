@@ -5,8 +5,11 @@ Covers QA-022, QA-023, QA-024.
 from __future__ import annotations
 
 import time
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import yaml
 
 from dragonlight_router.server.middleware import RateLimitMiddleware, _TokenBucket
 from dragonlight_router.server.routes import _sanitize_prompt, _validate_llm_response
@@ -182,3 +185,91 @@ class TestValidateLlmResponse:
         result = _validate_llm_response(content)
         assert len(result) == 500_000
         assert "\x00" not in result
+
+
+# ---------------------------------------------------------------------------
+# QA-023: Middleware dispatch — rate-limit exceeded path and IP extraction
+# ---------------------------------------------------------------------------
+
+
+def _make_config(tmp_path: Path) -> Path:
+    """Create a minimal router config for middleware integration tests."""
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    import json as _json
+    (state_dir / "model_role_matrix.json").write_text(_json.dumps({}))
+    config = {
+        "state_dir": str(state_dir),
+        "catalog_ttl_hours": 24,
+        "default_top_n": 12,
+        "max_consecutive_same_provider": 2,
+        "providers": [],
+    }
+    config_path = tmp_path / "router.yaml"
+    config_path.write_text(yaml.dump(config))
+    return config_path
+
+
+class TestRateLimitMiddlewareDispatch:
+    def test_rate_limit_exceeded_returns_429(self, tmp_path: Path):
+        """[TM-008 AC-1] Exhausted bucket causes middleware to return 429."""
+        from starlette.applications import Starlette
+        from starlette.routing import Route
+        from starlette.responses import JSONResponse
+        from starlette.testclient import TestClient as TC
+
+        async def _dummy(request):
+            return JSONResponse({"ok": True})
+
+        inner = Starlette(routes=[Route("/v1/health", _dummy, methods=["GET"])])
+        mw = RateLimitMiddleware(inner, max_requests=5, window_seconds=60)
+        bucket = mw._get_bucket("testclient")
+        bucket.tokens = 0.0
+        client = TC(mw)
+        response = client.get("/v1/health")
+        assert response.status_code == 429
+        assert "Too many requests" in response.json()["error"]
+
+    def test_rate_limit_exceeded_via_direct_dispatch(self):
+        """[TM-008 AC-1] Middleware dispatch returns 429 JSON when bucket is empty."""
+        import asyncio
+        from starlette.testclient import TestClient
+        from starlette.applications import Starlette
+        from starlette.routing import Route
+        from starlette.responses import JSONResponse
+
+        async def _dummy(request):
+            return JSONResponse({"ok": True})
+
+        inner_app = Starlette(routes=[Route("/ping", _dummy, methods=["GET"])])
+        mw = RateLimitMiddleware(inner_app, max_requests=2, window_seconds=60)
+
+        from starlette.testclient import TestClient as TC
+        client = TC(mw)
+
+        bucket = mw._get_bucket("testclient")
+        bucket.tokens = 0.0
+
+        response = client.get("/ping")
+        assert response.status_code == 429
+        data = response.json()
+        assert "Too many requests" in data["error"]
+
+    def test_get_client_ip_no_client_returns_unknown(self):
+        """[TM-008 AC-2] _get_client_ip returns 'unknown' when request.client is None."""
+        from starlette.requests import Request as StarletteRequest
+
+        mw = RateLimitMiddleware(app=None)
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "query_string": b"",
+            "headers": [],
+            "client": None,
+        }
+        req = StarletteRequest(scope=scope)
+        assert req.client is None
+        ip = mw._get_client_ip(req)
+        assert ip == "unknown"

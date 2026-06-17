@@ -112,3 +112,96 @@ class TestIsAvailable:
         ht.record_error("m1")
         ht.record_error("m1")
         assert ht.is_available("m1") is False
+
+
+class TestRetirement:
+    def test_score_retired_model_returns_zero(self):
+        """[TM-008 AC-1] Retired model score is 0."""
+        ht = HealthTracker()
+        ht.record_error("m1", http_status=404)
+        result = ht.score("m1")
+        assert isinstance(result, Ok)
+        assert result.value == pytest.approx(0.0)
+
+    def test_record_error_404_retires_model(self):
+        """[TM-008 AC-2] record_error with http_status=404 retires the model."""
+        ht = HealthTracker()
+        ht.record_error("m1", http_status=404)
+        assert ht.is_retired("m1") is True
+
+    def test_retire_model_sets_timestamp(self):
+        """[TM-008 AC-3] _retire_model stores a float timestamp in _retired."""
+        import time
+        ht = HealthTracker()
+        before = time.time()
+        ht._retire_model("m1")
+        after = time.time()
+        assert "m1" in ht._retired
+        assert isinstance(ht._retired["m1"], float)
+        assert before <= ht._retired["m1"] <= after
+
+    def test_is_available_returns_false_for_retired(self):
+        """[TM-008 AC-4] Retired model is not available."""
+        ht = HealthTracker()
+        ht.record_error("m1", http_status=404)
+        assert ht.is_available("m1") is False
+
+    def test_get_retired_models_returns_copy(self):
+        """[TM-008 AC-5] get_retired_models returns a dict with all retired models."""
+        ht = HealthTracker()
+        ht.record_error("m1", http_status=404)
+        ht.record_error("m2", http_status=404)
+        retired = ht.get_retired_models()
+        assert "m1" in retired
+        assert "m2" in retired
+        # Verify it's a copy — mutating it does not affect internal state
+        retired["extra"] = 9999.0
+        assert "extra" not in ht.get_retired_models()
+
+
+class TestReinstatement:
+    def test_reinstate_model_restores_availability(self):
+        """[TM-008 AC-6] Reinstating a retired model makes it available again."""
+        ht = HealthTracker()
+        ht.record_error("m1", http_status=404)
+        assert ht.is_available("m1") is False
+        ht.reinstate_model("m1")
+        assert ht.is_available("m1") is True
+
+    def test_reinstate_model_resets_errors(self):
+        """[TM-008 AC-7] Reinstating a model resets its error count to 0."""
+        ht = HealthTracker()
+        ht.record_error("m1", http_status=404)
+        ht.reinstate_model("m1")
+        assert ht.get_error_count("m1") == 0
+
+    def test_reinstate_nonexistent_model_noop(self):
+        """[TM-008 AC-8] Reinstating a model that was never retired is a no-op."""
+        ht = HealthTracker()
+        # Should not raise
+        ht.reinstate_model("never-retired")
+        assert ht.is_available("never-retired") is True
+
+
+class TestScoreEdgeCases:
+    def test_score_three_plus_errors_returns_30(self):
+        """[TM-008 AC-9] score() returns 30 when error_count >= 3 but circuit is still closed.
+
+        Uses a high error_threshold so the circuit breaker does not open,
+        allowing the error_count >= 3 branch to be reached.
+        """
+        ht = HealthTracker(error_threshold=10, error_window_s=120.0, cooldown_s=60.0)
+        ht.record_error("m1")
+        ht.record_error("m1")
+        ht.record_error("m1")
+        result = ht.score("m1")
+        assert isinstance(result, Ok)
+        assert result.value == pytest.approx(30.0)
+
+    def test_is_available_returns_false_when_circuit_open(self):
+        """[TM-008 AC-10] is_available returns False when circuit breaker is open."""
+        ht = HealthTracker(error_threshold=3, error_window_s=120.0, cooldown_s=60.0)
+        ht.record_error("m1")
+        ht.record_error("m1")
+        ht.record_error("m1")
+        assert ht.is_available("m1") is False

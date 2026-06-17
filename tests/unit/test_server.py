@@ -4,10 +4,12 @@ Spec traceability: TM-009 (HTTP API endpoints)
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import yaml
@@ -21,7 +23,14 @@ from dragonlight_router.core.types import (
     BackendStatus,
     BackendTier,
 )
+from dragonlight_router.result import Ok, Err
 from dragonlight_router.server.app import create_app
+from dragonlight_router.server.routes import (
+    _backend_tier_to_trust,
+    _validate_select_request,
+    _validate_dispatch_request,
+    _execute_catalog_refresh,
+)
 
 
 def _setup_test_env(tmp_path: Path) -> Path:
@@ -353,3 +362,529 @@ class TestReinstateEndpoint:
         response = client.post("/v1/reinstate", json={"backend": "nonexistent"})
         assert response.status_code == 404
         assert response.json()["error"] == "backend not found"
+
+    def test_reinstate_invalid_json_returns_400(self, tmp_path: Path):
+        """[TM-009 AC-2] Invalid JSON body in reinstate returns 400."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        client = TestClient(app)
+        response = client.post(
+            "/v1/reinstate",
+            content=b"not json",
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 400
+        assert "invalid JSON" in response.json()["error"]
+
+    def test_reinstate_missing_backend_field_returns_400(self, tmp_path: Path):
+        """[TM-009 AC-2] Missing backend field in reinstate returns 400."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        client = TestClient(app)
+        response = client.post("/v1/reinstate", json={})
+        assert response.status_code == 400
+        assert "missing required field" in response.json()["error"]
+
+
+class TestRetireInvalidJson:
+    def test_retire_invalid_json_returns_400(self, tmp_path: Path):
+        """[TM-009 AC-2] Invalid JSON body in retire returns 400."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        client = TestClient(app)
+        response = client.post(
+            "/v1/retire",
+            content=b"not json",
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 400
+        assert "invalid JSON" in response.json()["error"]
+
+
+class TestRecordInvalidJson:
+    def test_record_invalid_json_returns_400(self, tmp_path: Path):
+        """[TM-009 AC-2] Invalid JSON body in record returns 400."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        client = TestClient(app)
+        response = client.post(
+            "/v1/record",
+            content=b"not json",
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 400
+        assert "invalid JSON" in response.json()["error"]
+
+
+class TestValidateSelectRequest:
+    def test_invalid_role_type_returns_error(self):
+        """[TM-009 AC-2] Non-string role returns validation error."""
+        error = _validate_select_request({"role": 123})
+        assert error is not None
+        assert "invalid role" in error
+
+    def test_role_too_long_returns_error(self):
+        """[TM-009 AC-2] Role exceeding max length returns validation error."""
+        error = _validate_select_request({"role": "x" * 100_001})
+        assert error is not None
+        assert "invalid role" in error
+
+    def test_invalid_top_n_string_returns_error(self):
+        """[TM-009 AC-2] Non-integer top_n returns validation error."""
+        error = _validate_select_request({"role": "coding", "top_n": "five"})
+        assert error is not None
+        assert "invalid top_n" in error
+
+    def test_top_n_zero_returns_error(self):
+        """[TM-009 AC-2] top_n of 0 is below minimum, returns error."""
+        error = _validate_select_request({"role": "coding", "top_n": 0})
+        assert error is not None
+        assert "invalid top_n" in error
+
+    def test_top_n_above_max_returns_error(self):
+        """[TM-009 AC-2] top_n above 500 returns validation error."""
+        error = _validate_select_request({"role": "coding", "top_n": 501})
+        assert error is not None
+        assert "invalid top_n" in error
+
+
+class TestBackendTierToTrust:
+    def test_complex_tier_maps_to_trusted(self):
+        """[TM-009 AC-1] COMPLEX tier maps to 'trusted'."""
+        assert _backend_tier_to_trust(BackendTier.COMPLEX) == "trusted"
+
+    def test_local_tier_maps_to_local(self):
+        """[TM-009 AC-1] LOCAL tier maps to 'local'."""
+        assert _backend_tier_to_trust(BackendTier.LOCAL) == "local"
+
+    def test_simple_tier_maps_to_semi_trusted(self):
+        """[TM-009 AC-1] SIMPLE tier maps to 'semi_trusted'."""
+        assert _backend_tier_to_trust(BackendTier.SIMPLE) == "semi_trusted"
+
+    def test_moderate_tier_maps_to_semi_trusted(self):
+        """[TM-009 AC-1] MODERATE tier maps to 'semi_trusted'."""
+        assert _backend_tier_to_trust(BackendTier.MODERATE) == "semi_trusted"
+
+
+class TestSelectExcludeProviders:
+    def test_select_with_exclude_providers(self, tmp_path: Path):
+        """[TM-009 AC-1] exclude_providers filters out the specified provider."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        client = TestClient(app)
+        response = client.post(
+            "/v1/select",
+            json={"role": "coding", "exclude_providers": ["groq"]},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        for model_id in data["models"]:
+            assert not model_id.startswith("groq_")
+
+
+class TestValidateDispatchRequest:
+    def test_missing_intent_category_returns_error(self):
+        """[TM-009 AC-2] Missing intent_category returns validation error."""
+        body = {
+            "specific_intent": "x",
+            "operator_message": "hi",
+            "context_tokens": 0,
+        }
+        error = _validate_dispatch_request(body)
+        assert error is not None
+        assert "intent_category" in error
+
+    def test_invalid_string_field_too_long(self):
+        """[TM-009 AC-2] String field exceeding max length returns validation error."""
+        body = {
+            "intent_category": "x" * 100_001,
+            "specific_intent": "x",
+            "operator_message": "hi",
+            "context_tokens": 0,
+        }
+        error = _validate_dispatch_request(body)
+        assert error is not None
+        assert "intent_category" in error
+
+    def test_invalid_system_prompt_too_long(self):
+        """[TM-009 AC-2] system_prompt exceeding max length returns validation error."""
+        body = {
+            "intent_category": "cat",
+            "specific_intent": "spec",
+            "operator_message": "msg",
+            "context_tokens": 0,
+            "system_prompt": "x" * 100_001,
+        }
+        error = _validate_dispatch_request(body)
+        assert error is not None
+        assert "system_prompt" in error
+
+    def test_invalid_context_tokens_negative(self):
+        """[TM-009 AC-2] Negative context_tokens returns validation error."""
+        body = {
+            "intent_category": "cat",
+            "specific_intent": "spec",
+            "operator_message": "msg",
+            "context_tokens": -1,
+        }
+        error = _validate_dispatch_request(body)
+        assert error is not None
+        assert "context_tokens" in error
+
+    def test_invalid_context_tokens_string(self):
+        """[TM-009 AC-2] Non-integer context_tokens returns validation error."""
+        body = {
+            "intent_category": "cat",
+            "specific_intent": "spec",
+            "operator_message": "msg",
+            "context_tokens": "many",
+        }
+        error = _validate_dispatch_request(body)
+        assert error is not None
+        assert "context_tokens" in error
+
+
+class TestExecuteCatalogRefresh:
+    @pytest.mark.asyncio
+    async def test_execute_catalog_refresh_success(self, tmp_path: Path):
+        """[TM-009 AC-5] _execute_catalog_refresh returns ok response on success."""
+        from dragonlight_router.core.types import CatalogEntry
+
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        engine = app.state.engine
+
+        mock_catalog = {
+            "groq": [CatalogEntry(model_id="groq_llama70b", provider="groq")],
+        }
+
+        mock_refresher = AsyncMock()
+        mock_refresher.refresh.return_value = Ok(mock_catalog)
+
+        with patch("dragonlight_router.server.routes._refresher_mod.CatalogRefresher", return_value=mock_refresher):
+            response = await _execute_catalog_refresh(engine)
+
+        data = response.body
+        parsed = json.loads(data)
+        assert parsed["status"] == "ok"
+        assert parsed["model_count"] == 1
+        assert "groq" in parsed["providers_refreshed"]
+
+
+class TestDispatchEndpoint:
+    def test_dispatch_invalid_json_returns_400(self, tmp_path: Path):
+        """[TM-009 AC-2] Invalid JSON body in dispatch returns 400."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        client = TestClient(app)
+        response = client.post(
+            "/v1/dispatch",
+            content=b"not json",
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 400
+        assert "invalid JSON" in response.json()["error"]
+
+    def test_dispatch_missing_field_returns_400(self, tmp_path: Path):
+        """[TM-009 AC-2] Missing required field in dispatch returns 400."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        client = TestClient(app)
+        response = client.post(
+            "/v1/dispatch",
+            json={"intent_category": "coding"},
+        )
+        assert response.status_code == 400
+
+    def test_dispatch_engine_exception_returns_500(self, tmp_path: Path):
+        """[TM-009 AC-8] Engine RuntimeError during dispatch returns 500."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        engine = app.state.engine
+
+        async def _raise(*args, **kwargs):
+            raise RuntimeError("boom")
+
+        engine.dispatch = _raise
+        client = TestClient(app)
+        response = client.post(
+            "/v1/dispatch",
+            json={
+                "intent_category": "coding",
+                "specific_intent": "write a function",
+                "operator_message": "hello",
+                "context_tokens": 100,
+            },
+        )
+        assert response.status_code == 500
+        assert "Internal server error" in response.json()["error"]
+
+
+class TestLifespan:
+    def test_lifespan_refresh_failure_is_swallowed(self, tmp_path: Path):
+        """[TM-009 AC-9] Lifespan startup continues even if catalog refresh fails."""
+        config_path = _setup_test_env(tmp_path)
+
+        async def _bad_refresh(self):
+            raise RuntimeError("network unavailable")
+
+        with patch(
+            "dragonlight_router.router.RouterEngine._async_refresh_catalog",
+            new=_bad_refresh,
+        ), patch(
+            "dragonlight_router.router.RouterEngine.start_health_check_loop",
+            new=AsyncMock(),
+        ):
+            app = create_app(config_path=config_path)
+            with TestClient(app) as client:
+                response = client.get("/v1/health")
+        assert response.status_code == 200
+
+    def test_lifespan_starts_health_check_loop(self, tmp_path: Path):
+        """[TM-009 AC-9] Lifespan creates a health check loop task that is cancelled on shutdown."""
+        config_path = _setup_test_env(tmp_path)
+
+        async def _instant_loop(self_engine):
+            pass
+
+        with patch(
+            "dragonlight_router.router.RouterEngine._async_refresh_catalog",
+            new=AsyncMock(),
+        ), patch(
+            "dragonlight_router.router.RouterEngine.start_health_check_loop",
+            new=_instant_loop,
+        ):
+            app = create_app(config_path=config_path)
+            with TestClient(app) as client:
+                response = client.get("/v1/health")
+                assert response.status_code == 200
+
+
+class TestMain:
+    def test_main_uses_default_host_and_port(self, tmp_path: Path):
+        """[TM-009 AC-9] main() calls uvicorn.run with default host 127.0.0.1 port 8100."""
+        import dragonlight_router.server.app as app_module
+
+        with patch.dict("os.environ", {}, clear_env := False):
+            for key in ("DRAGONLIGHT_ROUTER_CONFIG", "DRAGONLIGHT_HOST", "DRAGONLIGHT_PORT"):
+                patch.object
+            with patch("dragonlight_router.server.app.uvicorn.run") as mock_run, \
+                 patch("dragonlight_router.server.app.create_app") as mock_create:
+                mock_create.return_value = MagicMock()
+                import os
+                env_backup = {k: os.environ.pop(k, None) for k in ("DRAGONLIGHT_ROUTER_CONFIG", "DRAGONLIGHT_HOST", "DRAGONLIGHT_PORT")}
+                try:
+                    app_module.main()
+                finally:
+                    for k, v in env_backup.items():
+                        if v is not None:
+                            os.environ[k] = v
+                mock_run.assert_called_once()
+                _, kwargs = mock_run.call_args
+                assert kwargs.get("host", mock_run.call_args[0][1] if len(mock_run.call_args[0]) > 1 else "127.0.0.1") == "127.0.0.1"
+
+    def test_main_uses_env_config_path(self, tmp_path: Path):
+        """[TM-009 AC-9] main() passes config path from DRAGONLIGHT_ROUTER_CONFIG env var."""
+        import os
+        import dragonlight_router.server.app as app_module
+
+        config_path = str(tmp_path / "router.yaml")
+        captured_path = []
+
+        def _fake_create_app(config_path=None, **overrides):
+            captured_path.append(config_path)
+            return MagicMock()
+
+        with patch("dragonlight_router.server.app.create_app", side_effect=_fake_create_app), \
+             patch("dragonlight_router.server.app.uvicorn.run"):
+            old = os.environ.get("DRAGONLIGHT_ROUTER_CONFIG")
+            os.environ["DRAGONLIGHT_ROUTER_CONFIG"] = config_path
+            try:
+                app_module.main()
+            finally:
+                if old is None:
+                    del os.environ["DRAGONLIGHT_ROUTER_CONFIG"]
+                else:
+                    os.environ["DRAGONLIGHT_ROUTER_CONFIG"] = old
+
+        assert captured_path and str(captured_path[0]) == config_path
+
+    def test_main_uses_custom_host_and_port(self, tmp_path: Path):
+        """[TM-009 AC-9] main() reads DRAGONLIGHT_HOST and DRAGONLIGHT_PORT env vars."""
+        import os
+        import dragonlight_router.server.app as app_module
+
+        captured = {}
+
+        def _fake_run(app, host="127.0.0.1", port=8100):
+            captured["host"] = host
+            captured["port"] = port
+
+        with patch("dragonlight_router.server.app.create_app", return_value=MagicMock()), \
+             patch("dragonlight_router.server.app.uvicorn.run", side_effect=_fake_run):
+            env_keys = {"DRAGONLIGHT_HOST": "0.0.0.0", "DRAGONLIGHT_PORT": "9000"}
+            old = {k: os.environ.get(k) for k in env_keys}
+            os.environ.update(env_keys)
+            for key in ("DRAGONLIGHT_ROUTER_CONFIG",):
+                os.environ.pop(key, None)
+            try:
+                app_module.main()
+            finally:
+                for k, v in old.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+
+        assert captured.get("host") == "0.0.0.0"
+        assert captured.get("port") == 9000
+
+
+class TestSelectInvalidJson:
+    def test_select_invalid_json_returns_400(self, tmp_path: Path):
+        """[TM-009 AC-2] Invalid JSON body in select returns 400."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        client = TestClient(app)
+        response = client.post(
+            "/v1/select",
+            content=b"not json",
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 400
+        assert "invalid JSON" in response.json()["error"]
+
+
+class TestExecuteCatalogRefreshError:
+    @pytest.mark.asyncio
+    async def test_execute_catalog_refresh_error_path(self, tmp_path: Path):
+        """[TM-009 AC-5] _execute_catalog_refresh returns 500 on Err result."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        engine = app.state.engine
+
+        mock_refresher = AsyncMock()
+        mock_refresher.refresh.return_value = Err(RuntimeError("network down"))
+
+        with patch("dragonlight_router.server.routes._refresher_mod.CatalogRefresher", return_value=mock_refresher):
+            response = await _execute_catalog_refresh(engine)
+
+        import json as _json
+        parsed = _json.loads(response.body)
+        assert parsed["status"] == "error"
+        assert response.status_code == 500
+
+    def test_catalog_refresh_handler_exception_returns_500(self, tmp_path: Path):
+        """[TM-009 AC-5] catalog_refresh_handler catches OSError and returns 500."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        client = TestClient(app)
+
+        with patch(
+            "dragonlight_router.server.routes._execute_catalog_refresh",
+            side_effect=OSError("connection refused"),
+        ):
+            response = client.post("/v1/catalog/refresh")
+
+        assert response.status_code == 500
+        data = response.json()
+        assert data["status"] == "error"
+
+
+class TestDispatchOkPath:
+    def test_dispatch_returns_engine_response(self, tmp_path: Path):
+        """[TM-009 AC-8] dispatch_handler returns 200 with EngineResponse fields on Ok."""
+        from dragonlight_router.core.types import EngineResponse
+
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        engine = app.state.engine
+
+        fake_response = EngineResponse(
+            content="Hello from model",
+            backend_used="groq_llama70b",
+            backend_tier=BackendTier.SIMPLE,
+            tokens_in=10,
+            tokens_out=20,
+            estimated_cost_usd=0.001,
+            latency_ms=123.4,
+            was_fallback=False,
+            fallback_chain=[],
+        )
+
+        async def _ok_dispatch(order):
+            return Ok(fake_response)
+
+        engine.dispatch = _ok_dispatch
+        client = TestClient(app)
+        response = client.post(
+            "/v1/dispatch",
+            json={
+                "intent_category": "coding",
+                "specific_intent": "write a function",
+                "operator_message": "hello",
+                "context_tokens": 100,
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["content"] == "Hello from model"
+        assert data["backend_used"] == "groq_llama70b"
+        assert data["was_fallback"] is False
+
+    def test_dispatch_returns_dispatch_failure(self, tmp_path: Path):
+        """[TM-009 AC-8] dispatch_handler returns 500 with DispatchFailure fields on Err."""
+        from dragonlight_router.core.types import DispatchFailure
+
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        engine = app.state.engine
+
+        failure = DispatchFailure(
+            message="all backends exhausted",
+            attempted_backends=["groq_llama70b"],
+            error_details={"groq_llama70b": "timeout"},
+        )
+
+        async def _err_dispatch(order):
+            return Err(failure)
+
+        engine.dispatch = _err_dispatch
+        client = TestClient(app)
+        response = client.post(
+            "/v1/dispatch",
+            json={
+                "intent_category": "coding",
+                "specific_intent": "write a function",
+                "operator_message": "hello",
+                "context_tokens": 100,
+            },
+        )
+        assert response.status_code == 500
+        data = response.json()
+        assert data["message"] == "all backends exhausted"
+        assert "groq_llama70b" in data["attempted_backends"]
+
+    def test_dispatch_err_non_dispatch_failure(self, tmp_path: Path):
+        """[TM-009 AC-8] dispatch_handler returns 500 for generic Err with non-DispatchFailure error."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        engine = app.state.engine
+
+        async def _generic_err_dispatch(order):
+            return Err(ValueError("unexpected"))
+
+        engine.dispatch = _generic_err_dispatch
+        client = TestClient(app)
+        response = client.post(
+            "/v1/dispatch",
+            json={
+                "intent_category": "coding",
+                "specific_intent": "write a function",
+                "operator_message": "hello",
+                "context_tokens": 100,
+            },
+        )
+        assert response.status_code == 500
+        data = response.json()
+        assert data["message"] == "Dispatch failed"

@@ -242,6 +242,7 @@ class TestTogetherHealthCheck:
         """Health check returns False on failed response."""
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.is_success = False
+        mock_response.status_code = 500
 
         with patch("dragonlight_router.adapters.together.httpx.AsyncClient") as mock_cls:
             mock_client = AsyncMock()

@@ -203,7 +203,11 @@ class OpenAICompatibleBackend(GenerativeBackend):
         return content
 
     async def health_check(self) -> bool:
-        """Check if the provider API is reachable via its models endpoint."""
+        """Check if the provider API is reachable via its models endpoint.
+
+        Sets status to OFFLINE on 404 (model retired / endpoint gone),
+        ERROR on other failures, and AVAILABLE on success.
+        """
         if not self._api_key:
             self._status = BackendStatus.ERROR
             return False
@@ -218,7 +222,10 @@ class OpenAICompatibleBackend(GenerativeBackend):
                 if response.is_success:
                     self._status = BackendStatus.AVAILABLE
                     return True
-                self._status = BackendStatus.ERROR
+                if response.status_code == 404:
+                    self._status = BackendStatus.OFFLINE
+                else:
+                    self._status = BackendStatus.ERROR
                 return False
             except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPError):
                 self._status = BackendStatus.ERROR

@@ -13,7 +13,6 @@ import contextlib
 import time
 from dataclasses import dataclass
 
-import aiohttp
 import structlog
 
 from dragonlight_router.core.state import BackendState
@@ -71,13 +70,11 @@ class HealthCheckLoop:
         self._slo_violation_counts: dict[str, int] = {
             name: 0 for name in backends
         }
-        self._session: aiohttp.ClientSession | None = None
 
     async def start(self) -> None:
         """Start the background health check loop."""
         if self._task is not None:
             return
-        self._session = aiohttp.ClientSession()
         self._task = asyncio.create_task(self._run_loop())
 
     async def stop(self) -> None:
@@ -88,9 +85,6 @@ class HealthCheckLoop:
         with contextlib.suppress(asyncio.CancelledError):
             await self._task
         self._task = None
-        if self._session is not None:
-            await self._session.close()
-            self._session = None
 
     async def _run_loop(self) -> None:
         """Run the health check loop until cancelled."""
@@ -159,31 +153,33 @@ class HealthCheckLoop:
     async def _send_health_probe(
         self, name: str, backend: GenerativeBackend, start_time: float
     ) -> ProbeResult:
-        """Make the HTTP health probe request. May raise on I/O failure."""
-        if self._session is None:
-            raise RuntimeError("HTTP session not initialized")
+        """Delegate health probing to the backend adapter.
 
-        health_url = f"{backend.config.base_url}/v1/models"
-        timeout = aiohttp.ClientTimeout(total=self._timeout)
+        Each adapter knows its own health-check URL via _resolve_base_url() +
+        _models_path, so we delegate rather than reconstruct the URL here.
+        After the call, we inspect backend.status to detect 404→OFFLINE cases
+        (the adapter sets OFFLINE when it receives a 404) and surface them as
+        is_404=True so _probe_backend can set OFFLINE state on the BackendState.
+        """
+        healthy = await backend.health_check()
+        latency_ms = (time.time() - start_time) * 1000
 
-        async with self._session.get(health_url, timeout=timeout) as response:
-            latency_ms = (time.time() - start_time) * 1000
-            return self._classify_response(name, response.status, latency_ms)
-
-    def _classify_response(
-        self, name: str, status: int, latency_ms: float
-    ) -> ProbeResult:
-        """Classify an HTTP response status into a ProbeResult."""
-        if status == 404:
-            logger.warning("health_check_failed_404", backend=name, status=status, latency_ms=round(latency_ms, 2))
-            return ProbeResult(success=False, latency_ms=latency_ms, error=Exception("Model Not Found"), is_404=True)
-
-        if 200 <= status < 300:
-            logger.debug("health_check_success", backend=name, status=status, latency_ms=round(latency_ms, 2))
+        if healthy:
+            logger.debug("health_check_success", backend=name, latency_ms=round(latency_ms, 2))
             return ProbeResult(success=True, latency_ms=latency_ms)
 
-        error = Exception(f"Health check returned status {status}")
-        logger.warning("health_check_failed", backend=name, status=status, error=str(error), latency_ms=round(latency_ms, 2))
+        is_404 = backend.status == BackendStatus.OFFLINE
+        if is_404:
+            logger.warning("health_check_failed_404", backend=name, status=404, latency_ms=round(latency_ms, 2))
+            return ProbeResult(
+                success=False,
+                latency_ms=latency_ms,
+                error=Exception("Model Not Found"),
+                is_404=True,
+            )
+
+        error = Exception("Health check returned non-success response")
+        logger.warning("health_check_failed", backend=name, error=str(error), latency_ms=round(latency_ms, 2))
         return ProbeResult(success=False, latency_ms=latency_ms, error=error)
 
     def _make_failure_result(

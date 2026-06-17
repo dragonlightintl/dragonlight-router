@@ -7,7 +7,6 @@ import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import aiohttp
 import pytest
 
 from src.dragonlight_router.health.check_loop import HealthCheckLoop, CircuitBreaker
@@ -18,11 +17,14 @@ from dragonlight_router.health.circuit_breaker import CircuitState
 
 @pytest.fixture
 def mock_backends():
-    """Create mock backends."""
-    return {
-        "backend1": MagicMock(spec=GenerativeBackend),
-        "backend2": MagicMock(spec=GenerativeBackend),
-    }
+    """Create mock backends with health_check as AsyncMock."""
+    b1 = MagicMock(spec=GenerativeBackend)
+    b1.health_check = AsyncMock(return_value=True)
+    b1.status = BackendStatus.AVAILABLE
+    b2 = MagicMock(spec=GenerativeBackend)
+    b2.health_check = AsyncMock(return_value=True)
+    b2.status = BackendStatus.AVAILABLE
+    return {"backend1": b1, "backend2": b2}
 
 
 @pytest.fixture
@@ -117,18 +119,10 @@ async def test_probe_backend_success_updates_state(
     breaker._state = CircuitState.OPEN
     breaker._opened_at = 1000.0
 
-    # Mock the probe to succeed (no exception)
-    # We need to set up the session to avoid the RuntimeError
-    health_check_loop._session = MagicMock(spec=aiohttp.ClientSession)
-    mock_response = MagicMock(spec=aiohttp.ClientResponse)
-    mock_response.status = 200
-    # Mock the session.get to return an async context manager
-    mock_session_context = MagicMock()
-    mock_session_context.__aenter__.return_value = mock_response
-    mock_session_context.__aexit__.return_value = None
-    health_check_loop._session.get.return_value = mock_session_context
+    # health_check returns True → probe succeeds
+    backend.health_check = AsyncMock(return_value=True)
+    backend.status = BackendStatus.AVAILABLE
 
-    # Mock asyncio.sleep to avoid waiting
     with patch("asyncio.sleep", new_callable=AsyncMock):
         await health_check_loop._probe_backend(name, backend)
 
@@ -155,14 +149,10 @@ async def test_probe_backend_failure_increments_errors_and_updates_status(
     breaker._state = CircuitState.CLOSED
     breaker._error_timestamps = []
 
-    # Mock the probe to raise an exception during the sleep
-    # We need to set up the session to avoid the RuntimeError
-    health_check_loop._session = MagicMock(spec=aiohttp.ClientSession)
-    # Make the session.get raise an exception
-    health_check_loop._session.get.side_effect = Exception("Probe failed")
+    # health_check returns False with ERROR status (non-404 failure)
+    backend.health_check = AsyncMock(return_value=False)
+    backend.status = BackendStatus.ERROR
 
-    # Mock asyncio.sleep to avoid waiting (but the exception will be raised in the sleep?
-    # Actually, the exception is raised in the session.get call, so we don't need to sleep)
     with patch("asyncio.sleep", new_callable=AsyncMock):
         await health_check_loop._probe_backend(name, backend)
 
@@ -192,13 +182,10 @@ async def test_probe_backend_failure_opens_circuit(
     now = time.time()
     breaker._error_timestamps = [now, now]  # Two recent errors within the window
 
-    # Mock the probe to raise an exception during the sleep
-    # We need to set up the session to avoid the RuntimeError
-    health_check_loop._session = MagicMock(spec=aiohttp.ClientSession)
-    # Make the session.get raise an exception
-    health_check_loop._session.get.side_effect = Exception("Probe failed")
+    # health_check raises an exception → _safe_probe catches it
+    backend.health_check = AsyncMock(side_effect=Exception("Probe failed"))
+    backend.status = BackendStatus.ERROR
 
-    # Mock asyncio.sleep to avoid waiting
     with patch("asyncio.sleep", new_callable=AsyncMock):
         await health_check_loop._probe_backend(name, backend)
 
@@ -208,6 +195,28 @@ async def test_probe_backend_failure_opens_circuit(
     assert breaker.state == CircuitState.OPEN
     assert len(breaker._error_timestamps) == 3
     assert breaker._opened_at > 1000.0
+
+
+@pytest.mark.asyncio
+async def test_probe_backend_404_sets_offline(
+    health_check_loop, mock_backends, mock_states
+):
+    """[TM-008 AC-5] A 404 from health_check sets state to OFFLINE."""
+    name = "backend1"
+    backend = mock_backends[name]
+    state = mock_states[name]
+
+    state.consecutive_errors = 0
+    state.status = BackendStatus.AVAILABLE
+
+    # health_check returns False and adapter sets OFFLINE (404 case)
+    backend.health_check = AsyncMock(return_value=False)
+    backend.status = BackendStatus.OFFLINE
+
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        await health_check_loop._probe_backend(name, backend)
+
+    assert state.status == BackendStatus.OFFLINE
 
 
 @pytest.mark.asyncio
@@ -248,22 +257,16 @@ async def test_slo_violation_transitions_to_degraded_via_latency(health_check_lo
     breaker._error_timestamps = []
     health_check_loop._slo_violation_counts[name] = 0
 
-    # Mock the probe to succeed with latency 60ms (> SLO of 50ms)
-    # Simulate 60ms latency by making time.time return values 60ms apart.
-    health_check_loop._session = MagicMock(spec=aiohttp.ClientSession)
-    mock_response = MagicMock(spec=aiohttp.ClientResponse)
-    mock_response.status = 200
-    mock_session_context = MagicMock()
-    mock_session_context.__aenter__.return_value = mock_response
-    mock_session_context.__aexit__.return_value = None
-    health_check_loop._session.get.return_value = mock_session_context
+    # health_check returns True (success) — latency is controlled by fake_time
+    backend.health_check = AsyncMock(return_value=True)
+    backend.status = BackendStatus.AVAILABLE
 
     base_time = 1000.0
 
     def fake_time():
         # Each call advances by 60ms. The probe measures:
-        #   start_time = time.time()         <- call N
-        #   latency_ms = (time.time() - start_time) * 1000  <- call N+1
+        #   start_time = time.time()         <- call N (in _probe_backend)
+        #   latency_ms = (time.time() - start_time) * 1000  <- call N+1 (in _send_health_probe)
         # With 0.060s per call: latency = 60ms > 50ms SLO.
         fake_time.calls += 1
         return base_time + (fake_time.calls * 0.060)  # 60ms per call
@@ -306,13 +309,10 @@ async def test_slo_violation_transitions_to_degraded_via_failure(health_check_lo
     breaker._error_timestamps = []
     health_check_loop._slo_violation_counts[name] = 0
 
-    # Mock the probe to fail (exception during sleep)
-    # We need to set up the session to avoid the RuntimeError
-    health_check_loop._session = MagicMock(spec=aiohttp.ClientSession)
-    # Make the session.get raise an exception
-    health_check_loop._session.get.side_effect = Exception("Probe failed")
+    # health_check returns False with ERROR status (non-404 failure)
+    backend.health_check = AsyncMock(return_value=False)
+    backend.status = BackendStatus.ERROR
 
-    # Mock asyncio.sleep to avoid waiting
     with patch("asyncio.sleep", new_callable=AsyncMock):
         # First failure
         await health_check_loop._probe_backend(name, backend)
@@ -333,13 +333,9 @@ async def test_slo_violation_transitions_to_degraded_via_failure(health_check_lo
 @pytest.mark.asyncio
 async def test_health_check_failures_do_not_crash_loop(health_check_loop, mock_backends):
     """[TM-008 AC-7] Health check failures do not crash the loop."""
-    name = "backend1"
-    backend = mock_backends[name]
-
-    # We need to set up the session to avoid the RuntimeError
-    health_check_loop._session = MagicMock(spec=aiohttp.ClientSession)
-    # Make the session.get raise an exception
-    health_check_loop._session.get.side_effect = Exception("Probe failed")
+    for backend in mock_backends.values():
+        backend.health_check = AsyncMock(side_effect=Exception("Probe failed"))
+        backend.status = BackendStatus.ERROR
 
     # Mock asyncio.sleep to avoid waiting
     with patch("asyncio.sleep", new_callable=AsyncMock):

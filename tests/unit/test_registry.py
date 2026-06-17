@@ -1,4 +1,7 @@
-"""Tests for dragonlight_router.core.registry — BackendRegistry."""
+"""Tests for dragonlight_router.core.registry — BackendRegistry.
+
+Spec traceability: TM-021 (Backend registry)
+"""
 from __future__ import annotations
 
 from typing import AsyncIterator
@@ -67,6 +70,7 @@ class FakeBackend:
 
 class TestBackendRegistry:
     def test_register_and_get(self):
+        """[TM-021 AC-1] Register a backend and retrieve it by name."""
         registry = BackendRegistry()
         backend = FakeBackend(_make_config("test_a"))
         registry.register(backend)
@@ -77,12 +81,14 @@ class TestBackendRegistry:
         assert isinstance(state, BackendState)
 
     def test_get_nonexistent_returns_none(self):
+        """[TM-021 AC-1] Getting a nonexistent backend returns None."""
         registry = BackendRegistry()
         backend, state = registry.get("nonexistent")
         assert backend is None
         assert state is None
 
     def test_duplicate_registration_asserts(self):
+        """[TM-021 AC-2] Duplicate registration raises AssertionError."""
         registry = BackendRegistry()
         backend = FakeBackend(_make_config("dup"))
         registry.register(backend)
@@ -90,6 +96,7 @@ class TestBackendRegistry:
             registry.register(backend)
 
     def test_all_backends(self):
+        """[TM-021 AC-1] all_backends returns all registered backends."""
         registry = BackendRegistry()
         registry.register(FakeBackend(_make_config("a", "groq")))
         registry.register(FakeBackend(_make_config("b", "cerebras")))
@@ -103,6 +110,7 @@ class TestBackendRegistry:
         assert "c" in names
 
     def test_health_snapshot(self):
+        """[TM-021 AC-3] health_snapshot includes status, tokens, and latency."""
         registry = BackendRegistry()
         backend = FakeBackend(_make_config("snap_test", "groq"))
         registry.register(backend)
@@ -115,7 +123,7 @@ class TestBackendRegistry:
         assert "snap_test" in snapshot
         entry = snapshot["snap_test"]
         assert entry["provider"] == "groq"
-        assert entry["tier"] == "haiku"
+        assert entry["tier"] == "simple"
         assert entry["status"] == "available"
         assert entry["requests_today"] == 1
         assert entry["tokens_today"] == 150
@@ -123,6 +131,7 @@ class TestBackendRegistry:
         assert entry["circuit_open"] is False
 
     def test_fresh_state_per_backend(self):
+        """[TM-021 AC-1] Each backend gets independent state."""
         registry = BackendRegistry()
         registry.register(FakeBackend(_make_config("x")))
         registry.register(FakeBackend(_make_config("y")))

@@ -1,4 +1,7 @@
-"""Tests for caching/simple.py and caching/semantic.py."""
+"""Tests for caching/simple.py and caching/semantic.py.
+
+Spec traceability: TM-020 (Response caching)
+"""
 from __future__ import annotations
 
 import sqlite3
@@ -12,48 +15,56 @@ from dragonlight_router.caching.semantic import SemanticCache
 
 class TestSimpleCacheKey:
     def test_deterministic(self):
-        """Same inputs produce same key."""
+        """[TM-020 AC-1] Same inputs produce same cache key."""
         key1 = SimpleCache.make_key("model-a", "system", [{"role": "user", "content": "hi"}], 0.7, 100)
         key2 = SimpleCache.make_key("model-a", "system", [{"role": "user", "content": "hi"}], 0.7, 100)
         assert key1 == key2
 
     def test_different_model_different_key(self):
+        """[TM-020 AC-1] Different models produce different cache keys."""
         key1 = SimpleCache.make_key("model-a", "sys", [{"role": "user", "content": "hi"}], 0.7, 100)
         key2 = SimpleCache.make_key("model-b", "sys", [{"role": "user", "content": "hi"}], 0.7, 100)
         assert key1 != key2
 
     def test_different_messages_different_key(self):
+        """[TM-020 AC-1] Different messages produce different cache keys."""
         key1 = SimpleCache.make_key("m", "s", [{"role": "user", "content": "hello"}], 0.7, 100)
         key2 = SimpleCache.make_key("m", "s", [{"role": "user", "content": "world"}], 0.7, 100)
         assert key1 != key2
 
     def test_different_temperature_different_key(self):
+        """[TM-020 AC-1] Different temperatures produce different cache keys."""
         key1 = SimpleCache.make_key("m", "s", [], 0.7, 100)
         key2 = SimpleCache.make_key("m", "s", [], 0.9, 100)
         assert key1 != key2
 
     def test_sha256_format(self):
+        """[TM-020 AC-1] Cache key is a 64-char SHA-256 hex digest."""
         key = SimpleCache.make_key("m", "s", [], 0.7, 100)
         assert len(key) == 64  # SHA-256 hex digest
 
 
 class TestSimpleCache:
     def test_miss_returns_none(self, tmp_path: Path):
+        """[TM-020 AC-2] Cache miss returns None."""
         cache = SimpleCache(db_path=tmp_path / "cache.db")
         assert cache.get("nonexistent") is None
 
     def test_put_and_get(self, tmp_path: Path):
+        """[TM-020 AC-2] Put then get returns the cached value."""
         cache = SimpleCache(db_path=tmp_path / "cache.db")
         cache.put("key1", "response value")
         assert cache.get("key1") == "response value"
 
     def test_overwrite_existing(self, tmp_path: Path):
+        """[TM-020 AC-2] Overwriting an existing key replaces the value."""
         cache = SimpleCache(db_path=tmp_path / "cache.db")
         cache.put("key1", "old")
         cache.put("key1", "new")
         assert cache.get("key1") == "new"
 
     def test_max_entries_eviction(self, tmp_path: Path):
+        """[TM-020 AC-3] Cache evicts oldest entries when max_entries is exceeded."""
         cache = SimpleCache(db_path=tmp_path / "cache.db", max_entries=3)
         cache.put("a", "1")
         cache.put("b", "2")
@@ -68,6 +79,7 @@ class TestSimpleCache:
         assert count <= 3
 
     def test_ttl_expiration(self, tmp_path: Path):
+        """[TM-020 AC-3] Expired entries return None on get."""
         cache = SimpleCache(db_path=tmp_path / "cache.db", ttl_s=0)
         cache.put("key1", "value")
         import time
@@ -78,16 +90,19 @@ class TestSimpleCache:
 
 class TestSemanticCache:
     def test_miss_returns_none(self, tmp_path: Path):
+        """[TM-020 AC-4] Semantic cache miss returns None."""
         cache = SemanticCache(db_path=tmp_path / "cache.db")
         assert cache.get_similar("hello world") is None
 
     def test_exact_match(self, tmp_path: Path):
+        """[TM-020 AC-4] Exact query match returns cached response."""
         cache = SemanticCache(db_path=tmp_path / "cache.db", threshold=0.95)
         cache.put("explain quicksort in python", "Here is quicksort...")
         result = cache.get_similar("explain quicksort in python")
         assert result == "Here is quicksort..."
 
     def test_similar_match(self, tmp_path: Path):
+        """[TM-020 AC-4] Similar query above threshold returns cached response."""
         cache = SemanticCache(db_path=tmp_path / "cache.db", threshold=0.8)
         cache.put("explain quicksort algorithm in python", "Here is quicksort...")
         # Very similar text should match at 0.8 threshold
@@ -98,12 +113,14 @@ class TestSemanticCache:
         assert result2 == "Here is quicksort..."
 
     def test_dissimilar_no_match(self, tmp_path: Path):
+        """[TM-020 AC-4] Dissimilar query below threshold returns None."""
         cache = SemanticCache(db_path=tmp_path / "cache.db", threshold=0.95)
         cache.put("explain quicksort in python", "Here is quicksort...")
         result = cache.get_similar("what is the weather today")
         assert result is None
 
     def test_multiple_entries(self, tmp_path: Path):
+        """[TM-020 AC-4] Multiple entries are independently retrievable."""
         cache = SemanticCache(db_path=tmp_path / "cache.db", threshold=0.95)
         cache.put("hello world", "greeting response")
         cache.put("goodbye world", "farewell response")

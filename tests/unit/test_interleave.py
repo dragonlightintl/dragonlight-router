@@ -1,4 +1,7 @@
-"""Tests for selection/interleave.py — provider interleaving."""
+"""Tests for selection/interleave.py — provider interleaving.
+
+Spec traceability: TM-004 (Provider interleaving)
+"""
 from __future__ import annotations
 
 import pytest
@@ -20,7 +23,7 @@ def _ms(model_id: str, provider: str, composite: float) -> ModelScore:
 
 class TestInterleave:
     def test_no_reorder_needed(self):
-        """Alternating providers already fine."""
+        """[TM-004 AC-1] Alternating providers already fine, no reorder needed."""
         scored = [
             _ms("m1", "groq", 90.0),
             _ms("m2", "nvidia", 85.0),
@@ -31,7 +34,7 @@ class TestInterleave:
         assert [m.model_id for m in result] == ["m1", "m2", "m3", "m4"]
 
     def test_three_consecutive_reordered(self):
-        """Three same provider in a row gets broken up."""
+        """[TM-004 AC-2] Three same provider in a row gets broken up by interleaving."""
         scored = [
             _ms("m1", "groq", 90.0),
             _ms("m2", "groq", 85.0),
@@ -45,7 +48,7 @@ class TestInterleave:
             assert not (providers[i] == providers[i + 1] == providers[i + 2])
 
     def test_preserves_all_items(self):
-        """All items are present after interleaving."""
+        """[TM-004 AC-3] All items are present after interleaving (permutation invariant)."""
         scored = [
             _ms("m1", "groq", 90.0),
             _ms("m2", "groq", 85.0),
@@ -57,7 +60,7 @@ class TestInterleave:
         assert set(m.model_id for m in result) == {"m1", "m2", "m3", "m4", "m5"}
 
     def test_single_provider_unchanged(self):
-        """If only one provider, can't interleave — returns as-is."""
+        """[TM-004 AC-1] If only one provider, can't interleave -- returns as-is."""
         scored = [
             _ms("m1", "groq", 90.0),
             _ms("m2", "groq", 85.0),
@@ -67,11 +70,12 @@ class TestInterleave:
         assert len(result) == 3
 
     def test_empty_list(self):
+        """[TM-004 AC-1] Empty input returns empty output."""
         result = interleave_providers([], max_consecutive=2)
         assert result == []
 
     def test_max_consecutive_one(self):
-        """max_consecutive=1 forces strict alternation."""
+        """[TM-004 AC-2] max_consecutive=1 forces strict alternation."""
         scored = [
             _ms("m1", "groq", 90.0),
             _ms("m2", "groq", 85.0),

@@ -1,4 +1,7 @@
-"""Unit tests for the CBR (Cost Balancing) stage."""
+"""Unit tests for the CBR (Cost Balancing) stage.
+
+Spec traceability: TM-002 (CBR cost-efficiency filtering)
+"""
 
 from __future__ import annotations
 
@@ -47,7 +50,7 @@ def make_backend_config(
 
 
 def test_filter_by_cost_efficiency():
-    """Test that filter_by_cost_efficiency keeps candidates with higher efficiency."""
+    """[TM-002 AC-1] filter_by_cost_efficiency keeps candidates with higher efficiency."""
     # Create three backends: low cost, medium cost, high cost
     low_cost = make_backend_config("low", input_cost=1.0, output_cost=1.0)  # avg cost 1.0
     medium_cost = make_backend_config("medium", input_cost=2.0, output_cost=2.0)  # avg cost 2.0
@@ -83,7 +86,7 @@ def test_filter_by_cost_efficiency():
 
 
 def test_filter_by_cost_efficiency_no_budget_data():
-    """Test that if no budget data, we return candidates as-is."""
+    """[TM-002 AC-2] If no budget data, return candidates as-is."""
     candidates = [make_backend_config("test")]
     budget_scores: dict[str, float] = {}
     order = DispatchOrder(
@@ -100,7 +103,7 @@ def test_filter_by_cost_efficiency_no_budget_data():
 
 
 def test_filter_by_cost_efficiency_no_candidates():
-    """Test that if no candidates, we return empty list."""
+    """[TM-002 AC-1] If no candidates, return empty list."""
     candidates: list[BackendConfig] = []
     budget_scores = {"test_provider": 80.0}
     order = DispatchOrder(
@@ -117,7 +120,7 @@ def test_filter_by_cost_efficiency_no_candidates():
 
 
 def test_filter_by_absolute_cost():
-    """Test that filter_by_absolute_cost filters by max cost."""
+    """[TM-002 AC-3] filter_by_absolute_cost filters by max cost threshold."""
     low_cost = make_backend_config("low", input_cost=1.0, output_cost=1.0)  # avg 1.0
     high_cost = make_backend_config("high", input_cost=10.0, output_cost=10.0)  # avg 10.0
 
@@ -134,7 +137,7 @@ def test_filter_by_absolute_cost():
 
 
 def test_filter_by_absolute_cost_zero_max():
-    """Test that with max cost 0, only zero-cost candidates pass."""
+    """[TM-002 AC-3] With max cost 0, only zero-cost candidates pass."""
     zero_cost = make_backend_config("zero", input_cost=0.0, output_cost=0.0)
     low_cost = make_backend_config("low", input_cost=1.0, output_cost=1.0)
 

@@ -1,4 +1,7 @@
-"""Unit tests for context_filter.py."""
+"""Unit tests for context_filter.py.
+
+Spec traceability: TM-006 (Context filtering by trust tier)
+"""
 
 from __future__ import annotations
 
@@ -13,53 +16,53 @@ from src.dragonlight_router.selection.context_filter import (
 
 
 def test_filter_by_trust_tier_local() -> None:
-    """LOCAL tier should trust all candidates."""
+    """[TM-006 AC-1] LOCAL tier should trust all candidates."""
     candidates = [TrustTier.LOCAL, TrustTier.SIMPLE, TrustTier.MODERATE, TrustTier.COMPLEX]
     assert filter_by_trust_tier(candidates, TrustTier.LOCAL) == candidates
 
 
 def test_filter_by_trust_tier_haiku() -> None:
-    """HAIKU tier should trust HAIKU and above."""
+    """[TM-006 AC-1] SIMPLE tier should trust SIMPLE and above."""
     candidates = [TrustTier.LOCAL, TrustTier.SIMPLE, TrustTier.MODERATE, TrustTier.COMPLEX]
     expected = [TrustTier.SIMPLE, TrustTier.MODERATE, TrustTier.COMPLEX]
     assert filter_by_trust_tier(candidates, TrustTier.SIMPLE) == expected
 
 
 def test_filter_by_trust_tier_sonnet() -> None:
-    """SONNET tier should trust SONNET and above."""
+    """[TM-006 AC-1] MODERATE tier should trust MODERATE and above."""
     candidates = [TrustTier.LOCAL, TrustTier.SIMPLE, TrustTier.MODERATE, TrustTier.COMPLEX]
     expected = [TrustTier.MODERATE, TrustTier.COMPLEX]
     assert filter_by_trust_tier(candidates, TrustTier.MODERATE) == expected
 
 
 def test_filter_by_trust_tier_opus() -> None:
-    """OPUS tier should trust only OPUS."""
+    """[TM-006 AC-1] COMPLEX tier should trust only COMPLEX."""
     candidates = [TrustTier.LOCAL, TrustTier.SIMPLE, TrustTier.MODERATE, TrustTier.COMPLEX]
     expected = [TrustTier.COMPLEX]
     assert filter_by_trust_tier(candidates, TrustTier.COMPLEX) == expected
 
 
 def test_filter_by_trust_tier_empty() -> None:
-    """Empty candidate list should return empty list."""
+    """[TM-006 AC-1] Empty candidate list should return empty list."""
     assert filter_by_trust_tier([], TrustTier.LOCAL) == []
     assert filter_by_trust_tier([], TrustTier.COMPLEX) == []
 
 
 def test_filter_by_trust_tier_duplicates() -> None:
-    """Duplicate candidates should be preserved."""
+    """[TM-006 AC-1] Duplicate candidates should be preserved."""
     candidates = [TrustTier.SIMPLE, TrustTier.SIMPLE, TrustTier.MODERATE]
     expected = [TrustTier.SIMPLE, TrustTier.SIMPLE, TrustTier.MODERATE]
     assert filter_by_trust_tier(candidates, TrustTier.SIMPLE) == expected
 
 
 def test_filter_by_trust_tier_no_matches() -> None:
-    """When no candidates meet the tier, return empty list."""
+    """[TM-006 AC-1] When no candidates meet the tier, return empty list."""
     candidates = [TrustTier.LOCAL, TrustTier.SIMPLE]
     assert filter_by_trust_tier(candidates, TrustTier.COMPLEX) == []
 
 
 def test_filter_by_trust_tier_all_same() -> None:
-    """All candidates same tier."""
+    """[TM-006 AC-1] All candidates same tier filters correctly at each level."""
     candidates = [TrustTier.MODERATE, TrustTier.MODERATE, TrustTier.MODERATE]
     assert filter_by_trust_tier(candidates, TrustTier.MODERATE) == candidates
     assert filter_by_trust_tier(candidates, TrustTier.SIMPLE) == candidates
@@ -68,7 +71,7 @@ def test_filter_by_trust_tier_all_same() -> None:
 
 
 def test_filter_context_for_provider_trusted_full_context():
-    """TRUSTED providers receive full system-level context (minus PII, already absent)."""
+    """[TM-006 AC-2] TRUSTED providers receive full system-level context."""
     context = {
         "system": {"behavioral_rules": "BR1", "persona": "Assistant"},
         "history": [{"turn": 1}, {"turn": 2}, {"turn": 3}, {"turn": 4}],
@@ -80,7 +83,7 @@ def test_filter_context_for_provider_trusted_full_context():
 
 
 def test_filter_context_for_provider_semitrusted_no_behavioral_rules():
-    """SEMI_TRUSTED providers receive context without behavioral rules."""
+    """[TM-006 AC-3] SEMI_TRUSTED providers receive context without behavioral rules."""
     context = {
         "system": {"behavioral_rules": "BR1", "other_setting": "value"},
         "history": [],
@@ -92,7 +95,7 @@ def test_filter_context_for_provider_semitrusted_no_behavioral_rules():
 
 
 def test_filter_context_for_provider_semitrusted_persona_names():
-    """SEMI_TRUSTED providers receive context with persona names replaced."""
+    """[TM-006 AC-3] SEMI_TRUSTED providers receive context with persona names redacted."""
     context = {
         "system": {"persona": "Assistant", "role": "Helper"},
         "history": [],
@@ -104,7 +107,7 @@ def test_filter_context_for_provider_semitrusted_persona_names():
 
 
 def test_filter_context_for_provider_semitrusted_limited_history():
-    """SEMI_TRUSTED providers receive context with limited history (last 3 turns)."""
+    """[TM-006 AC-3] SEMI_TRUSTED providers receive limited history (last 3 turns)."""
     context = {
         "system": {},
         "history": [
@@ -126,7 +129,7 @@ def test_filter_context_for_provider_semitrusted_limited_history():
 
 
 def test_filter_context_for_provider_untrusted_task_only():
-    """UNTRUSTED providers receive task-specific instruction only."""
+    """[TM-006 AC-4] UNTRUSTED providers receive task-specific instruction only."""
     context = {
         "system": {"behavioral_rules": "BR1"},
         "history": [{"turn": 1}],
@@ -138,7 +141,7 @@ def test_filter_context_for_provider_untrusted_task_only():
 
 
 def test_filter_context_for_provider_untrusted_no_task():
-    """UNTRUSTED providers receive empty context if no task."""
+    """[TM-006 AC-4] UNTRUSTED providers receive empty context if no task."""
     context = {
         "system": {},
         "history": [],
@@ -149,7 +152,7 @@ def test_filter_context_for_provider_untrusted_no_task():
 
 
 def test_filter_context_for_provider_local_full_context():
-    """LOCAL providers receive full context (no network egress risk)."""
+    """[TM-006 AC-2] LOCAL providers receive full context (no network egress risk)."""
     context = {
         "system": {"behavioral_rules": "BR1", "persona": "Assistant"},
         "history": [{"turn": 1}, {"turn": 2}],
@@ -161,7 +164,7 @@ def test_filter_context_for_provider_local_full_context():
 
 
 def test_filter_context_for_provider_does_not_mutate_input():
-    """Function should not mutate the original context dictionary."""
+    """[TM-006 AC-5] Context filtering does not mutate the original context dictionary."""
     context = {
         "system": {"behavioral_rules": "BR1"},
         "history": [{"turn": 1}],

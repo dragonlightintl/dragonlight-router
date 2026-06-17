@@ -1,4 +1,7 @@
-"""Tests for dragonlight_router.core.types — frozen dataclasses and enums."""
+"""Tests for dragonlight_router.core.types — frozen dataclasses and enums.
+
+Spec traceability: TM-017 (Core type definitions)
+"""
 from __future__ import annotations
 
 import pytest
@@ -23,17 +26,20 @@ from dragonlight_router.core.types import (
 
 class TestBackendTier:
     def test_values(self):
+        """[TM-017 AC-1] BackendTier enum has correct string values."""
         assert BackendTier.LOCAL.value == "local"
-        assert BackendTier.SIMPLE.value == "haiku"
-        assert BackendTier.MODERATE.value == "sonnet"
-        assert BackendTier.COMPLEX.value == "opus"
+        assert BackendTier.SIMPLE.value == "simple"
+        assert BackendTier.MODERATE.value == "moderate"
+        assert BackendTier.COMPLEX.value == "complex"
 
     def test_all_members(self):
+        """[TM-017 AC-1] BackendTier has exactly 4 members."""
         assert len(BackendTier) == 4
 
 
 class TestBackendStatus:
     def test_values(self):
+        """[TM-017 AC-1] BackendStatus enum has correct string values."""
         assert BackendStatus.AVAILABLE.value == "available"
         assert BackendStatus.RATE_LIMITED.value == "rate_limited"
         assert BackendStatus.DAILY_CAP_HIT.value == "daily_cap_hit"
@@ -42,11 +48,13 @@ class TestBackendStatus:
         assert BackendStatus.OFFLINE.value == "offline"
 
     def test_all_members(self):
-        assert len(BackendStatus) == 6
+        """[TM-017 AC-1] BackendStatus has exactly 8 members."""
+        assert len(BackendStatus) == 8
 
 
 class TestBackendCapabilities:
     def test_frozen(self):
+        """[TM-017 AC-2] BackendCapabilities is frozen (immutable)."""
         caps = BackendCapabilities(
             max_context_tokens=128_000,
             supports_tool_use=True,
@@ -58,6 +66,7 @@ class TestBackendCapabilities:
             caps.max_context_tokens = 256_000  # type: ignore[misc]
 
     def test_fields(self):
+        """[TM-017 AC-2] BackendCapabilities fields are accessible."""
         caps = BackendCapabilities(
             max_context_tokens=32_000,
             supports_tool_use=False,
@@ -71,11 +80,13 @@ class TestBackendCapabilities:
 
 class TestBackendCostProfile:
     def test_defaults(self):
+        """[TM-017 AC-2] BackendCostProfile cache fields default to 0.0."""
         cost = BackendCostProfile(input_per_mtok=0.0, output_per_mtok=0.0)
         assert cost.cache_read_per_mtok == 0.0
         assert cost.cache_write_per_mtok == 0.0
 
     def test_frozen(self):
+        """[TM-017 AC-2] BackendCostProfile is frozen (immutable)."""
         cost = BackendCostProfile(input_per_mtok=15.0, output_per_mtok=75.0)
         with pytest.raises(Exception):
             cost.input_per_mtok = 0.0  # type: ignore[misc]
@@ -83,6 +94,7 @@ class TestBackendCostProfile:
 
 class TestBackendRateLimits:
     def test_fields(self):
+        """[TM-017 AC-2] BackendRateLimits fields are accessible."""
         limits = BackendRateLimits(rpm=30, rpd=1000, tpm=6000, daily_token_cap=0)
         assert limits.rpm == 30
         assert limits.rpd == 1000
@@ -92,6 +104,7 @@ class TestBackendRateLimits:
 
 class TestBackendConfig:
     def test_frozen(self):
+        """[TM-017 AC-2] BackendConfig is frozen (immutable)."""
         config = BackendConfig(
             name="test",
             provider="groq",
@@ -107,6 +120,7 @@ class TestBackendConfig:
             config.name = "changed"  # type: ignore[misc]
 
     def test_default_priority(self):
+        """[TM-017 AC-2] BackendConfig default priority is 0."""
         config = BackendConfig(
             name="test",
             provider="groq",
@@ -123,6 +137,7 @@ class TestBackendConfig:
 
 class TestProviderConfig:
     def test_fields(self):
+        """[TM-017 AC-2] ProviderConfig fields are accessible."""
         pc = ProviderConfig(
             name="groq",
             base_url="https://api.groq.com/openai/v1",
@@ -132,11 +147,13 @@ class TestProviderConfig:
             rpm_limit=30,
             rpd_limit=1000,
             tpm_limit=6000,
+            daily_token_cap=None,
         )
         assert pc.name == "groq"
         assert pc.rpd_limit == 1000
 
     def test_nullable_limits(self):
+        """[TM-017 AC-2] ProviderConfig allows None for optional rate limits."""
         pc = ProviderConfig(
             name="nvidia_nim",
             base_url="https://integrate.api.nvidia.com/v1",
@@ -146,6 +163,7 @@ class TestProviderConfig:
             rpm_limit=40,
             rpd_limit=None,
             tpm_limit=None,
+            daily_token_cap=None,
         )
         assert pc.rpd_limit is None
         assert pc.tpm_limit is None
@@ -153,6 +171,7 @@ class TestProviderConfig:
 
 class TestDispatchOrder:
     def test_frozen(self):
+        """[TM-017 AC-2] DispatchOrder is frozen (immutable)."""
         order = DispatchOrder(
             intent_category="engineering_build",
             specific_intent="code.generate",
@@ -164,6 +183,7 @@ class TestDispatchOrder:
             order.context_tokens = 5000  # type: ignore[misc]
 
     def test_defaults(self):
+        """[TM-017 AC-2] DispatchOrder optional fields default correctly."""
         order = DispatchOrder(
             intent_category="general",
             specific_intent="chat",
@@ -178,6 +198,7 @@ class TestDispatchOrder:
 
 class TestEngineResponse:
     def test_fields(self):
+        """[TM-017 AC-2] EngineResponse fields are accessible."""
         resp = EngineResponse(
             content="result",
             backend_used="groq_llama70b",
@@ -195,6 +216,7 @@ class TestEngineResponse:
 
 class TestDispatchFailure:
     def test_fields(self):
+        """[TM-017 AC-2] DispatchFailure fields are accessible."""
         failure = DispatchFailure(
             message="All exhausted",
             attempted_backends=["a", "b"],
@@ -205,6 +227,7 @@ class TestDispatchFailure:
 
 class TestModelScore:
     def test_fields(self):
+        """[TM-017 AC-2] ModelScore fields are accessible."""
         score = ModelScore(
             model_id="groq/llama-3.3-70b",
             provider="groq",
@@ -218,16 +241,19 @@ class TestModelScore:
 
 class TestCatalogEntry:
     def test_defaults(self):
+        """[TM-017 AC-2] CatalogEntry defaults created to None."""
         entry = CatalogEntry(model_id="groq/llama-3.3-70b", provider="groq")
         assert entry.created is None
 
     def test_with_created(self):
+        """[TM-017 AC-2] CatalogEntry stores created timestamp."""
         entry = CatalogEntry(model_id="nim/kimi-k2.6", provider="nvidia_nim", created=1747000000)
         assert entry.created == 1747000000
 
 
 class TestComplexityEstimate:
     def test_fields(self):
+        """[TM-017 AC-2] ComplexityEstimate fields are accessible."""
         est = ComplexityEstimate(
             tier=BackendTier.MODERATE,
             confidence=0.85,
@@ -239,6 +265,7 @@ class TestComplexityEstimate:
 
 class TestBackendError:
     def test_defaults(self):
+        """[TM-017 AC-2] BackendError defaults http_status to None and retryable to False."""
         err = BackendError(
             backend_name="groq_llama70b",
             error_type="timeout",

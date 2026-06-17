@@ -1,4 +1,7 @@
-"""Tests for budget/persistence.py — atomic state file I/O."""
+"""Tests for budget/persistence.py — atomic state file I/O.
+
+Spec traceability: TM-022 (Budget state persistence)
+"""
 from __future__ import annotations
 
 import json
@@ -11,11 +14,13 @@ from dragonlight_router.budget.persistence import load_budget_state, save_budget
 
 class TestSaveBudgetState:
     def test_creates_file(self, tmp_path: Path):
+        """[TM-022 AC-1] save_budget_state creates the file on disk."""
         path = tmp_path / "budget.json"
         save_budget_state({"groq": {"rpm_used": 5}}, path)
         assert path.exists()
 
     def test_valid_json(self, tmp_path: Path):
+        """[TM-022 AC-1] Saved state is valid JSON matching the input."""
         path = tmp_path / "budget.json"
         state = {"groq": {"rpm_used": 5, "rpd_used": 100}}
         save_budget_state(state, path)
@@ -23,7 +28,7 @@ class TestSaveBudgetState:
         assert loaded == state
 
     def test_atomic_write_no_partial(self, tmp_path: Path):
-        """If file already exists, new write replaces atomically."""
+        """[TM-022 AC-2] Atomic write replaces existing file without partial state."""
         path = tmp_path / "budget.json"
         save_budget_state({"old": True}, path)
         save_budget_state({"new": True}, path)
@@ -31,6 +36,7 @@ class TestSaveBudgetState:
         assert loaded == {"new": True}
 
     def test_creates_parent_dirs(self, tmp_path: Path):
+        """[TM-022 AC-1] save_budget_state creates parent directories."""
         path = tmp_path / "sub" / "dir" / "budget.json"
         save_budget_state({"x": 1}, path)
         assert path.exists()
@@ -38,24 +44,32 @@ class TestSaveBudgetState:
 
 class TestLoadBudgetState:
     def test_loads_existing(self, tmp_path: Path):
+        """[TM-022 AC-3] load_budget_state returns existing state as Ok."""
         path = tmp_path / "budget.json"
         path.write_text(json.dumps({"groq": {"rpm_used": 5}}))
         result = load_budget_state(path)
-        assert result == {"groq": {"rpm_used": 5}}
+        assert result.is_ok()
+        assert result.unwrap() == {"groq": {"rpm_used": 5}}
 
     def test_missing_file_returns_none(self, tmp_path: Path):
+        """[TM-022 AC-3] Missing file returns Ok(None)."""
         path = tmp_path / "nonexistent.json"
         result = load_budget_state(path)
-        assert result is None
+        assert result.is_ok()
+        assert result.unwrap() is None
 
     def test_corrupt_file_returns_none(self, tmp_path: Path):
+        """[TM-022 AC-3] Corrupt JSON file returns Ok(None)."""
         path = tmp_path / "budget.json"
         path.write_text("not json {{{")
         result = load_budget_state(path)
-        assert result is None
+        assert result.is_ok()
+        assert result.unwrap() is None
 
     def test_empty_file_returns_none(self, tmp_path: Path):
+        """[TM-022 AC-3] Empty file returns Ok(None)."""
         path = tmp_path / "budget.json"
         path.write_text("")
         result = load_budget_state(path)
-        assert result is None
+        assert result.is_ok()
+        assert result.unwrap() is None

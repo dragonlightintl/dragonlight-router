@@ -1,0 +1,184 @@
+"""Tests for server security hardening: rate limiting, sanitization, output validation.
+
+Covers QA-022, QA-023, QA-024.
+"""
+from __future__ import annotations
+
+import time
+
+import pytest
+
+from dragonlight_router.server.middleware import RateLimitMiddleware, _TokenBucket
+from dragonlight_router.server.routes import _sanitize_prompt, _validate_llm_response
+
+
+# ---------------------------------------------------------------------------
+# QA-023: Rate-limiting middleware
+# ---------------------------------------------------------------------------
+
+
+class TestTokenBucket:
+    def test_allows_requests_under_limit(self):
+        """Bucket with capacity 5 allows 5 consecutive requests."""
+        bucket = _TokenBucket(capacity=5.0, tokens=5.0)
+        results = [bucket.consume(refill_rate=1.0) for _ in range(5)]
+        assert all(results)
+
+    def test_blocks_requests_over_limit(self):
+        """After exhausting capacity, the next request is blocked."""
+        bucket = _TokenBucket(capacity=3.0, tokens=3.0)
+        for _ in range(3):
+            bucket.consume(refill_rate=1.0)
+        assert bucket.consume(refill_rate=1.0) is False
+
+    def test_resets_after_window(self):
+        """Tokens refill over time, allowing requests again."""
+        now = 1000.0
+        bucket = _TokenBucket(capacity=2.0, tokens=0.0, last_refill=now)
+        # No tokens, should be blocked
+        assert bucket.consume(refill_rate=1.0, now=now) is False
+        # Advance 3 seconds with refill_rate=1.0 => 3 tokens refilled, capped at 2
+        assert bucket.consume(refill_rate=1.0, now=now + 3.0) is True
+
+    def test_partial_refill(self):
+        """Partial time elapsed refills partial tokens."""
+        now = 1000.0
+        bucket = _TokenBucket(capacity=10.0, tokens=0.0, last_refill=now)
+        # 0.5 seconds at rate 2.0 => 1.0 token
+        assert bucket.consume(refill_rate=2.0, now=now + 0.5) is True
+        # Should have 0 tokens left now
+        assert bucket.consume(refill_rate=2.0, now=now + 0.5) is False
+
+
+class TestRateLimitMiddleware:
+    def test_middleware_default_configuration(self):
+        """Middleware initializes with default 60 req/60s."""
+        mw = RateLimitMiddleware(app=None)
+        assert mw.max_requests == 60
+        assert mw.window_seconds == 60
+        assert mw.refill_rate == 1.0
+
+    def test_middleware_custom_configuration(self):
+        """Middleware accepts custom rate limit parameters."""
+        mw = RateLimitMiddleware(app=None, max_requests=10, window_seconds=30)
+        assert mw.max_requests == 10
+        assert mw.window_seconds == 30
+        assert mw.refill_rate == pytest.approx(10.0 / 30.0)
+
+    def test_get_bucket_creates_new(self):
+        """_get_bucket creates a new bucket for unknown IPs."""
+        mw = RateLimitMiddleware(app=None, max_requests=5)
+        bucket = mw._get_bucket("192.168.1.1")
+        assert bucket.capacity == 5.0
+        assert bucket.tokens == 5.0
+
+    def test_get_bucket_returns_existing(self):
+        """_get_bucket returns the same bucket for repeated calls."""
+        mw = RateLimitMiddleware(app=None)
+        b1 = mw._get_bucket("10.0.0.1")
+        b2 = mw._get_bucket("10.0.0.1")
+        assert b1 is b2
+
+    def test_separate_buckets_per_ip(self):
+        """Different IPs get independent buckets."""
+        mw = RateLimitMiddleware(app=None, max_requests=2)
+        b1 = mw._get_bucket("10.0.0.1")
+        b2 = mw._get_bucket("10.0.0.2")
+        assert b1 is not b2
+
+
+# ---------------------------------------------------------------------------
+# QA-022: Prompt sanitization
+# ---------------------------------------------------------------------------
+
+
+class TestSanitizePrompt:
+    def test_preserves_normal_text(self):
+        """Normal text passes through unchanged."""
+        text = "Hello, how are you?"
+        assert _sanitize_prompt(text) == text
+
+    def test_preserves_newlines_and_tabs(self):
+        """Newlines and tabs are kept."""
+        text = "Line 1\nLine 2\tindented\r\nLine 3"
+        assert _sanitize_prompt(text) == text
+
+    def test_preserves_unicode(self):
+        """Unicode characters (emoji, CJK, etc.) are preserved."""
+        text = "Hello 世界! 🌍 Ñoño café"
+        assert _sanitize_prompt(text) == text
+
+    def test_strips_null_bytes(self):
+        """Null bytes are removed."""
+        text = "hello\x00world"
+        assert _sanitize_prompt(text) == "helloworld"
+
+    def test_strips_control_characters(self):
+        """Control characters (except \\n, \\r, \\t) are removed."""
+        # \x01 = SOH, \x07 = BEL, \x0b = VT, \x1f = US, \x7f = DEL
+        text = "clean\x01\x07\x0b\x1f\x7ftext"
+        result = _sanitize_prompt(text)
+        assert result == "cleantext"
+
+    def test_truncates_long_input(self):
+        """Input exceeding 100K chars is truncated."""
+        text = "a" * 150_000
+        result = _sanitize_prompt(text)
+        assert len(result) == 100_000
+
+    def test_empty_string(self):
+        """Empty string passes through."""
+        assert _sanitize_prompt("") == ""
+
+    def test_only_control_chars(self):
+        """String of only control chars becomes empty."""
+        text = "\x00\x01\x02\x03"
+        assert _sanitize_prompt(text) == ""
+
+
+# ---------------------------------------------------------------------------
+# QA-024: LLM output validation
+# ---------------------------------------------------------------------------
+
+
+class TestValidateLlmResponse:
+    def test_valid_content_unchanged(self):
+        """Normal response content passes through."""
+        content = "This is a valid LLM response."
+        assert _validate_llm_response(content) == content
+
+    def test_empty_string_returns_empty(self):
+        """Empty string returns empty string."""
+        assert _validate_llm_response("") == ""
+
+    def test_none_returns_empty(self):
+        """None returns empty string."""
+        assert _validate_llm_response(None) == ""  # type: ignore[arg-type]
+
+    def test_non_string_returns_empty(self):
+        """Non-string input returns empty string."""
+        assert _validate_llm_response(123) == ""  # type: ignore[arg-type]
+
+    def test_strips_null_bytes(self):
+        """Null bytes in response are stripped."""
+        content = "hello\x00world\x00!"
+        assert _validate_llm_response(content) == "helloworld!"
+
+    def test_truncates_long_response(self):
+        """Responses over 500K chars are truncated."""
+        content = "x" * 600_000
+        result = _validate_llm_response(content)
+        assert len(result) == 500_000
+
+    def test_preserves_unicode_in_response(self):
+        """Unicode content in responses is preserved."""
+        content = "Réponse en français avec des émojis 🎉"
+        assert _validate_llm_response(content) == content
+
+    def test_null_bytes_then_truncate(self):
+        """Null bytes are stripped before length check."""
+        # 500_001 chars + 10 null bytes => after strip = 500_001 => truncated to 500_000
+        content = "y" * 500_001 + "\x00" * 10
+        result = _validate_llm_response(content)
+        assert len(result) == 500_000
+        assert "\x00" not in result

@@ -1,4 +1,7 @@
-"""Tests for router.py — RouterEngine wiring."""
+"""Tests for router.py — RouterEngine wiring.
+
+Spec traceability: TM-010 (RouterEngine dispatch pipeline)
+"""
 from __future__ import annotations
 
 import json
@@ -80,6 +83,7 @@ def _setup_config(tmp_path: Path) -> Path:
 
 class TestSelectModels:
     def test_returns_ranked_model_ids(self, tmp_path: Path):
+        """[TM-010 AC-1] select_models returns ranked model IDs with top model first."""
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
         result = engine.select_models("coding")
@@ -89,18 +93,21 @@ class TestSelectModels:
         assert result[0] == "groq_llama70b"
 
     def test_respects_top_n(self, tmp_path: Path):
+        """[TM-010 AC-1] select_models respects the top_n limit."""
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
         result = engine.select_models("coding", top_n=3)
         assert len(result) <= 3
 
     def test_unknown_role_returns_empty(self, tmp_path: Path):
+        """[TM-010 AC-1] Unknown role returns empty list."""
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
         result = engine.select_models("nonexistent_role")
         assert result == []
 
     def test_exclude_providers(self, tmp_path: Path):
+        """[TM-010 AC-2] Excluded providers are omitted from results."""
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
         result = engine.select_models("coding", exclude_providers=frozenset({"groq"}))
@@ -108,6 +115,7 @@ class TestSelectModels:
             assert not model_id.startswith("groq_")
 
     def test_interleaving_applied(self, tmp_path: Path):
+        """[TM-010 AC-3] Provider interleaving prevents 3+ consecutive same-provider models."""
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
         result = engine.select_models("coding", top_n=12)
@@ -125,6 +133,7 @@ class TestSelectModels:
 
 class TestRecordRequest:
     def test_record_success(self, tmp_path: Path):
+        """[TM-010 AC-4] Recording a success updates health snapshot."""
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
         # Should not raise
@@ -142,6 +151,7 @@ class TestRecordRequest:
         assert snapshot["groq"]["groq_llama70b"]["score"] >= 80.0
 
     def test_record_failure(self, tmp_path: Path):
+        """[TM-010 AC-4] Recording a failure reduces health score."""
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
         engine.record_request(RequestOutcome(
@@ -156,6 +166,7 @@ class TestRecordRequest:
         assert snapshot["groq"]["groq_llama70b"]["score"] < 100.0
 
     def test_failure_affects_health_score(self, tmp_path: Path):
+        """[TM-010 AC-4] Multiple failures deprioritize the backend via circuit breaker."""
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
         # Record multiple failures
@@ -181,6 +192,7 @@ class TestRecordRequest:
             assert result[0] != "groq_llama70b"
 
     def test_success_affects_budget(self, tmp_path: Path):
+        """[TM-010 AC-5] Recording a success with tokens updates budget snapshot."""
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
         engine.record_request(RequestOutcome(
@@ -196,6 +208,7 @@ class TestRecordRequest:
 
 class TestBudgetSnapshot:
     def test_returns_dict(self, tmp_path: Path):
+        """[TM-010 AC-5] Budget snapshot returns dict with all providers."""
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
         snapshot = engine.budget_snapshot()
@@ -204,6 +217,7 @@ class TestBudgetSnapshot:
         assert "nvidia" in snapshot
 
     def test_score_field_present(self, tmp_path: Path):
+        """[TM-010 AC-5] Budget snapshot entries contain score and has_capacity."""
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
         snapshot = engine.budget_snapshot()

@@ -1,4 +1,7 @@
-"""Unit tests for LBR (rate-limit-aware dispatch) stage."""
+"""Unit tests for LBR (rate-limit-aware dispatch) stage.
+
+Spec traceability: TM-003 (LBR rate-limit filtering)
+"""
 
 from __future__ import annotations
 
@@ -49,7 +52,7 @@ def _make_backend_config(
 
 
 def test_filter_by_rate_limit_no_candidates():
-    """When no candidates are provided, return empty list."""
+    """[TM-003 AC-1] When no candidates are provided, return empty list."""
     candidates = []
     order = DispatchOrder(
         intent_category="test",
@@ -66,7 +69,7 @@ def test_filter_by_rate_limit_no_candidates():
 
 
 def test_filter_by_rate_limit_no_budget_data():
-    """When budget tracker returns no data, return candidates as-is."""
+    """[TM-003 AC-2] When budget tracker returns no data, return candidates as-is."""
     # Create a candidate
     config = _make_backend_config(name="test", provider="test")
     candidates = [config]
@@ -88,7 +91,7 @@ def test_filter_by_rate_limit_no_budget_data():
 
 
 def test_filter_by_rate_limit_median_filter():
-    """Test that candidates with score >= median are kept."""
+    """[TM-003 AC-3] Candidates with score >= median are kept by the LBR filter."""
     # Create two candidates with different providers
     config_a = _make_backend_config(name="a", provider="provider_a")
     config_b = _make_backend_config(name="b", provider="provider_b")
@@ -120,7 +123,7 @@ def test_filter_by_rate_limit_median_filter():
 
 
 def test_filter_by_rate_limit_all_zero_scores():
-    """When all scores are zero, return candidates as-is (median zero, all pass)."""
+    """[TM-003 AC-3] When all scores are zero, return candidates as-is (median zero, all pass)."""
     config_a = _make_backend_config(name="a", provider="provider_a")
     config_b = _make_backend_config(name="b", provider="provider_b")
     candidates = [config_a, config_b]
@@ -142,8 +145,89 @@ def test_filter_by_rate_limit_all_zero_scores():
     assert result == candidates
 
 
+def test_local_provider_bypasses_rate_limit():
+    """[TM-003 AC-4] LOCAL backend with a score below median is still included."""
+    config_local = _make_backend_config(
+        name="local-llm", provider="local_provider", tier=BackendTier.LOCAL,
+    )
+    config_cloud = _make_backend_config(
+        name="cloud-llm", provider="cloud_provider", tier=BackendTier.COMPLEX,
+    )
+    candidates = [config_local, config_cloud]
+    order = DispatchOrder(
+        intent_category="test",
+        specific_intent="test",
+        operator_message="test",
+        system_prompt="",
+        context_tokens=0,
+        requires_tool_use=False,
+        requires_long_context=False,
+    )
+    budget_tracker = Mock(spec=BudgetTracker)
+
+    # LOCAL provider has a very low score; cloud provider has a high score.
+    # Median of [5.0, 90.0] = 47.5 — local_provider (5.0) is below median
+    # but should still be included because its tier is LOCAL.
+    def score_side_effect(provider_name):
+        if provider_name == "local_provider":
+            return Ok(5.0)
+        return Ok(90.0)
+
+    budget_tracker.score.side_effect = score_side_effect
+
+    result = filter_by_rate_limit(candidates, order, budget_tracker)
+    assert len(result) == 2
+    result_names = {c.name for c in result}
+    assert "local-llm" in result_names
+    assert "cloud-llm" in result_names
+
+
+def test_local_and_non_local_mixed():
+    """[TM-003 AC-4] LOCAL passes through while non-LOCAL below median is filtered."""
+    config_local = _make_backend_config(
+        name="local-llm", provider="local_provider", tier=BackendTier.LOCAL,
+    )
+    config_good = _make_backend_config(
+        name="good-cloud", provider="good_cloud", tier=BackendTier.COMPLEX,
+    )
+    config_bad = _make_backend_config(
+        name="bad-cloud", provider="bad_cloud", tier=BackendTier.SIMPLE,
+    )
+    candidates = [config_local, config_good, config_bad]
+    order = DispatchOrder(
+        intent_category="test",
+        specific_intent="test",
+        operator_message="test",
+        system_prompt="",
+        context_tokens=0,
+        requires_tool_use=False,
+        requires_long_context=False,
+    )
+    budget_tracker = Mock(spec=BudgetTracker)
+
+    # Scores: local=2.0, good_cloud=80.0, bad_cloud=10.0
+    # Sorted: [2.0, 10.0, 80.0] → median = 10.0
+    # bad_cloud (10.0 >= 10.0) passes, good_cloud (80.0 >= 10.0) passes,
+    # local (2.0 < 10.0) would be filtered BUT tier is LOCAL so it passes.
+    def score_side_effect(provider_name):
+        scores = {
+            "local_provider": 2.0,
+            "good_cloud": 80.0,
+            "bad_cloud": 10.0,
+        }
+        return Ok(scores[provider_name])
+
+    budget_tracker.score.side_effect = score_side_effect
+
+    result = filter_by_rate_limit(candidates, order, budget_tracker)
+    result_names = {c.name for c in result}
+    # All three should be present: local bypasses, good_cloud above median,
+    # bad_cloud exactly at median.
+    assert result_names == {"local-llm", "good-cloud", "bad-cloud"}
+
+
 def test_filter_by_rate_limit_guard_clauses():
-    """Guard clauses should raise AssertionError on invalid types."""
+    """[TM-003 AC-5] Guard clauses should raise AssertionError on invalid types."""
     # candidates not a list
     with pytest.raises(AssertionError, match="candidates must be a list"):
         filter_by_rate_limit(

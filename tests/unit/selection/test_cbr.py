@@ -1,4 +1,7 @@
-"""Tests for the CBR cost balancing stage."""
+"""Tests for the CBR cost balancing stage.
+
+Spec traceability: TM-002 (CBR cost-efficiency filtering)
+"""
 
 from __future__ import annotations
 
@@ -16,7 +19,7 @@ from dragonlight_router.selection.cbr import filter_by_cost
 
 
 def test_filter_by_cost_no_candidates():
-    """Test that empty candidate list returns empty list."""
+    """[TM-002 AC-1] Empty candidate list returns empty list."""
     order = DispatchOrder(
         intent_category="test",
         specific_intent="test",
@@ -33,7 +36,7 @@ def test_filter_by_cost_no_candidates():
 
 
 def test_filter_by_cost_single_candidate():
-    """Test filtering with a single candidate."""
+    """[TM-002 AC-1] Single candidate is always retained."""
     # Create a backend config
     capabilities = BackendCapabilities(
         max_context_tokens=4096,
@@ -97,7 +100,7 @@ def test_filter_by_cost_single_candidate():
 
 
 def test_filter_by_cost_multiple_candidates():
-    """Test filtering with multiple candidates keeps the more cost-effective ones."""
+    """[TM-002 AC-1] Multiple candidates filtered to keep more cost-effective ones."""
     # Create two backends with different costs
     capabilities = BackendCapabilities(
         max_context_tokens=4096,
@@ -184,7 +187,7 @@ def test_filter_by_cost_multiple_candidates():
 
 
 def test_filter_by_cost_assertions():
-    """Test that appropriate assertions are raised for invalid inputs."""
+    """[TM-002 AC-2] Guard clauses raise AssertionError for invalid inputs."""
     order = DispatchOrder(
         intent_category="test",
         specific_intent="test",
@@ -226,7 +229,7 @@ def test_filter_by_cost_assertions():
 
 
 def test_filter_by_cost_provider_not_found():
-    """Test handling when provider is not found in budget tracker."""
+    """[TM-002 AC-2] Unknown provider in budget tracker still returns candidates."""
     capabilities = BackendCapabilities(
         max_context_tokens=4096,
         supports_tool_use=False,

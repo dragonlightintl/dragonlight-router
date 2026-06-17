@@ -449,6 +449,39 @@ class TestDailySpendUsd:
         assert spend == 0.0
 
 
+class TestInvariantHelper:
+    def test_invariant_raises_on_false(self):
+        """[TM-012 AC-1] invariant() raises AssertionError when condition is False (line 25)."""
+        from dragonlight_router.budget.tracker import invariant
+        with pytest.raises(AssertionError, match="test message"):
+            invariant(False, "test message")
+
+    def test_invariant_passes_on_true(self):
+        """[TM-012 AC-1] invariant() does not raise when condition is True."""
+        from dragonlight_router.budget.tracker import invariant
+        invariant(True, "should not raise")
+
+
+class TestRpdRemainingEdgeCases:
+    def test_rpd_remaining_returns_zero_for_none_provider(self):
+        """[TM-012 AC-5] _rpd_remaining returns 0 when provider is None (line 180)."""
+        bt = BudgetTracker(providers=[_provider("groq", rpm=100, rpd=1000)])
+        result = bt._rpd_remaining("unregistered")
+        assert result == 0
+
+    def test_tpm_remaining_returns_one_for_none_limit(self):
+        """[TM-012 AC-5] _tpm_remaining returns 1 when tpm_limit is None (line 215)."""
+        bt = BudgetTracker(providers=[_provider("groq", rpm=100, tpm=None)])
+        result = bt._tpm_remaining("groq")
+        assert result == 1
+
+    def test_daily_token_remaining_returns_zero_for_none_provider(self):
+        """[TM-012 AC-6] _daily_token_remaining returns 0 when provider is None (line 232)."""
+        bt = BudgetTracker(providers=[_provider("groq", rpm=100)])
+        result = bt._daily_token_remaining("unregistered")
+        assert result == 0
+
+
 class TestPropertyTests:
     @given(
         rpm=st.integers(min_value=0, max_value=1000),

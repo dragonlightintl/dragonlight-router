@@ -126,3 +126,36 @@ class TestSemanticCache:
         cache.put("goodbye world", "farewell response")
         assert cache.get_similar("hello world") == "greeting response"
         assert cache.get_similar("goodbye world") == "farewell response"
+
+    def test_empty_string_returns_none(self, tmp_path: Path):
+        """[TM-020 AC-4] Empty string query returns None (line 45: empty ngrams branch)."""
+        cache = SemanticCache(db_path=tmp_path / "cache.db", threshold=0.95)
+        cache.put("some text", "response")
+        result = cache.get_similar("")
+        assert result is None
+
+    def test_very_short_text_ngram_fallback(self, tmp_path: Path):
+        """[TM-020 AC-4] Text shorter than ngram_size uses single-token fallback (line 87)."""
+        cache = SemanticCache(db_path=tmp_path / "cache.db", threshold=0.95, ngram_size=5)
+        cache.put("ab", "short response")
+        result = cache.get_similar("ab")
+        assert result == "short response"
+
+    def test_jaccard_empty_sets_returns_zero(self, tmp_path: Path):
+        """[TM-020 AC-5] Jaccard of empty sets returns 0.0 (line 99)."""
+        result = SemanticCache._jaccard(set(), {"abc"})
+        assert result == 0.0
+        result2 = SemanticCache._jaccard({"abc"}, set())
+        assert result2 == 0.0
+
+    def test_eviction_removes_oldest_entries(self, tmp_path: Path):
+        """[TM-020 AC-3] Eviction removes oldest entries when max_entries exceeded (lines 115-122)."""
+        cache = SemanticCache(db_path=tmp_path / "cache.db", threshold=0.95, max_entries=2)
+        cache.put("first entry text", "response1")
+        cache.put("second entry text", "response2")
+        cache.put("third entry text", "response3")
+        import sqlite3
+        conn = sqlite3.connect(str(tmp_path / "cache.db"))
+        count = conn.execute("SELECT COUNT(*) FROM semantic_cache").fetchone()[0]
+        conn.close()
+        assert count <= 2

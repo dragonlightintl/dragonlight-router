@@ -7,9 +7,13 @@ from __future__ import annotations
 import pytest
 
 from dragonlight_router.selection.scoring import (
+    ScoringWeights,
+    ScoringWeightsConfig,
     compute_budget_score,
     compute_composite_score,
     compute_health_score,
+    cost_adjusted_weights,
+    score_candidate,
 )
 
 
@@ -103,3 +107,58 @@ class TestHealthScore:
         """[TM-007 AC-4] Many errors (10) still yield the 3+ errors score of 30."""
         score = compute_health_score(error_count=10, circuit_open=False, last_success_age_s=100.0)
         assert score == pytest.approx(30.0)
+
+
+class TestScoringWeightsEnum:
+    def test_enum_members_are_floats(self):
+        """[TM-007 AC-5] ScoringWeights enum members have expected float values (lines 111-112 area)."""
+        assert ScoringWeights.COST.value == pytest.approx(0.35)
+        assert ScoringWeights.LATENCY.value == pytest.approx(0.25)
+        assert ScoringWeights.PRIORITY.value == pytest.approx(0.20)
+        assert ScoringWeights.QUEUE.value == pytest.approx(0.10)
+        assert ScoringWeights.HEALTH.value == pytest.approx(0.10)
+
+    def test_cost_adjusted_weights_returns_governor_config(self):
+        """[TM-007 AC-5] cost_adjusted_weights returns ScoringWeightsConfig with cost=0.70 (lines 376-380)."""
+        base = ScoringWeightsConfig()
+        adjusted = cost_adjusted_weights(base)
+        assert adjusted.cost == pytest.approx(0.70)
+        assert adjusted.latency == pytest.approx(0.10)
+        total = adjusted.cost + adjusted.latency + adjusted.priority + adjusted.queue + adjusted.health
+        assert abs(total - 1.0) < 1e-9
+
+
+class TestScoreCandidateWithHealthTracker:
+    def test_score_candidate_with_health_tracker(self, make_backend_config):
+        """[TM-007 AC-6] score_candidate incorporates health_tracker score (lines 299-300)."""
+        from unittest.mock import MagicMock
+        from dragonlight_router.core.types import ProviderConfig, Ok
+        from dragonlight_router.budget.tracker import BudgetTracker
+
+        config = make_backend_config(name="test", provider="prov")
+        provider = ProviderConfig(
+            name="prov",
+            base_url="http://test",
+            catalog_url=None,
+            env_key=None,
+            model_prefix="prov",
+            rpm_limit=100,
+            rpd_limit=None,
+            tpm_limit=None,
+            daily_token_cap=None,
+        )
+        bt = BudgetTracker(providers=[provider])
+        weights = ScoringWeightsConfig()
+
+        health_tracker = MagicMock()
+        health_tracker.score.return_value = Ok(90.0)
+
+        result = score_candidate(
+            config=config,
+            order=None,  # type: ignore[arg-type]
+            weights=weights,
+            budget_tracker=bt,
+            health_tracker=health_tracker,
+        )
+        assert 0.0 <= result <= 1.0
+        health_tracker.score.assert_called_once()

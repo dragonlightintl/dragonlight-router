@@ -148,3 +148,115 @@ def test_filter_by_absolute_cost_zero_max():
 
     assert len(filtered) == 1
     assert filtered[0].name == "zero"
+
+
+def test_filter_by_cost_efficiency_no_budget_for_provider():
+    """[TM-002 AC-2] Candidate whose provider has no budget score is passed through (lines 237-238)."""
+    candidate = make_backend_config("no-budget", input_cost=1.0, output_cost=1.0)
+    other = make_backend_config("with-budget", input_cost=1.0, output_cost=1.0)
+    budget_scores = {"test_provider": 80.0}
+    order = DispatchOrder(
+        intent_category="test",
+        specific_intent="test",
+        operator_message="test",
+        system_prompt="",
+        context_tokens=0,
+        requires_tool_use=False,
+        requires_long_context=False,
+    )
+    filtered = filter_by_cost_efficiency([candidate, other], budget_scores, order)
+    assert any(c.name == "no-budget" for c in filtered)
+
+
+def test_filter_by_cost_efficiency_all_providers_missing_budget():
+    """[TM-002 AC-2] When no provider has budget data, efficiencies list is empty → return all (line 219)."""
+    candidate = make_backend_config("x", input_cost=1.0, output_cost=1.0)
+    budget_scores: dict[str, float] = {"other_provider": 80.0}
+    order = DispatchOrder(
+        intent_category="test",
+        specific_intent="test",
+        operator_message="test",
+        system_prompt="",
+        context_tokens=0,
+        requires_tool_use=False,
+        requires_long_context=False,
+    )
+    filtered = filter_by_cost_efficiency([candidate], budget_scores, order)
+    assert filtered == [candidate]
+
+
+def test_single_efficiency_zero_cost_returns_inf():
+    """[TM-002 AC-1] _single_efficiency returns float('inf') when avg cost is zero (line 255)."""
+    from dragonlight_router.selection.cbr import _single_efficiency
+
+    candidate = make_backend_config("free", input_cost=0.0, output_cost=0.0)
+    result = _single_efficiency(candidate, provider_score=80.0)
+    assert result == float("inf")
+
+
+def test_filter_by_cost_all_budget_exhausted():
+    """[TM-002 AC-1] filter_by_cost returns empty when all providers are budget-exhausted (line 99)."""
+    from dragonlight_router.selection.cbr import filter_by_cost
+    from dragonlight_router.core.types import ProviderConfig
+    from dragonlight_router.budget.tracker import BudgetTracker
+
+    candidate = make_backend_config("x", input_cost=1.0, output_cost=1.0)
+    provider = ProviderConfig(
+        name="test_provider",
+        base_url="http://test",
+        catalog_url=None,
+        env_key=None,
+        model_prefix="test",
+        rpm_limit=1,
+        rpd_limit=None,
+        tpm_limit=None,
+        daily_token_cap=None,
+    )
+    bt = BudgetTracker(providers=[provider])
+    bt.record_request("test_provider")
+
+    order = DispatchOrder(
+        intent_category="test",
+        specific_intent="test",
+        operator_message="test",
+        system_prompt="",
+        context_tokens=0,
+        requires_tool_use=False,
+        requires_long_context=False,
+    )
+    result = filter_by_cost([candidate], order, bt)
+    assert result == []
+
+
+def test_filter_by_cost_with_cost_governor_active():
+    """[TM-002 AC-4] filter_by_cost activates cost governor when daily spend exceeds threshold (lines 141-142)."""
+    from dragonlight_router.selection.cbr import filter_by_cost
+    from dragonlight_router.core.types import ProviderConfig
+    from dragonlight_router.budget.tracker import BudgetTracker
+
+    candidate = make_backend_config("x", input_cost=1.0, output_cost=1.0)
+    provider = ProviderConfig(
+        name="test_provider",
+        base_url="http://test",
+        catalog_url=None,
+        env_key=None,
+        model_prefix="test",
+        rpm_limit=100,
+        rpd_limit=None,
+        tpm_limit=None,
+        daily_token_cap=None,
+    )
+    bt = BudgetTracker(providers=[provider])
+
+    order = DispatchOrder(
+        intent_category="test",
+        specific_intent="test",
+        operator_message="test",
+        system_prompt="",
+        context_tokens=0,
+        requires_tool_use=False,
+        requires_long_context=False,
+    )
+    config = {"cost_down_threshold_daily": 50.0}
+    result = filter_by_cost([candidate], order, bt, daily_spend=100.0, config=config)
+    assert len(result) == 1

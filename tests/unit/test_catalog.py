@@ -65,3 +65,32 @@ class TestCatalogCache:
         cache = CatalogCache(cache_path=path, ttl_hours=24)
         result = cache.get()
         assert isinstance(result, Err) or result.unwrap_or(None) is None
+
+    def test_read_catalog_oserror_returns_err(self, tmp_path: Path):
+        """[TM-015 AC-3] OSError during read returns Err (lines 46-48)."""
+        from unittest.mock import patch
+
+        path = tmp_path / "catalog.json"
+        catalog = {"groq": [CatalogEntry(model_id="x", provider="groq")]}
+        cache = CatalogCache(cache_path=path, ttl_hours=24)
+        cache.set(catalog)
+
+        with patch.object(type(path), "read_text", side_effect=OSError("io error")):
+            result = cache._read_catalog()
+        assert isinstance(result, Err)
+
+    def test_set_write_failure_cleans_up_tmp(self, tmp_path: Path):
+        """[TM-015 AC-3] Write failure during set() raises and cleans up tmp file (lines 107-110)."""
+        import os
+        from unittest.mock import patch
+
+        path = tmp_path / "catalog.json"
+        cache = CatalogCache(cache_path=path, ttl_hours=24)
+        catalog = {"groq": [CatalogEntry(model_id="x", provider="groq")]}
+
+        with patch("os.rename", side_effect=OSError("rename failed")):
+            with pytest.raises(OSError):
+                cache.set(catalog)
+
+        tmp_files = list(path.parent.glob(".catalog_cache_*.tmp"))
+        assert len(tmp_files) == 0

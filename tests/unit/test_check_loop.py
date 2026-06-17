@@ -353,5 +353,46 @@ async def test_health_check_failures_do_not_crash_loop(health_check_loop, mock_b
     assert health_check_loop._task is None
 
 
+@pytest.mark.asyncio
+async def test_start_when_already_running_is_noop(health_check_loop):
+    """[TM-008 AC-2] Calling start() when loop is already running is a no-op (line 77)."""
+    await health_check_loop.start()
+    task_before = health_check_loop._task
+    assert task_before is not None
+
+    await health_check_loop.start()
+    assert health_check_loop._task is task_before
+
+    await health_check_loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_stop_when_not_running_is_noop(health_check_loop):
+    """[TM-008 AC-2] Calling stop() when loop is not running is a no-op (line 83)."""
+    assert health_check_loop._task is None
+    await health_check_loop.stop()
+    assert health_check_loop._task is None
+
+
+@pytest.mark.asyncio
+async def test_probe_skipped_when_circuit_open_not_half_open(health_check_loop, mock_backends, mock_states):
+    """[TM-008 AC-3] Probe is skipped when circuit is OPEN and not HALF_OPEN (line 120)."""
+    name = "backend1"
+    backend = mock_backends[name]
+    state = mock_states[name]
+    breaker = health_check_loop._breakers[name]
+
+    breaker._state = CircuitState.OPEN
+    breaker._opened_at = 1e12
+    state.status = BackendStatus.AVAILABLE
+    initial_errors = state.consecutive_errors
+
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        await health_check_loop._probe_backend(name, backend)
+
+    assert state.consecutive_errors == initial_errors
+    backend.health_check.assert_not_called()
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

@@ -273,3 +273,19 @@ class TestBackendError:
         )
         assert err.http_status is None
         assert err.retryable is False
+
+
+class TestOkErrMethods:
+    def test_ok_unwrap_err_raises(self):
+        """[TM-017 AC-3] Ok.unwrap_err() raises AssertionError (line 35)."""
+        from dragonlight_router.core.types import Ok
+        ok = Ok(value=42)
+        with pytest.raises(AssertionError, match="unwrap_err on Ok"):
+            ok.unwrap_err()
+
+    def test_err_unwrap_raises(self):
+        """[TM-017 AC-3] Err.unwrap() raises AssertionError (line 52)."""
+        from dragonlight_router.core.types import Err
+        err = Err(error="something failed")
+        with pytest.raises(AssertionError, match="unwrap on Err"):
+            err.unwrap()

@@ -73,3 +73,25 @@ class TestLoadBudgetState:
         result = load_budget_state(path)
         assert result.is_ok()
         assert result.unwrap() is None
+
+    def test_oserror_on_load_returns_err(self, tmp_path: Path):
+        """[TM-022 AC-3] OSError during read returns Err(StatePersistenceError) (lines 78-80)."""
+        from unittest.mock import patch, MagicMock
+
+        path = tmp_path / "budget.json"
+        path.write_text('{"x": 1}')
+        with patch.object(type(path), "read_text", side_effect=OSError("disk error")):
+            result = load_budget_state(path)
+        assert result.is_err()
+
+
+class TestSaveBudgetStateError:
+    def test_oserror_during_write_returns_err(self, tmp_path: Path):
+        """[TM-022 AC-2] OSError during atomic write returns Err(StatePersistenceError) (lines 46-51)."""
+        import os
+        from unittest.mock import patch
+
+        path = tmp_path / "budget.json"
+        with patch("os.rename", side_effect=OSError("rename failed")):
+            result = save_budget_state({"x": 1}, path)
+        assert result.is_err()

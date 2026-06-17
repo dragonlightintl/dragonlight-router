@@ -601,3 +601,118 @@ class TestAC5LocalPassthrough:
         assert result.is_ok(), "LOCAL backend should pass through despite RATE_LIMITED"
         candidates = result.unwrap()
         assert any(c.name == "local-llm" for c in candidates)
+
+
+# ---------------------------------------------------------------------------
+# Additional gap coverage
+# ---------------------------------------------------------------------------
+
+def test_filter_by_capabilities_returns_err_on_empty_registry() -> None:
+    """[TM-001 AC-3] filter_by_capabilities returns Err when registry has no backends (line 52)."""
+    registry = BackendRegistry()
+    order = DispatchOrder(
+        intent_category="chat",
+        specific_intent="greeting",
+        operator_message="Hello",
+        system_prompt="",
+        context_tokens=0,
+        requires_tool_use=False,
+        requires_long_context=False,
+    )
+    result = filter_by_capabilities(registry, order)
+    assert result.is_err()
+
+
+def test_resolve_tiers_unknown_tier_returns_err(monkeypatch) -> None:
+    """[TM-001 AC-3] _resolve_tiers_to_try returns Err when tier absent from TIER_ORDER (lines 77-79)."""
+    import dragonlight_router.selection.mbr as mbr_mod
+    from dragonlight_router.selection.mbr import _resolve_tiers_to_try
+
+    monkeypatch.setattr(mbr_mod, "TIER_ORDER", (BackendTier.LOCAL,))
+
+    result = _resolve_tiers_to_try(BackendTier.COMPLEX)
+    assert isinstance(result, Err)
+
+
+def test_candidates_for_tier_no_capable_candidates() -> None:
+    """[TM-001 AC-3] _candidates_for_tier returns [] when no backend meets capability reqs (lines 132-133)."""
+    from dragonlight_router.selection.mbr import _candidates_for_tier
+
+    backend = _make_config(
+        "no-tools",
+        BackendTier.MODERATE,
+        supports_tool_use=False,
+        max_context_tokens=100,
+    )
+    registry = _build_registry(backend)
+
+    order = DispatchOrder(
+        intent_category="code",
+        specific_intent="run",
+        operator_message="Do something",
+        system_prompt="",
+        context_tokens=0,
+        requires_tool_use=True,
+        requires_long_context=False,
+    )
+
+    result = _candidates_for_tier(registry, order, BackendTier.MODERATE, BackendTier.MODERATE)
+    assert result == []
+
+
+def test_is_backend_healthy_missing_from_registry() -> None:
+    """[TM-001 AC-5] _is_backend_healthy returns False when backend absent from registry (lines 182-188)."""
+    from dragonlight_router.selection.mbr import _is_backend_healthy
+
+    registry = BackendRegistry()
+    ghost_config = _make_config("ghost", BackendTier.SIMPLE)
+
+    result = _is_backend_healthy(registry, ghost_config, BackendTier.SIMPLE)
+    assert result is False
+
+
+def test_meets_requirements_long_context_passes_when_cap_sufficient() -> None:
+    """[TM-001 AC-1] _meets_requirements returns True when long_context required and cap is sufficient (line 303 not taken)."""
+    from dragonlight_router.selection.mbr import _meets_requirements
+    from dragonlight_router.core.types import BackendCapabilities
+
+    caps = BackendCapabilities(
+        max_context_tokens=100_000,
+        supports_tool_use=True,
+        supports_streaming=True,
+        supports_json_mode=True,
+        supports_system_prompts=True,
+    )
+    order = DispatchOrder(
+        intent_category="chat",
+        specific_intent="long",
+        operator_message="big context",
+        system_prompt="",
+        context_tokens=0,
+        requires_tool_use=False,
+        requires_long_context=True,
+    )
+    assert _meets_requirements(caps, order) is True
+
+
+def test_filter_by_capabilities_err_when_tier_resolve_fails(monkeypatch) -> None:
+    """[TM-001 AC-3] filter_by_capabilities propagates Err from _resolve_tiers_to_try (line 52)."""
+    import dragonlight_router.selection.mbr as mbr_mod
+
+    monkeypatch.setattr(mbr_mod, "TIER_ORDER", (BackendTier.LOCAL,))
+
+    local = _make_config("local-llm", BackendTier.LOCAL)
+    registry = _build_registry(local)
+
+    order = DispatchOrder(
+        intent_category="chat",
+        specific_intent="greeting",
+        operator_message="Hello",
+        system_prompt="",
+        context_tokens=9000,
+        requires_tool_use=False,
+        requires_long_context=False,
+    )
+
+    result = filter_by_capabilities(registry, order)
+    assert result.is_err()

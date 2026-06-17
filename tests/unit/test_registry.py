@@ -142,3 +142,29 @@ class TestBackendRegistry:
 
         assert state_x.requests_today == 1
         assert state_y.requests_today == 0
+
+    def test_reinstate_returns_false_when_not_retired(self):
+        """[TM-021 AC-4] reinstate() returns False when backend is not RETIRED (line 108)."""
+        registry = BackendRegistry()
+        registry.register(FakeBackend(_make_config("active")))
+
+        result = registry.reinstate("active")
+        assert result is False
+
+    def test_reinstate_returns_false_for_missing_backend(self):
+        """[TM-021 AC-4] reinstate() returns False for unregistered backend name."""
+        registry = BackendRegistry()
+        result = registry.reinstate("nonexistent")
+        assert result is False
+
+    def test_retire_and_reinstate(self):
+        """[TM-021 AC-4] Retiring then reinstating restores AVAILABLE status."""
+        registry = BackendRegistry()
+        registry.register(FakeBackend(_make_config("target")))
+
+        assert registry.retire("target") is True
+        _, state = registry.get("target")
+        assert state.status == BackendStatus.RETIRED
+
+        assert registry.reinstate("target") is True
+        assert state.status == BackendStatus.AVAILABLE

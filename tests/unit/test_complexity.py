@@ -74,3 +74,25 @@ class TestComplexityEstimation:
             context_tokens=2000,
         ))
         assert result.tier in (BackendTier.SIMPLE, BackendTier.MODERATE)
+
+    def test_signals_list_is_never_empty(self):
+        """[TM-019 AC-4] Signals list always has at least one entry (line 52-53 ensures this)."""
+        result = estimate_complexity(_order(
+            intent_category="general",
+            operator_message="hi",
+            context_tokens=0,
+            requires_tool_use=False,
+            requires_long_context=False,
+        ))
+        assert len(result.signals) >= 1
+
+    def test_moderate_message_signal_when_long_message_low_context(self):
+        """[TM-019 AC-1] Long message with low context triggers 'moderate_message' signal (line 110)."""
+        result = estimate_complexity(_order(
+            operator_message="x" * 100,
+            context_tokens=100,
+            requires_tool_use=False,
+            requires_long_context=False,
+        ))
+        assert result.tier == BackendTier.SIMPLE
+        assert any("moderate_message" in s for s in result.signals)

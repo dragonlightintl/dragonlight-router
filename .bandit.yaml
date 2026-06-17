@@ -1,0 +1,6 @@
+# Bandit security linter configuration
+skips:
+  - B101  # assert statements (we use assertions as preconditions per coding standards)
+  - B603  # subprocess calls (not applicable — no subprocess usage)
+targets:
+  - src/dragonlight_router

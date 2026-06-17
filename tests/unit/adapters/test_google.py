@@ -414,3 +414,186 @@ class TestGoogleUsage:
         backend.record_usage(50, 75)
         assert backend._tokens_in == 150
         assert backend._tokens_out == 275
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage for missing lines
+# ---------------------------------------------------------------------------
+
+
+class TestGoogleAdditionalCoverage:
+    """Tests targeting uncovered code paths in google.py."""
+
+    # lines 63-64 — _extract_text_from_chunk exception paths
+    def test_extract_text_key_error(self):
+        """_extract_text_from_chunk returns None when structure causes KeyError."""
+        # candidates is a dict, not a list — candidates[0] raises KeyError
+        chunk = {"candidates": {"unexpected": "dict"}}
+        result = _extract_text_from_chunk(chunk)
+        assert result is None
+
+    def test_extract_text_missing_parts(self):
+        """_extract_text_from_chunk returns None when parts key is missing."""
+        chunk = {"candidates": [{"content": {}}]}
+        result = _extract_text_from_chunk(chunk)
+        assert result is None
+
+    # line 82 — config property
+    def test_config_property(self, make_backend_config, monkeypatch):
+        """config property returns the BackendConfig instance."""
+        monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+        config = make_backend_config(
+            name="gemini-prop",
+            provider="google",
+            model="gemini-2.0-flash",
+            env_key="GOOGLE_API_KEY",
+        )
+        backend = GoogleBackend(config)
+        assert backend.config.name == "gemini-prop"
+        assert backend.config.provider == "google"
+
+    # line 82 (same property) — also test via health check path context
+    async def test_health_check_non_200_sets_error(self, make_backend_config, monkeypatch):
+        """health_check returns False and sets ERROR on non-200 status codes."""
+        monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+        config = make_backend_config(
+            name="gemini-hc",
+            provider="google",
+            model="gemini-2.0-flash",
+            env_key="GOOGLE_API_KEY",
+        )
+        backend = GoogleBackend(config)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+
+        with patch("dragonlight_router.adapters.google.httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_cls.return_value = mock_client
+
+            result = await backend.health_check()
+
+        assert result is False
+        assert backend.status == BackendStatus.ERROR
+
+    # lines 109-111 — _build_headers: no api_key passed → use Bearer auth from env
+    def test_build_headers_bearer_auth(self, make_backend_config, monkeypatch):
+        """_build_headers uses Bearer auth when api_key arg is None but env has token."""
+        monkeypatch.setenv("GOOGLE_API_KEY", "env-token-xyz")
+        config = make_backend_config(
+            name="gemini-bearer",
+            provider="google",
+            model="gemini-2.0-flash",
+            env_key="GOOGLE_API_KEY",
+        )
+        backend = GoogleBackend(config)
+        headers = backend._build_headers(api_key=None)
+        assert headers.get("Authorization") == "Bearer env-token-xyz"
+        assert "x-goog-api-key" not in headers
+
+    def test_build_headers_no_key_no_env(self, make_backend_config, monkeypatch):
+        """_build_headers returns only Content-Type when no api_key and no env."""
+        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+        config = make_backend_config(
+            name="gemini-nokey",
+            provider="google",
+            model="gemini-2.0-flash",
+            env_key="GOOGLE_API_KEY",
+        )
+        backend = GoogleBackend(config)
+        headers = backend._build_headers(api_key=None)
+        assert "Authorization" not in headers
+        assert "x-goog-api-key" not in headers
+        assert headers["Content-Type"] == "application/json"
+
+    # lines 149-152 — TimeoutException and HTTPError in generate()
+    async def test_generate_http_error(self, make_backend_config, monkeypatch):
+        """Generic httpx.HTTPError in generate sets ERROR and yields error message.
+
+        Covers google.py lines 149-152.
+        """
+        monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+        config = make_backend_config(
+            name="gemini-http-err",
+            provider="google",
+            model="gemini-2.0-flash",
+            env_key="GOOGLE_API_KEY",
+        )
+        backend = GoogleBackend(config)
+
+        @asynccontextmanager
+        async def fake_stream(method, url, **kwargs):
+            raise httpx.HTTPError("generic http error")
+            yield  # noqa: unreachable
+
+        with patch("dragonlight_router.adapters.google.httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.stream = fake_stream
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_cls.return_value = mock_client
+
+            chunks = []
+            async for chunk in backend.generate(
+                [{"role": "user", "content": "test"}]
+            ):
+                chunks.append(chunk)
+
+        assert len(chunks) == 1
+        assert "HTTP error" in chunks[0]
+        assert backend.status == BackendStatus.ERROR
+
+    # line 201 — _parse_sse_line returns None for empty/non-data lines
+    def test_parse_sse_line_empty(self, make_backend_config, monkeypatch):
+        """_parse_sse_line returns None for empty string.
+
+        Covers google.py line 201.
+        """
+        monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+        config = make_backend_config(
+            name="gemini-parse",
+            provider="google",
+            model="gemini-2.0-flash",
+            env_key="GOOGLE_API_KEY",
+        )
+        backend = GoogleBackend(config)
+        assert backend._parse_sse_line("") is None
+
+    def test_parse_sse_line_no_data_prefix(self, make_backend_config, monkeypatch):
+        """_parse_sse_line returns None for lines without 'data: ' prefix."""
+        monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+        config = make_backend_config(
+            name="gemini-parse2",
+            provider="google",
+            model="gemini-2.0-flash",
+            env_key="GOOGLE_API_KEY",
+        )
+        backend = GoogleBackend(config)
+        assert backend._parse_sse_line("event: ping") is None
+
+    # health_check HTTPError — also important for full coverage
+    async def test_health_check_http_error(self, make_backend_config, monkeypatch):
+        """health_check returns False on generic HTTPError and sets ERROR status."""
+        monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+        config = make_backend_config(
+            name="gemini-hc-err",
+            provider="google",
+            model="gemini-2.0-flash",
+            env_key="GOOGLE_API_KEY",
+        )
+        backend = GoogleBackend(config)
+
+        with patch("dragonlight_router.adapters.google.httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(side_effect=httpx.HTTPError("http error"))
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_cls.return_value = mock_client
+
+            result = await backend.health_check()
+
+        assert result is False
+        assert backend.status == BackendStatus.ERROR

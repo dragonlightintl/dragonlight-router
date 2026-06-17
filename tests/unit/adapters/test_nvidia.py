@@ -358,3 +358,197 @@ def test_properties(backend):
     assert backend.config.provider == "nvidia"
     assert backend.config.model == "nvidia/llama-3.1-nemotron-70b-instruct"
     assert backend.status == BackendStatus.AVAILABLE
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage for _openai_compat.py missing lines
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_generate_connection_error_raises(make_backend_config):
+    """ConnectError during generate raises RuntimeError and sets ERROR status.
+
+    Covers _openai_compat.py lines 148-150.
+    """
+
+    def _raise_connect(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+    transport = httpx.MockTransport(_raise_connect)
+    backend = _make_nvidia_backend(make_backend_config, transport)
+
+    with pytest.raises(RuntimeError, match="connection failed"):
+        async for _ in backend.generate(
+            [{"role": "user", "content": "Hi"}],
+            stream=True,
+        ):
+            pass
+    assert backend.status == BackendStatus.ERROR
+
+
+@pytest.mark.asyncio
+async def test_generate_timeout_raises(make_backend_config):
+    """TimeoutException during generate raises RuntimeError and sets ERROR status.
+
+    Covers _openai_compat.py lines 148-150.
+    """
+
+    def _raise_timeout(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("request timed out")
+
+    transport = httpx.MockTransport(_raise_timeout)
+    backend = _make_nvidia_backend(make_backend_config, transport)
+
+    with pytest.raises(RuntimeError, match="connection failed"):
+        async for _ in backend.generate(
+            [{"role": "user", "content": "Hi"}],
+            stream=True,
+        ):
+            pass
+    assert backend.status == BackendStatus.ERROR
+
+
+@pytest.mark.asyncio
+async def test_generate_non_streaming_empty_choices(make_backend_config):
+    """Non-streaming generate yields nothing when choices is empty.
+
+    Covers _openai_compat.py line 189 (_extract_non_stream_content no choices).
+    """
+    response_body = {"id": "chatcmpl-1", "object": "chat.completion", "choices": []}
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, json=response_body)
+    )
+    backend = _make_nvidia_backend(make_backend_config, transport)
+
+    chunks: list[str] = []
+    async for chunk in backend.generate(
+        [{"role": "user", "content": "Hi"}],
+        stream=False,
+    ):
+        chunks.append(chunk)
+
+    assert chunks == []
+
+
+@pytest.mark.asyncio
+async def test_health_check_404_sets_offline(make_backend_config):
+    """health_check sets OFFLINE status on 404 response.
+
+    Covers _openai_compat.py line 200.
+    """
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(404, json={"error": "not found"})
+    )
+    backend = _make_nvidia_backend(make_backend_config, transport)
+
+    result = await backend.health_check()
+
+    assert result is False
+    assert backend.status == BackendStatus.OFFLINE
+
+
+@pytest.mark.asyncio
+async def test_generate_runtime_error_propagates(make_backend_config):
+    """RuntimeError from within the stream is re-raised as-is.
+
+    Covers _openai_compat.py line 152 (except RuntimeError: raise).
+    """
+    from unittest.mock import patch as _patch
+
+    # Build a valid 200 streaming response so we get past raise_for_status
+    sse = _sse_lines("irrelevant")
+    transport = httpx.MockTransport(lambda request: _stream_response(200, sse))
+    backend = _make_nvidia_backend(make_backend_config, transport)
+
+    async def _raise_runtime(*args, **kwargs):
+        raise RuntimeError("inner runtime error")
+        if False:
+            yield  # make it an async generator
+
+    with _patch.object(backend, "_parse_sse_stream", _raise_runtime):
+        with pytest.raises(RuntimeError, match="inner runtime error"):
+            async for _ in backend.generate(
+                [{"role": "user", "content": "Hi"}],
+                stream=True,
+            ):
+                pass
+
+
+@pytest.mark.asyncio
+async def test_generate_streaming_chunk_no_choices(make_backend_config):
+    """Streaming chunk with no choices is silently skipped.
+
+    Covers _openai_compat.py line 189 (_extract_stream_content returns None
+    when choices is empty/missing).
+    """
+    # A chunk with no choices, followed by a valid chunk
+    no_choices_data = json.dumps({"id": "c0", "object": "chat.completion.chunk", "choices": []})
+    valid_data = json.dumps({
+        "id": "c1",
+        "object": "chat.completion.chunk",
+        "choices": [{"index": 0, "delta": {"content": "hello"}, "finish_reason": None}],
+    })
+    body = f"data: {no_choices_data}\n\ndata: {valid_data}\n\ndata: [DONE]\n\n".encode()
+
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=httpx.ByteStream(body),
+        )
+    )
+    backend = _make_nvidia_backend(make_backend_config, transport)
+
+    chunks: list[str] = []
+    async for chunk in backend.generate(
+        [{"role": "user", "content": "Hi"}],
+        stream=True,
+    ):
+        chunks.append(chunk)
+
+    assert chunks == ["hello"]
+
+
+@pytest.mark.asyncio
+async def test_generate_non_streaming_json_decode_error(make_backend_config):
+    """JSONDecodeError in non-streaming generate raises RuntimeError.
+
+    Covers _openai_compat.py lines 153-155.
+    """
+    # Return a 200 with non-JSON body for the non-stream path
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            content=b"not-valid-json",
+            headers={"content-type": "application/json"},
+        )
+    )
+    backend = _make_nvidia_backend(make_backend_config, transport)
+
+    with pytest.raises(RuntimeError, match="request failed"):
+        async for _ in backend.generate(
+            [{"role": "user", "content": "Hi"}],
+            stream=False,
+        ):
+            pass
+    assert backend.status == BackendStatus.ERROR
+
+
+def test_resolve_base_url_falls_back_to_default(make_backend_config):
+    """_resolve_base_url falls back to _default_base_url when config.base_url is empty.
+
+    Covers _openai_compat.py line 70.
+    """
+    config = make_backend_config(
+        name="nim-no-base",
+        provider="nvidia",
+        model="nvidia/llama-3.1-nemotron-70b-instruct",
+        base_url="",  # empty — triggers fallback
+        env_key="NVIDIA_API_KEY",
+    )
+    with patch.dict("os.environ", {"NVIDIA_API_KEY": "nvapi-test"}, clear=True):
+        from dragonlight_router.adapters.nvidia import NvidiaBackend
+        backend = NvidiaBackend(config)
+    # Falls back to NvidiaBackend._default_base_url
+    assert backend._resolve_base_url() == _DEFAULT_BASE_URL

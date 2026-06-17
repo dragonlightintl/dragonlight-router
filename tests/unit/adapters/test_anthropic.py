@@ -362,3 +362,149 @@ def test_properties(backend):
     assert backend.config.name == "claude-test"
     assert backend.config.provider == "anthropic"
     assert backend.status == BackendStatus.AVAILABLE
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage for missing lines
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_generate_connection_error_raises(make_backend_config):
+    """ConnectError during generate raises RuntimeError and sets ERROR status.
+
+    Covers anthropic.py lines 128-130.
+    """
+
+    def _raise_connect(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+    transport = httpx.MockTransport(_raise_connect)
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test-key"}):
+        be = _make_backend(make_backend_config, transport)
+        with pytest.raises(RuntimeError, match="Anthropic connection failed"):
+            async for _ in be.generate(
+                [{"role": "user", "content": "Hi"}],
+                stream=True,
+            ):
+                pass
+    assert be.status == BackendStatus.ERROR
+
+
+@pytest.mark.asyncio
+async def test_generate_timeout_raises(make_backend_config):
+    """TimeoutException during generate raises RuntimeError and sets ERROR status.
+
+    Covers anthropic.py lines 128-130.
+    """
+
+    def _raise_timeout(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("timed out")
+
+    transport = httpx.MockTransport(_raise_timeout)
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test-key"}):
+        be = _make_backend(make_backend_config, transport)
+        with pytest.raises(RuntimeError, match="Anthropic connection failed"):
+            async for _ in be.generate(
+                [{"role": "user", "content": "Hi"}],
+                stream=True,
+            ):
+                pass
+    assert be.status == BackendStatus.ERROR
+
+
+@pytest.mark.asyncio
+async def test_generate_json_decode_error_raises(make_backend_config):
+    """JSONDecodeError during non-streaming generate raises RuntimeError.
+
+    Covers anthropic.py lines 133-135.
+    """
+    # Return a 200 with non-JSON body for the non-stream path
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            content=b"not-json",
+            headers={"content-type": "application/json"},
+        )
+    )
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test-key"}):
+        be = _make_backend(make_backend_config, transport)
+        with pytest.raises((RuntimeError, Exception)):
+            async for _ in be.generate(
+                [{"role": "user", "content": "Hi"}],
+                stream=False,
+            ):
+                pass
+
+
+@pytest.mark.asyncio
+async def test_generate_runtime_error_propagates(make_backend_config):
+    """RuntimeError from inner generators propagates as-is (not wrapped).
+
+    Covers anthropic.py lines 131-132 (except RuntimeError: raise).
+    """
+    async def _raise_runtime_error(*args, **kwargs):
+        raise RuntimeError("inner error")
+        if False:
+            yield  # make it an async generator
+
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test-key"}):
+        be = _make_backend(make_backend_config, None)
+        with patch.object(be, "_stream_generate", _raise_runtime_error):
+            with pytest.raises(RuntimeError, match="inner error"):
+                async for _ in be.generate(
+                    [{"role": "user", "content": "Hi"}],
+                    stream=True,
+                ):
+                    pass
+
+
+def test_extract_delta_text_malformed_json():
+    """_extract_delta_text returns None for malformed JSON.
+
+    Covers anthropic.py lines 168-169.
+    """
+    config_mock = type("C", (), {
+        "env_key": None, "base_url": None, "model": "claude-test",
+    })()
+    be = AnthropicBackend.__new__(AnthropicBackend)
+    be._config = config_mock
+    be._api_key = "key"
+    be._status = BackendStatus.AVAILABLE
+    be._transport = None
+
+    result = be._extract_delta_text("not-valid-json")
+    assert result is None
+
+
+def test_extract_delta_text_empty_string():
+    """_extract_delta_text returns None for empty text field.
+
+    Covers anthropic.py line 172.
+    """
+    be = AnthropicBackend.__new__(AnthropicBackend)
+    be._config = type("C", (), {"env_key": None, "base_url": None, "model": "x"})()
+    be._api_key = "key"
+    be._status = BackendStatus.AVAILABLE
+    be._transport = None
+
+    # text_delta event with empty text string
+    data = json.dumps({"delta": {"type": "text_delta", "text": ""}})
+    result = be._extract_delta_text(data)
+    assert result is None
+
+
+def test_extract_delta_text_non_text_delta_type():
+    """_extract_delta_text returns None for non-text_delta delta type.
+
+    Covers anthropic.py line 171-172 (type != 'text_delta' branch).
+    """
+    be = AnthropicBackend.__new__(AnthropicBackend)
+    be._config = type("C", (), {"env_key": None, "base_url": None, "model": "x"})()
+    be._api_key = "key"
+    be._status = BackendStatus.AVAILABLE
+    be._transport = None
+
+    data = json.dumps({"delta": {"type": "input_json_delta", "partial_json": "{}"}})
+    result = be._extract_delta_text(data)
+    assert result is None

@@ -389,3 +389,109 @@ class TestLocalUsage:
         config = make_backend_config(name="ollama", provider="local", env_key=None)
         backend = LocalBackend(config)
         assert backend.status == BackendStatus.AVAILABLE
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage for missing lines
+# ---------------------------------------------------------------------------
+
+
+class TestLocalGenerateAdditional:
+    """Tests targeting uncovered code paths in local.py."""
+
+    @pytest.fixture
+    def backend(self, make_backend_config):
+        config = make_backend_config(
+            name="ollama-llama",
+            provider="local",
+            model="llama3.2",
+            base_url="http://localhost:11434",
+            env_key=None,
+        )
+        return LocalBackend(config)
+
+    # line 44 — config property
+    def test_config_property(self, backend):
+        """config property returns the BackendConfig instance."""
+        assert backend.config.name == "ollama-llama"
+        assert backend.config.provider == "local"
+
+    # lines 81-84 — ConnectError in generate while streaming
+    async def test_http_error_in_stream(self, backend):
+        """httpx.HTTPError during stream sets ERROR and yields error message."""
+        @asynccontextmanager
+        async def fake_stream(method, url, **kwargs):
+            raise httpx.HTTPError("generic HTTP error")
+            yield  # noqa: unreachable
+
+        with patch("dragonlight_router.adapters.local.httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.stream = fake_stream
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_cls.return_value = mock_client
+
+            chunks = []
+            async for chunk in backend.generate(
+                [{"role": "user", "content": "test"}]
+            ):
+                chunks.append(chunk)
+
+        assert len(chunks) == 1
+        assert "HTTP error" in chunks[0]
+        assert backend.status == BackendStatus.ERROR
+
+    # line 129 — _parse_sse_line: empty line
+    def test_parse_sse_line_empty(self, backend):
+        """Empty line returns None."""
+        assert backend._parse_sse_line("") is None
+
+    # line 129 — _parse_sse_line: line without 'data: ' prefix
+    def test_parse_sse_line_no_prefix(self, backend):
+        """Non-data line returns None."""
+        assert backend._parse_sse_line("event: ping") is None
+
+    # lines 135-137 — _parse_sse_line: malformed JSON
+    def test_parse_sse_line_malformed_json(self, backend):
+        """Malformed JSON in SSE data line returns None."""
+        assert backend._parse_sse_line("data: not-valid-json") is None
+
+    # lines 150-157 — non-stream error response
+    async def test_non_streaming_api_error(self, backend):
+        """Non-streaming path: error status code sets ERROR and yields error message."""
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 503
+        mock_response.text = "Service Unavailable"
+
+        with patch("dragonlight_router.adapters.local.httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_cls.return_value = mock_client
+
+            chunks = []
+            async for chunk in backend.generate(
+                [{"role": "user", "content": "test"}],
+                stream=False,
+            ):
+                chunks.append(chunk)
+
+        assert len(chunks) == 1
+        assert "503" in chunks[0]
+        assert backend.status == BackendStatus.ERROR
+
+    # lines 181-183 — health_check HTTPError
+    async def test_health_check_http_error(self, backend):
+        """health_check returns False on generic HTTPError and sets ERROR status."""
+        with patch("dragonlight_router.adapters.local.httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(side_effect=httpx.HTTPError("http error"))
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_cls.return_value = mock_client
+
+            result = await backend.health_check()
+
+        assert result is False
+        assert backend.status == BackendStatus.ERROR

@@ -387,3 +387,330 @@ class TestCohereHealthCheck:
             await cohere_backend.health_check()
 
         assert captured_url == "https://api.cohere.com/v2/models"
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage for missing lines
+# ---------------------------------------------------------------------------
+
+
+class TestCohereAdditionalCoverage:
+    """Tests targeting uncovered code paths in cohere.py."""
+
+    # line 37 — no env_key configured: _api_key stays empty
+    def test_no_env_key_api_key_empty(self, make_backend_config):
+        """When env_key is None, _api_key is an empty string."""
+        config = make_backend_config(
+            name="cohere-no-key",
+            provider="cohere",
+            model="command-r-plus",
+            env_key=None,
+        )
+        backend = CohereBackend(config)
+        assert backend._api_key == ""
+
+    # line 37 — config property
+    def test_config_property(self, make_backend_config, monkeypatch):
+        """config property returns the BackendConfig instance."""
+        monkeypatch.setenv("COHERE_API_KEY", "test-key")
+        config = make_backend_config(
+            name="cohere-prop",
+            provider="cohere",
+            model="command-r-plus",
+            env_key="COHERE_API_KEY",
+        )
+        backend = CohereBackend(config)
+        assert backend.config.name == "cohere-prop"
+        assert backend.config.provider == "cohere"
+
+    # line 47 — _resolve_base_url default (no base_url)
+    def test_resolve_base_url_default(self, make_backend_config, monkeypatch):
+        """_resolve_base_url returns default URL when config.base_url is not set."""
+        monkeypatch.setenv("COHERE_API_KEY", "test-key")
+        config = make_backend_config(
+            name="cohere-default-url",
+            provider="cohere",
+            model="command-r-plus",
+            base_url="",  # empty triggers default
+            env_key="COHERE_API_KEY",
+        )
+        backend = CohereBackend(config)
+        assert backend._resolve_base_url() == "https://api.cohere.com"
+
+    # line 47 — _resolve_base_url with custom base_url (line 46 — rstrip path)
+    def test_resolve_base_url_custom(self, make_backend_config, monkeypatch):
+        """_resolve_base_url returns config.base_url when set."""
+        monkeypatch.setenv("COHERE_API_KEY", "test-key")
+        config = make_backend_config(
+            name="cohere-custom",
+            provider="cohere",
+            model="command-r-plus",
+            base_url="https://custom.cohere.example.com",
+            env_key="COHERE_API_KEY",
+        )
+        backend = CohereBackend(config)
+        assert backend._resolve_base_url() == "https://custom.cohere.example.com"
+
+    # lines 101-103 — ConnectError raises RuntimeError
+    @pytest.mark.asyncio
+    async def test_generate_connect_error_raises(self, make_backend_config, monkeypatch):
+        """ConnectError during generate raises RuntimeError and sets ERROR status."""
+        monkeypatch.setenv("COHERE_API_KEY", "test-key")
+        config = make_backend_config(
+            name="cohere-conn",
+            provider="cohere",
+            model="command-r-plus",
+            env_key="COHERE_API_KEY",
+        )
+        backend = CohereBackend(config)
+
+        @asynccontextmanager
+        async def fake_stream(method, url, **kwargs):
+            raise httpx.ConnectError("refused")
+            yield  # noqa: unreachable
+
+        with patch("dragonlight_router.adapters.cohere.httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.stream = fake_stream
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_cls.return_value = mock_client
+
+            with pytest.raises(RuntimeError, match="Cohere connection failed"):
+                async for _ in backend.generate(
+                    [{"role": "user", "content": "Hi"}],
+                ):
+                    pass
+
+        assert backend.status == BackendStatus.ERROR
+
+    # lines 104-108 — TimeoutException raises RuntimeError
+    @pytest.mark.asyncio
+    async def test_generate_timeout_raises(self, make_backend_config, monkeypatch):
+        """TimeoutException during generate raises RuntimeError and sets ERROR status."""
+        monkeypatch.setenv("COHERE_API_KEY", "test-key")
+        config = make_backend_config(
+            name="cohere-timeout",
+            provider="cohere",
+            model="command-r-plus",
+            env_key="COHERE_API_KEY",
+        )
+        backend = CohereBackend(config)
+
+        @asynccontextmanager
+        async def fake_stream(method, url, **kwargs):
+            raise httpx.ReadTimeout("timed out")
+            yield  # noqa: unreachable
+
+        with patch("dragonlight_router.adapters.cohere.httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.stream = fake_stream
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_cls.return_value = mock_client
+
+            with pytest.raises(RuntimeError, match="Cohere connection failed"):
+                async for _ in backend.generate(
+                    [{"role": "user", "content": "Hi"}],
+                ):
+                    pass
+
+        assert backend.status == BackendStatus.ERROR
+
+    # lines 104-105 — RuntimeError propagates unchanged from inner generators
+    @pytest.mark.asyncio
+    async def test_generate_runtime_error_propagates(self, make_backend_config, monkeypatch):
+        """RuntimeError from _parse_stream is re-raised as-is.
+
+        Covers cohere.py lines 104-105 (except RuntimeError: raise).
+        """
+        from unittest.mock import patch as _patch
+
+        monkeypatch.setenv("COHERE_API_KEY", "test-key")
+        config = make_backend_config(
+            name="cohere-rt-err",
+            provider="cohere",
+            model="command-r-plus",
+            env_key="COHERE_API_KEY",
+        )
+        backend = CohereBackend(config)
+
+        sse_lines = _make_cohere_sse_lines(["ok"])
+        fake_response = _FakeStreamResponse(sse_lines)
+
+        @asynccontextmanager
+        async def fake_stream(method, url, **kwargs):
+            yield fake_response
+
+        async def _raise_runtime(*args, **kwargs):
+            raise RuntimeError("inner cohere error")
+            if False:
+                yield
+
+        with patch("dragonlight_router.adapters.cohere.httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.stream = fake_stream
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_cls.return_value = mock_client
+
+            with _patch.object(backend, "_parse_stream", _raise_runtime):
+                with pytest.raises(RuntimeError, match="inner cohere error"):
+                    async for _ in backend.generate(
+                        [{"role": "user", "content": "Hi"}], stream=True,
+                    ):
+                        pass
+
+    # line 114 — non-data lines in _parse_stream are skipped (continue)
+    @pytest.mark.asyncio
+    async def test_parse_stream_skips_non_data_lines(self, make_backend_config, monkeypatch):
+        """Non-data SSE lines (event:, empty lines) are skipped in _parse_stream.
+
+        Covers cohere.py line 114 (continue when line doesn't start with 'data: ').
+        """
+        monkeypatch.setenv("COHERE_API_KEY", "test-key")
+        config = make_backend_config(
+            name="cohere-skip",
+            provider="cohere",
+            model="command-r-plus",
+            env_key="COHERE_API_KEY",
+        )
+        backend = CohereBackend(config)
+
+        good_payload = {
+            "type": "content-delta",
+            "delta": {"message": {"content": {"text": "hello"}}},
+        }
+        lines = [
+            "",  # blank line
+            "event: content-delta",  # event prefix — no data
+            f"data: {json.dumps(good_payload)}",
+            "data: [DONE]",
+        ]
+        fake_response = _FakeStreamResponse(lines)
+
+        @asynccontextmanager
+        async def fake_stream(method, url, **kwargs):
+            yield fake_response
+
+        with patch("dragonlight_router.adapters.cohere.httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.stream = fake_stream
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_cls.return_value = mock_client
+
+            chunks = []
+            async for chunk in backend.generate(
+                [{"role": "user", "content": "Hi"}], stream=True,
+            ):
+                chunks.append(chunk)
+
+        assert chunks == ["hello"]
+
+    # line 114 — non-streaming path when content is empty
+    @pytest.mark.asyncio
+    async def test_non_streaming_empty_content(self, make_backend_config, monkeypatch):
+        """Non-streaming generate yields nothing when content is empty."""
+        monkeypatch.setenv("COHERE_API_KEY", "test-key")
+        config = make_backend_config(
+            name="cohere-empty",
+            provider="cohere",
+            model="command-r-plus",
+            env_key="COHERE_API_KEY",
+        )
+        backend = CohereBackend(config)
+
+        response_body = {"message": {"content": []}}
+        fake_response = _FakeStreamResponse([json.dumps(response_body)])
+        fake_response.json = lambda: response_body
+
+        @asynccontextmanager
+        async def fake_stream(method, url, **kwargs):
+            yield fake_response
+
+        with patch("dragonlight_router.adapters.cohere.httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.stream = fake_stream
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_cls.return_value = mock_client
+
+            chunks = []
+            async for chunk in backend.generate(
+                [{"role": "user", "content": "Hi"}], stream=False,
+            ):
+                chunks.append(chunk)
+
+        assert chunks == []
+
+    # lines 106-108 — JSONDecodeError in non-streaming path raises RuntimeError
+    @pytest.mark.asyncio
+    async def test_non_streaming_json_decode_error_raises(self, make_backend_config, monkeypatch):
+        """JSONDecodeError from response.json() raises RuntimeError in non-stream path.
+
+        Covers cohere.py lines 106-108.
+        """
+        monkeypatch.setenv("COHERE_API_KEY", "test-key")
+        config = make_backend_config(
+            name="cohere-json-err",
+            provider="cohere",
+            model="command-r-plus",
+            env_key="COHERE_API_KEY",
+        )
+        backend = CohereBackend(config)
+
+        class _BadJsonStreamResponse(_FakeStreamResponse):
+            def json(self):
+                raise json.JSONDecodeError("bad json", "", 0)
+
+        fake_response = _BadJsonStreamResponse([], status_code=200)
+        fake_response.raise_for_status = lambda: None
+
+        @asynccontextmanager
+        async def fake_stream(method, url, **kwargs):
+            yield fake_response
+
+        with patch("dragonlight_router.adapters.cohere.httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.stream = fake_stream
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_cls.return_value = mock_client
+
+            with pytest.raises(RuntimeError, match="Cohere request failed"):
+                async for _ in backend.generate(
+                    [{"role": "user", "content": "Hi"}], stream=False,
+                ):
+                    pass
+
+        assert backend.status == BackendStatus.ERROR
+
+    # lines 150-152 — _extract_non_stream_content with string content_parts
+    def test_extract_non_stream_content_string(self, make_backend_config, monkeypatch):
+        """_extract_non_stream_content handles string content_parts directly."""
+        monkeypatch.setenv("COHERE_API_KEY", "test-key")
+        config = make_backend_config(
+            name="cohere-str",
+            provider="cohere",
+            model="command-r-plus",
+            env_key="COHERE_API_KEY",
+        )
+        backend = CohereBackend(config)
+        response_data = {"message": {"content": "plain string response"}}
+        result = backend._extract_non_stream_content(response_data)
+        assert result == "plain string response"
+
+    def test_extract_non_stream_content_empty(self, make_backend_config, monkeypatch):
+        """_extract_non_stream_content returns empty string for unknown content type."""
+        monkeypatch.setenv("COHERE_API_KEY", "test-key")
+        config = make_backend_config(
+            name="cohere-empty2",
+            provider="cohere",
+            model="command-r-plus",
+            env_key="COHERE_API_KEY",
+        )
+        backend = CohereBackend(config)
+        response_data = {"message": {"content": 12345}}  # unexpected type
+        result = backend._extract_non_stream_content(response_data)
+        assert result == ""

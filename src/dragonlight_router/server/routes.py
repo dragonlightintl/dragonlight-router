@@ -19,12 +19,15 @@ from dragonlight_router.catalog import refresher as _refresher_mod
 from dragonlight_router.core.types import (
     BackendStatus,
     BackendTier,
+    BudgetExhaustedError,
     ClassifiedIntent,
     DispatchFailure,
     DispatchOrder,
     EngineResponse,
     FlavorScore,
     ModelFlavorProfile,
+    ModelNotFoundError,
+    ModelUnhealthyError,
     RequestOutcome,
     StreamChunk,
 )
@@ -499,13 +502,38 @@ async def catalog_refresh_handler(request: Request) -> JSONResponse:
 
 
 def _validate_dispatch_request(body: dict[str, Any]) -> str | None:
-    """Validate /v1/dispatch request body. Returns error message or None."""
-    for field in _DISPATCH_REQUIRED_FIELDS:
-        if field not in body:
-            return f"missing required field: {field}"
+    """Validate /v1/dispatch request body. Returns error message or None.
 
-    # Type and length validation for string fields
+    AC-PIN-016: When ``model`` is present, ``intent_category`` and
+    ``specific_intent`` are no longer required (they are not used for
+    routing but are still logged if provided).
+    AC-PIN-017: When ``model`` is absent, existing required-field
+    validation is unchanged.
+    """
+    is_pinned = "model" in body and body["model"] is not None
+
+    # Validate model field when present
+    if is_pinned:
+        model = body["model"]
+        if not isinstance(model, str) or not model or len(model) > 500:
+            return "invalid model: must be a non-empty string under 500 chars"
+
+    # Determine which fields are required based on dispatch mode
+    if is_pinned:
+        # Pinned dispatch: only operator_message and context_tokens are required
+        for field in ("operator_message", "context_tokens"):
+            if field not in body:
+                return f"missing required field: {field}"
+    else:
+        # Cascade dispatch: all original fields required
+        for field in _DISPATCH_REQUIRED_FIELDS:
+            if field not in body:
+                return f"missing required field: {field}"
+
+    # Type and length validation for string fields that are present
     for field in ("intent_category", "specific_intent", "operator_message"):
+        if field not in body:
+            continue
         value = body[field]
         if not isinstance(value, str) or len(value) > _MAX_STRING_LENGTH:
             return f"invalid {field}: must be string under 100K chars"
@@ -520,9 +548,9 @@ def _validate_dispatch_request(body: dict[str, Any]) -> str | None:
     if not isinstance(ct, int) or ct < 0:
         return "invalid context_tokens: must be a non-negative integer"
 
-    # HAZ-007: Validate intent_category against allowed set
-    intent = body["intent_category"]
-    if intent not in _ALLOWED_INTENT_CATEGORIES:
+    # HAZ-007: Validate intent_category against allowed set (only when present)
+    intent = body.get("intent_category")
+    if intent is not None and intent not in _ALLOWED_INTENT_CATEGORIES:
         return f"invalid intent_category: '{intent}' not in allowed set"
 
     # HAZ-004: Validate fallback_policy if provided
@@ -534,10 +562,15 @@ def _validate_dispatch_request(body: dict[str, Any]) -> str | None:
 
 
 def _build_dispatch_order(body: dict[str, Any]) -> DispatchOrder:
-    """Construct a DispatchOrder from a validated request body."""
+    """Construct a DispatchOrder from a validated request body.
+
+    When ``model`` is present (pinned dispatch), ``intent_category`` and
+    ``specific_intent`` default to empty strings since they are optional
+    for pinned requests (AC-PIN-016).
+    """
     return DispatchOrder(
-        intent_category=body["intent_category"],
-        specific_intent=body["specific_intent"],
+        intent_category=body.get("intent_category", ""),
+        specific_intent=body.get("specific_intent", ""),
         operator_message=_sanitize_prompt(body["operator_message"]),
         system_prompt=_sanitize_prompt(body.get("system_prompt", "")),
         context_tokens=int(body["context_tokens"]),
@@ -548,6 +581,7 @@ def _build_dispatch_order(body: dict[str, Any]) -> DispatchOrder:
         stream_id=body.get("stream_id"),
         context_trust_tier=body.get("context_trust_tier"),
         fallback_policy=body.get("fallback_policy", "allow"),
+        model=body.get("model"),
     )
 
 
@@ -567,12 +601,14 @@ def _serialize_classified_intent(intent: ClassifiedIntent) -> dict[str, object]:
 def _format_dispatch_response(engine_response: EngineResponse) -> JSONResponse:
     """Serialize an EngineResponse to a JSON HTTP response.
 
+    AC-PIN-014: ``dispatch_mode`` is always included in the response.
     IBR-API-01: IBR fields included only when ibr_active is True.
     """
     payload: dict[str, object] = {
         "content": engine_response.content,
         "backend_used": engine_response.backend_used,
         "backend_tier": engine_response.backend_tier.value,
+        "dispatch_mode": engine_response.dispatch_mode,
         "tokens_in": engine_response.tokens_in,
         "tokens_out": engine_response.tokens_out,
         "estimated_cost_usd": engine_response.estimated_cost_usd,
@@ -591,7 +627,35 @@ def _format_dispatch_response(engine_response: EngineResponse) -> JSONResponse:
 
 
 def _format_dispatch_failure(error: object) -> JSONResponse:
-    """Serialize a dispatch failure (Err branch) to a JSON HTTP response."""
+    """Serialize a dispatch failure (Err branch) to a JSON HTTP response.
+
+    Handles pinned dispatch errors with appropriate HTTP status codes:
+    - ModelNotFoundError  -> 400
+    - ModelUnhealthyError -> 503
+    - BudgetExhaustedError -> 429
+    """
+    # Pinned dispatch error types
+    if isinstance(error, ModelNotFoundError):
+        return JSONResponse({
+            "error": error.message,
+            "model": error.model,
+        }, status_code=400)
+
+    if isinstance(error, ModelUnhealthyError):
+        return JSONResponse({
+            "error": error.message,
+            "model": error.model,
+            "status": error.status,
+        }, status_code=503)
+
+    if isinstance(error, BudgetExhaustedError):
+        return JSONResponse({
+            "error": error.message,
+            "model": error.model,
+            "provider": error.provider,
+        }, status_code=429)
+
+    # Cascade dispatch failures
     if isinstance(error, DispatchFailure):
         return JSONResponse({
             "message": error.message,
@@ -611,6 +675,9 @@ def _format_stream_chunk(chunk: StreamChunk) -> str:
     Each event is a JSON-encoded object on a ``data:`` line, followed by
     two newlines (SSE protocol). The event_type field is used as the SSE
     event name for client-side routing.
+
+    AC-PIN-014/AC-PIN-021: ``dispatch_mode`` is included in metadata events
+    so streaming consumers can distinguish pinned vs cascade dispatch.
     """
     payload: dict[str, object] = {"event": chunk.event_type}
 
@@ -620,6 +687,7 @@ def _format_stream_chunk(chunk: StreamChunk) -> str:
         payload.update({
             "backend_used": chunk.backend_used,
             "backend_tier": chunk.backend_tier,
+            "dispatch_mode": chunk.dispatch_mode,
             "tokens_in": chunk.tokens_in,
             "tokens_out": chunk.tokens_out,
             "estimated_cost_usd": chunk.estimated_cost_usd,
@@ -714,6 +782,7 @@ async def dispatch_handler(request: Request) -> JSONResponse | StreamingResponse
             classified_intent=engine_response.classified_intent,
             flavor_match_score=engine_response.flavor_match_score,
             ibr_active=engine_response.ibr_active,
+            dispatch_mode=engine_response.dispatch_mode,
         )
         return _format_dispatch_response(engine_response)
     return _format_dispatch_failure(dispatch_result.error)
@@ -1049,8 +1118,13 @@ def _build_openapi_schema() -> dict[str, Any]:
             },
             "/v1/dispatch": {
                 "post": {
-                    "summary": "Dispatch a request through the MBR-CBR-LBR cascade",
+                    "summary": "Dispatch a request through the cascade or pinned model",
                     "operationId": "dispatchRequest",
+                    "description": (
+                        "When ``model`` is set, bypasses the MBR-IBR-CBR-LBR cascade "
+                        "and dispatches directly to the specified backend (pinned dispatch). "
+                        "When ``model`` is absent, runs the full cascade (default behavior)."
+                    ),
                     "requestBody": {
                         "required": True,
                         "content": {
@@ -1058,10 +1132,19 @@ def _build_openapi_schema() -> dict[str, Any]:
                                 "schema": {
                                     "type": "object",
                                     "required": [
-                                        "intent_category", "specific_intent",
                                         "operator_message", "context_tokens",
                                     ],
                                     "properties": {
+                                        "model": {
+                                            "type": "string",
+                                            "description": (
+                                                "Backend name to pin (e.g. "
+                                                "'anthropic/claude-sonnet-4-20250514'). "
+                                                "When set, bypasses cascade. When absent, "
+                                                "intent_category and specific_intent are "
+                                                "required."
+                                            ),
+                                        },
                                         "intent_category": {"type": "string"},
                                         "specific_intent": {"type": "string"},
                                         "operator_message": {"type": "string"},
@@ -1100,6 +1183,14 @@ def _build_openapi_schema() -> dict[str, Any]:
                                             "content": {"type": "string"},
                                             "backend_used": {"type": "string"},
                                             "backend_tier": {"type": "string"},
+                                            "dispatch_mode": {
+                                                "type": "string",
+                                                "enum": ["cascade", "pinned"],
+                                                "description": (
+                                                    "Whether the request was routed via "
+                                                    "cascade or pinned dispatch."
+                                                ),
+                                            },
                                             "tokens_in": {"type": "integer"},
                                             "tokens_out": {"type": "integer"},
                                             "estimated_cost_usd": {"type": "number"},
@@ -1114,8 +1205,22 @@ def _build_openapi_schema() -> dict[str, Any]:
                                 },
                             },
                         },
-                        "400": {"description": "Validation error."},
+                        "400": {
+                            "description": (
+                                "Validation error, or pinned model not found in registry."
+                            ),
+                        },
+                        "429": {
+                            "description": (
+                                "Pinned model's provider budget or rate limit exhausted."
+                            ),
+                        },
                         "500": {"description": "Dispatch failure."},
+                        "503": {
+                            "description": (
+                                "Pinned model is unhealthy (circuit open)."
+                            ),
+                        },
                     },
                 },
             },

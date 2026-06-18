@@ -54,6 +54,18 @@ class IntentClassificationConfig(BaseModel):
     flavor_match_weight_governor: float = 0.05
 
 
+class PinnedDispatchConfig(BaseModel):
+    """Configuration for pinned (direct model) dispatch.
+
+    Controls operational guardrails when a caller pins a specific backend
+    via DispatchOrder.model, bypassing the cascade pipeline.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    honor_health: bool = True
+
+
 class RouterConfig(BaseModel):
     """Top-level router configuration."""
 
@@ -72,4 +84,8 @@ class RouterConfig(BaseModel):
     # IBR: Intent classification subsystem (opt-in, disabled by default).
     intent_classification: IntentClassificationConfig = Field(
         default_factory=IntentClassificationConfig,
+    )
+    # Model pinning: operational guardrails for direct-dispatch bypass.
+    pinned_dispatch: PinnedDispatchConfig = Field(
+        default_factory=PinnedDispatchConfig,
     )

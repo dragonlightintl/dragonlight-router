@@ -157,6 +157,10 @@ class DispatchOrder:
     #   "deny": fail immediately if primary candidate fails (no fallback)
     #   "same_tier": only fall back to candidates at the same BackendTier
     fallback_policy: str = "allow"
+    # Model pinning: when set, bypass cascade and dispatch directly to
+    # this backend.  Value is the backend name as registered in
+    # BackendRegistry (e.g. "anthropic/claude-sonnet-4-20250514").
+    model: str | None = None
 
 # ---------------------------------------------------------------------------
 # IBR (Intent Based Router) types — frozen dataclasses for intent
@@ -249,6 +253,7 @@ class EngineResponse:
     classified_intent: ClassifiedIntent | None = None
     flavor_match_score: float | None = None
     ibr_active: bool = False
+    dispatch_mode: str = "cascade"
 
 @dataclass(frozen=True)
 class DispatchFailure:
@@ -256,6 +261,30 @@ class DispatchFailure:
     message: str
     attempted_backends: list[str]
     error_details: dict[str, str]
+
+# ---------------------------------------------------------------------------
+# Pinned dispatch error types (model-pinning v0.1.0 spec section 2.4).
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ModelNotFoundError:
+    """Pinned model not found in registry."""
+    model: str
+    message: str
+
+@dataclass(frozen=True)
+class ModelUnhealthyError:
+    """Pinned model is circuit-open or retired."""
+    model: str
+    status: str  # "circuit_open" | "retired"
+    message: str
+
+@dataclass(frozen=True)
+class BudgetExhaustedError:
+    """Pinned model's provider has exhausted its budget or rate limits."""
+    model: str
+    provider: str
+    message: str
 
 @dataclass(frozen=True)
 class ComplexityEstimate:
@@ -324,6 +353,7 @@ class StreamChunk:
     classified_intent_json: str = ""
     flavor_match_score: float | None = None
     ibr_active: bool = False
+    dispatch_mode: str = "cascade"
 
 @dataclass(frozen=True)
 class RequestOutcome:

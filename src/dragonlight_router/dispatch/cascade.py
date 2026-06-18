@@ -13,7 +13,7 @@ import structlog
 import dragonlight_router.adapters as _adapters_mod
 from dragonlight_router.budget.tracker import BudgetTracker
 from dragonlight_router.caching.simple import SimpleCache
-from dragonlight_router.config.schema import IntentClassificationConfig
+from dragonlight_router.config.schema import IntentClassificationConfig, PinnedDispatchConfig
 from dragonlight_router.core.errors import BudgetExceededError, LBRNoCapacityError
 from dragonlight_router.core.registry import BackendRegistry
 from dragonlight_router.core.types import (
@@ -21,10 +21,13 @@ from dragonlight_router.core.types import (
     BackendCostProfile,
     BackendStatus,
     BackendTier,
+    BudgetExhaustedError,
     DispatchFailure,
     DispatchOrder,
     EngineResponse,
     GenerativeBackend,
+    ModelNotFoundError,
+    ModelUnhealthyError,
     ScoredCandidate,
     StreamChunk,
 )
@@ -121,6 +124,7 @@ class DispatchContext:
     ibr_config: IntentClassificationConfig | None = None
     flavor_loader: FlavorProfileLoader | None = None
     classification_adapter: GenerativeBackend | None = None
+    pinned_dispatch_config: PinnedDispatchConfig = PinnedDispatchConfig()
 
 
 def _estimate_token_count(char_count: int) -> int:
@@ -455,6 +459,370 @@ async def _run_cascade(
     return _run_lbr_stage(order, cbr_result.value, ctx)
 
 
+# ---------------------------------------------------------------------------
+# Pinned dispatch — model-pinning v0.1.0 spec section 2.3.
+# ---------------------------------------------------------------------------
+
+def _pinned_preflight(
+    order: DispatchOrder,
+    ctx: DispatchContext,
+) -> Result[BackendConfig, ModelNotFoundError | ModelUnhealthyError | BudgetExhaustedError]:
+    """Run pinned dispatch pre-flight checks (registry, health, budget).
+
+    Returns Ok(BackendConfig) when all checks pass, or an Err with the
+    specific rejection reason. Shared by all pinned dispatch entry points.
+    """
+    assert order.model is not None, "pinned preflight requires order.model to be set"
+    assert isinstance(ctx, DispatchContext), "ctx must be DispatchContext instance"
+
+    model_name = order.model
+    backend, state = ctx.registry.get(model_name)
+
+    # Step 1-2: Registry lookup — not found
+    if backend is None or state is None:
+        logger.info(
+            "pinned_dispatch_rejected",
+            model=model_name,
+            reason="not_found",
+            request_id=order.request_id,
+        )
+        return Err(ModelNotFoundError(
+            model=model_name,
+            message=f"pinned model not found in registry: {model_name}",
+        ))
+
+    # Step 3: Retired check
+    if state.status == BackendStatus.RETIRED:
+        logger.info(
+            "pinned_dispatch_rejected",
+            model=model_name,
+            reason="retired",
+            request_id=order.request_id,
+        )
+        return Err(ModelUnhealthyError(
+            model=model_name,
+            status="retired",
+            message=f"pinned model is retired: {model_name}",
+        ))
+
+    # Step 3b: KEY_INVALID treated as retired (HAZ-PIN-003)
+    if state.status == BackendStatus.KEY_INVALID:
+        logger.info(
+            "pinned_dispatch_rejected",
+            model=model_name,
+            reason="retired",
+            request_id=order.request_id,
+        )
+        return Err(ModelUnhealthyError(
+            model=model_name,
+            status="retired",
+            message=f"pinned model has invalid key: {model_name}",
+        ))
+
+    # Step 4: Circuit breaker check (when honor_health is true)
+    if state.is_circuit_open() and ctx.pinned_dispatch_config.honor_health:
+        logger.info(
+            "pinned_dispatch_rejected",
+            model=model_name,
+            reason="circuit_open",
+            request_id=order.request_id,
+        )
+        return Err(ModelUnhealthyError(
+            model=model_name,
+            status="circuit_open",
+            message=f"pinned model is unhealthy (circuit open): {model_name}",
+        ))
+
+    # Step 5: Budget capacity check
+    if not ctx.budget_tracker.has_capacity(backend.config.provider):
+        logger.info(
+            "pinned_dispatch_rejected",
+            model=model_name,
+            reason="budget_exhausted",
+            provider=backend.config.provider,
+            request_id=order.request_id,
+        )
+        return Err(BudgetExhaustedError(
+            model=model_name,
+            provider=backend.config.provider,
+            message=f"pinned model's provider budget exhausted: {backend.config.provider}",
+        ))
+
+    return Ok(backend.config)
+
+
+async def _pinned_route(
+    order: DispatchOrder,
+    ctx: DispatchContext,
+) -> Result[BackendConfig, Exception]:
+    """Pinned dispatch path for route() — resolve backend, skip cascade.
+
+    Returns Ok(BackendConfig) on success or Err with the rejection reason.
+    """
+    assert order.model is not None, "_pinned_route requires order.model"
+
+    logger.info(
+        "pinned_dispatch_start",
+        model=order.model,
+        request_id=order.request_id,
+        dispatch_mode="pinned",
+    )
+
+    return _pinned_preflight(order, ctx)  # type: ignore[return-value]
+
+
+async def _pinned_dispatch_full(
+    order: DispatchOrder,
+    ctx: DispatchContext,
+) -> Result[EngineResponse, Exception]:
+    """Pinned dispatch path for dispatch() — resolve, call adapter, return EngineResponse.
+
+    No fallback chain. On adapter failure, returns Err immediately.
+    """
+    assert order.model is not None, "_pinned_dispatch_full requires order.model"
+
+    logger.info(
+        "pinned_dispatch_start",
+        model=order.model,
+        request_id=order.request_id,
+        dispatch_mode="pinned",
+    )
+
+    # Cache check (AC-PIN-018)
+    cached = _try_cache_lookup(order)
+    if cached is not None:
+        _log_cache_hit(cached)
+        return Ok(cached)
+
+    preflight = _pinned_preflight(order, ctx)
+    if isinstance(preflight, Err):
+        return preflight  # type: ignore[return-value]
+
+    backend_config = preflight.value
+    assert isinstance(backend_config, BackendConfig), "preflight must return BackendConfig"
+
+    # Rate limit check via check_and_reserve (AC-PIN-008)
+    reserved = await ctx.budget_tracker.check_and_reserve(backend_config.provider)
+    if not reserved:
+        logger.info(
+            "pinned_dispatch_rejected",
+            model=order.model,
+            reason="rate_limited",
+            provider=backend_config.provider,
+            request_id=order.request_id,
+        )
+        return Err(BudgetExhaustedError(  # type: ignore[arg-type]
+            model=order.model,
+            provider=backend_config.provider,
+            message=f"pinned model's provider rate limit exhausted: {backend_config.provider}",
+        ))
+
+    # Build context and apply trust tier filtering (AC-PIN-011)
+    base_context = _build_dispatch_context(order)
+
+    # HAZ-014: Fresh adapter per dispatch attempt
+    adapter = _adapters_mod.create_adapter(backend_config)
+    assert adapter.status == BackendStatus.AVAILABLE, (
+        f"Fresh adapter must start AVAILABLE, got {adapter.status}"
+    )
+
+    provider_trust = _tier_to_provider_trust(backend_config.tier)
+    filtered_context = filter_context_for_provider(base_context, provider_trust)
+    messages = _build_messages(filtered_context, order.operator_message)
+
+    # Dispatch to adapter
+    t0 = time.monotonic()
+    try:
+        content_parts: list[str] = []
+        async for chunk in adapter.generate(
+            messages, max_tokens=4096, temperature=0.7, stream=True,
+        ):
+            content_parts.append(chunk)
+    except (RuntimeError, ValueError, ConnectionError, OSError, TypeError) as exc:
+        latency_ms = (time.monotonic() - t0) * 1000.0
+        _record_adapter_failure(exc, backend_config, ctx)
+        logger.info(
+            "pinned_dispatch_failed",
+            model=order.model,
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+            latency_ms=round(latency_ms, 2),
+            request_id=order.request_id,
+            dispatch_mode="pinned",
+        )
+        return Err(DispatchFailure(  # type: ignore[arg-type]
+            message=f"pinned model dispatch failed: {order.model}",
+            attempted_backends=[backend_config.name],
+            error_details={"error_type": type(exc).__name__, "error_message": str(exc)},
+        ))
+
+    latency_ms = (time.monotonic() - t0) * 1000.0
+    content = "".join(content_parts)
+    tokens_in, tokens_out = _estimate_and_log_tokens(messages, content, backend_config.name)
+    cost_usd = _compute_cost_usd(tokens_in, tokens_out, backend_config.cost)
+
+    # Record success in health/budget trackers (AC-PIN-009, AC-PIN-010)
+    _record_dispatch_success(
+        backend_config, ctx, adapter, tokens_in, tokens_out, cost_usd, latency_ms,
+        fallback_chain=[],
+    )
+
+    response = EngineResponse(
+        content=content,
+        backend_used=backend_config.name,
+        backend_tier=backend_config.tier,
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        estimated_cost_usd=cost_usd,
+        latency_ms=latency_ms,
+        was_fallback=False,
+        fallback_chain=[],
+        dispatch_mode="pinned",
+    )
+
+    logger.info(
+        "pinned_dispatch_complete",
+        model=order.model,
+        latency_ms=round(latency_ms, 2),
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        estimated_cost_usd=round(cost_usd, 8),
+        request_id=order.request_id,
+        dispatch_mode="pinned",
+    )
+
+    # Cache store (AC-PIN-019)
+    _store_cache_response(order, response)
+
+    return Ok(response)
+
+
+async def _pinned_dispatch_stream(
+    order: DispatchOrder,
+    ctx: DispatchContext,
+) -> AsyncIterator[StreamChunk]:
+    """Pinned dispatch path for dispatch_stream() — stream from a single backend.
+
+    No fallback. On preflight rejection, yields an error chunk.
+    On adapter failure, yields an error chunk.
+    """
+    assert order.model is not None, "_pinned_dispatch_stream requires order.model"
+
+    logger.info(
+        "pinned_dispatch_start",
+        model=order.model,
+        request_id=order.request_id,
+        dispatch_mode="pinned",
+    )
+
+    preflight = _pinned_preflight(order, ctx)
+    if isinstance(preflight, Err):
+        error = preflight.error
+        yield StreamChunk(
+            event_type="error",
+            error_message=getattr(error, "message", str(error)),
+            dispatch_mode="pinned",
+        )
+        return
+
+    backend_config = preflight.value
+    assert isinstance(backend_config, BackendConfig), "preflight must return BackendConfig"
+
+    # Rate limit check via check_and_reserve (AC-PIN-008)
+    reserved = await ctx.budget_tracker.check_and_reserve(backend_config.provider)
+    if not reserved:
+        logger.info(
+            "pinned_dispatch_rejected",
+            model=order.model,
+            reason="rate_limited",
+            provider=backend_config.provider,
+            request_id=order.request_id,
+        )
+        yield StreamChunk(
+            event_type="error",
+            error_message=(
+                f"pinned model's provider rate limit exhausted: {backend_config.provider}"
+            ),
+            dispatch_mode="pinned",
+        )
+        return
+
+    # Build context and apply trust tier filtering (AC-PIN-011)
+    base_context = _build_dispatch_context(order)
+
+    # HAZ-014: Fresh adapter per dispatch attempt
+    adapter = _adapters_mod.create_adapter(backend_config)
+    assert adapter.status == BackendStatus.AVAILABLE, (
+        f"Fresh adapter must start AVAILABLE, got {adapter.status}"
+    )
+    provider_trust = _tier_to_provider_trust(backend_config.tier)
+    filtered_context = filter_context_for_provider(base_context, provider_trust)
+    messages = _build_messages(filtered_context, order.operator_message)
+
+    t0 = time.monotonic()
+    tokens_out_chars = 0
+
+    try:
+        async for chunk in adapter.generate(
+            messages, max_tokens=4096, temperature=0.7, stream=True,
+        ):
+            tokens_out_chars += len(chunk)
+            yield StreamChunk(event_type="token", content=chunk, dispatch_mode="pinned")
+    except (RuntimeError, ValueError, ConnectionError, OSError, TypeError) as exc:
+        latency_ms = (time.monotonic() - t0) * 1000.0
+        _record_adapter_failure(exc, backend_config, ctx)
+        logger.info(
+            "pinned_dispatch_failed",
+            model=order.model,
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+            latency_ms=round(latency_ms, 2),
+            request_id=order.request_id,
+            dispatch_mode="pinned",
+        )
+        yield StreamChunk(
+            event_type="error",
+            error_message=f"pinned model dispatch failed: {order.model}",
+            dispatch_mode="pinned",
+        )
+        return
+
+    latency_ms = (time.monotonic() - t0) * 1000.0
+    tokens_in, tokens_out = _estimate_and_log_tokens(
+        messages, "x" * tokens_out_chars, backend_config.name,
+    )
+    cost_usd = _compute_cost_usd(tokens_in, tokens_out, backend_config.cost)
+
+    # Record success (AC-PIN-009, AC-PIN-010)
+    ctx.health_tracker.record_success(backend_config.model, latency_ms)
+    ctx.budget_tracker.record_request(backend_config.provider, tokens_in + tokens_out)
+    adapter.record_usage(tokens_in, tokens_out)
+
+    logger.info(
+        "pinned_dispatch_complete",
+        model=order.model,
+        latency_ms=round(latency_ms, 2),
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        estimated_cost_usd=round(cost_usd, 8),
+        request_id=order.request_id,
+        dispatch_mode="pinned",
+    )
+
+    yield StreamChunk(
+        event_type="metadata",
+        backend_used=backend_config.name,
+        backend_tier=backend_config.tier.value,
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        estimated_cost_usd=cost_usd,
+        latency_ms=latency_ms,
+        was_fallback=False,
+        fallback_chain=[],
+        dispatch_mode="pinned",
+    )
+
+
 # DEVIATION CS-004: route is 41 lines.
 # Justification: Public API entry point with cascade orchestration, context construction,
 # and result handling. Extraction would fragment the dispatch contract.
@@ -469,8 +837,12 @@ async def route(
     ibr_config: IntentClassificationConfig | None = None,
     flavor_loader: FlavorProfileLoader | None = None,
     classification_adapter: GenerativeBackend | None = None,
+    pinned_dispatch_config: PinnedDispatchConfig | None = None,
 ) -> Result[BackendConfig, Exception]:
     """Run the MBR -> IBR -> CBR -> LBR cascade and return the selected BackendConfig.
+
+    When ``order.model`` is set, bypasses the cascade entirely and resolves
+    the backend directly via the registry (pinned dispatch path).
 
     Args:
         order: The dispatch order containing capability requirements.
@@ -480,7 +852,7 @@ async def route(
         config: Router configuration dictionary.
 
     Returns:
-        Ok(BackendConfig) selected by the cascade or
+        Ok(BackendConfig) selected by the cascade (or pinned lookup) or
         Err(Exception) if no candidates remain after filtering.
     """
     assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
@@ -494,7 +866,13 @@ async def route(
         ibr_config=ibr_config,
         flavor_loader=flavor_loader,
         classification_adapter=classification_adapter,
+        pinned_dispatch_config=pinned_dispatch_config or PinnedDispatchConfig(),
     )
+
+    # Pinned dispatch early branch — bypass cascade entirely.
+    if order.model is not None:
+        return await _pinned_route(order, ctx)
+
     cascade_result = await _run_cascade(order, ctx)
     if isinstance(cascade_result, Err):
         return cascade_result
@@ -894,23 +1272,22 @@ async def dispatch(
     ibr_config: IntentClassificationConfig | None = None,
     flavor_loader: FlavorProfileLoader | None = None,
     classification_adapter: GenerativeBackend | None = None,
+    pinned_dispatch_config: PinnedDispatchConfig | None = None,
 ) -> Result[EngineResponse, Exception]:
     """Execute the full dispatch pipeline with fallback and return an EngineResponse.
 
     This is the main entry point for engine-style consumers.
 
-    Checks the response cache first. On miss, runs the MBR -> IBR -> CBR -> LBR
-    cascade to get a ranked candidate list, then attempts generation on
-    each candidate in order until one succeeds. Successful responses are
-    cached for future hits.
+    When ``order.model`` is set, bypasses the cascade entirely and dispatches
+    directly to the pinned backend (no fallback chain).
+
+    Otherwise checks the response cache first. On miss, runs the
+    MBR -> IBR -> CBR -> LBR cascade to get a ranked candidate list,
+    then attempts generation on each candidate in order until one succeeds.
+    Successful responses are cached for future hits.
     """
     assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
     assert isinstance(registry, BackendRegistry), "registry must be BackendRegistry instance"
-
-    cached = _try_cache_lookup(order)
-    if cached is not None:
-        _log_cache_hit(cached)
-        return Ok(cached)
 
     ctx = DispatchContext(
         registry=registry,
@@ -920,7 +1297,18 @@ async def dispatch(
         ibr_config=ibr_config,
         flavor_loader=flavor_loader,
         classification_adapter=classification_adapter,
+        pinned_dispatch_config=pinned_dispatch_config or PinnedDispatchConfig(),
     )
+
+    # Pinned dispatch early branch — bypass cascade entirely.
+    if order.model is not None:
+        return await _pinned_dispatch_full(order, ctx)
+
+    cached = _try_cache_lookup(order)
+    if cached is not None:
+        _log_cache_hit(cached)
+        return Ok(cached)
+
     logger.debug("starting dispatch pipeline")
 
     cascade_result = await _run_cascade(order, ctx)
@@ -1069,8 +1457,12 @@ async def dispatch_stream(
     ibr_config: IntentClassificationConfig | None = None,
     flavor_loader: FlavorProfileLoader | None = None,
     classification_adapter: GenerativeBackend | None = None,
+    pinned_dispatch_config: PinnedDispatchConfig | None = None,
 ) -> AsyncIterator[StreamChunk]:
     """Execute the cascade and stream tokens as they arrive from the LLM.
+
+    When ``order.model`` is set, bypasses the cascade entirely and streams
+    directly from the pinned backend (no fallback).
 
     Yields StreamChunk objects with event_type "token" for content,
     "metadata" for final response metadata, and "error" for failures.
@@ -1088,7 +1480,15 @@ async def dispatch_stream(
         ibr_config=ibr_config,
         flavor_loader=flavor_loader,
         classification_adapter=classification_adapter,
+        pinned_dispatch_config=pinned_dispatch_config or PinnedDispatchConfig(),
     )
+
+    # Pinned dispatch early branch — bypass cascade entirely.
+    if order.model is not None:
+        async for chunk in _pinned_dispatch_stream(order, ctx):
+            yield chunk
+        return
+
     logger.debug("starting streaming dispatch pipeline")
 
     cascade_result = await _run_cascade(order, ctx)

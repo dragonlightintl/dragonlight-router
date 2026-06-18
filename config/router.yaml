@@ -46,7 +46,7 @@ providers:
       tpm: 60000
 
   - name: gemini
-    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    base_url: https://generativelanguage.googleapis.com
     catalog_url: https://generativelanguage.googleapis.com/v1beta/openai/models
     env_key: GEMINI_API_KEY
     model_prefix: "gemini/"

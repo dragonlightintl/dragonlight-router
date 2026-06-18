@@ -691,6 +691,60 @@ def test_meets_requirements_long_context_passes_when_cap_sufficient() -> None:
     assert _meets_requirements(caps, order) is True
 
 
+class TestKeyInvalidExclusion:
+    """KEY_INVALID backends are excluded from the MBR cascade."""
+
+    def test_key_invalid_backend_excluded_from_dispatch(self) -> None:
+        """KEY_INVALID backend is excluded from filter_by_capabilities results."""
+        simple = _make_config("simple-llm", BackendTier.SIMPLE)
+        registry = _build_registry(simple)
+
+        # Mark the backend as KEY_INVALID
+        _, state = registry.get("simple-llm")
+        assert state is not None
+        state.status = BackendStatus.KEY_INVALID
+
+        order = DispatchOrder(
+            intent_category="chat",
+            specific_intent="greeting",
+            operator_message="Hello",
+            system_prompt="",
+            context_tokens=5000,
+            requires_tool_use=False,
+            requires_long_context=False,
+        )
+
+        result = filter_by_capabilities(registry, order)
+        assert result.is_err(), "KEY_INVALID backend should be excluded"
+
+    def test_key_invalid_mixed_with_healthy_backend(self) -> None:
+        """KEY_INVALID backend excluded while healthy backend passes through."""
+        invalid = _make_config("invalid-llm", BackendTier.SIMPLE)
+        healthy = _make_config("healthy-llm", BackendTier.SIMPLE)
+        registry = _build_registry(invalid, healthy)
+
+        # Mark only one backend as KEY_INVALID
+        _, state = registry.get("invalid-llm")
+        assert state is not None
+        state.status = BackendStatus.KEY_INVALID
+
+        order = DispatchOrder(
+            intent_category="chat",
+            specific_intent="greeting",
+            operator_message="Hello",
+            system_prompt="",
+            context_tokens=5000,
+            requires_tool_use=False,
+            requires_long_context=False,
+        )
+
+        result = filter_by_capabilities(registry, order)
+        assert result.is_ok()
+        candidates = result.unwrap()
+        assert len(candidates) == 1
+        assert candidates[0].name == "healthy-llm"
+
+
 def test_filter_by_capabilities_err_when_tier_resolve_fails(monkeypatch) -> None:
     """[TM-001 AC-3] filter_by_capabilities propagates Err from _resolve_tiers_to_try (line 52)."""
     import dragonlight_router.selection.mbr as mbr_mod

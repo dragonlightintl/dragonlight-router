@@ -403,5 +403,28 @@ async def test_probe_skipped_when_circuit_open_not_half_open(
     backend.health_check.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_probe_skipped_when_key_invalid(
+    health_check_loop, mock_backends, mock_states,
+):
+    """KEY_INVALID backends are skipped during health probing — no API call made."""
+    name = "backend1"
+    backend = mock_backends[name]
+    state = mock_states[name]
+
+    # Mark the backend as KEY_INVALID
+    state.status = BackendStatus.KEY_INVALID
+    initial_errors = state.consecutive_errors
+
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        await health_check_loop._probe_backend(name, backend)
+
+    # Health check should NOT have been called
+    backend.health_check.assert_not_called()
+    # State should remain unchanged
+    assert state.status == BackendStatus.KEY_INVALID
+    assert state.consecutive_errors == initial_errors
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

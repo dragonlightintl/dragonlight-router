@@ -16,6 +16,7 @@ from starlette.responses import JSONResponse, StreamingResponse
 from dragonlight_router import __version__
 from dragonlight_router.catalog import refresher as _refresher_mod
 from dragonlight_router.core.types import (
+    BackendStatus,
     BackendTier,
     DispatchFailure,
     DispatchOrder,
@@ -273,12 +274,23 @@ async def health_handler(request: Request) -> JSONResponse:
 
     HAZ-003 mitigation: Includes router-level availability status so
     callers can detect degraded/unavailable state before dispatching.
+
+    Includes key_invalid_count so operators can see how many backends
+    have credential issues at a glance.
     """
     engine: RouterEngine = request.app.state.engine
+
+    # Count backends with KEY_INVALID status for operator visibility
+    key_invalid_count = sum(
+        1
+        for _name, _backend, state in engine._registry.all_backends()
+        if state.status == BackendStatus.KEY_INVALID
+    )
 
     return JSONResponse({
         "status": engine._health.availability_status(),
         "version": __version__,
+        "key_invalid_count": key_invalid_count,
         "budget": engine.budget_snapshot(),
         "health": engine.health_snapshot(),
     })
@@ -310,14 +322,41 @@ async def _execute_catalog_refresh(engine: RouterEngine) -> JSONResponse:
     refresher = _refresher_mod.CatalogRefresher()
     result = await refresher.refresh(engine._config.providers)
     if isinstance(result, Ok):
-        catalog = result.value
+        refresh_result = result.value
+        # Support both CatalogRefreshResult and plain dict (legacy/test paths)
+        if hasattr(refresh_result, "catalog"):
+            catalog = refresh_result.catalog
+        elif isinstance(refresh_result, dict):
+            catalog = refresh_result
+        else:
+            return JSONResponse({
+                "status": "error",
+                "error": "Catalog refresh returned unexpected type",
+            }, status_code=500)
         engine._catalog.set(catalog)
         model_count = sum(len(entries) for entries in catalog.values())
-        return JSONResponse({
+
+        auth_failures: dict[str, int] = {}
+        if hasattr(refresh_result, "auth_failures"):
+            auth_failures = refresh_result.auth_failures
+
+        # Mark/restore backend status based on auth results
+        for name, _backend, state in engine._registry.all_backends():
+            provider = engine._resolve_provider(name)
+            if provider in auth_failures:
+                state.status = BackendStatus.KEY_INVALID
+            elif provider in catalog and state.status == BackendStatus.KEY_INVALID:
+                state.status = BackendStatus.AVAILABLE
+                logger.info("backend_key_restored", name=name, provider=provider)
+
+        response: dict[str, Any] = {
             "status": "ok",
             "providers_refreshed": list(catalog.keys()),
             "model_count": model_count,
-        })
+        }
+        if auth_failures:
+            response["auth_failures"] = auth_failures
+        return JSONResponse(response)
     return JSONResponse({
         "status": "error",
         "error": "Catalog refresh failed",

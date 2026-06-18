@@ -75,6 +75,7 @@ class BackendStatus(Enum):
     OFFLINE = "offline"
     DEGRADED = "degraded"
     RETIRED = "retired"
+    KEY_INVALID = "key_invalid"
 
 @dataclass(frozen=True)
 class BackendCapabilities:

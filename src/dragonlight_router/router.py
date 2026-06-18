@@ -9,6 +9,7 @@ Wires together: config, budget, health, catalog, matrix, scoring, interleaving.
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 import threading
 from collections.abc import AsyncIterator
@@ -30,6 +31,7 @@ from dragonlight_router.core.types import (
     BackendConfig,
     BackendCostProfile,
     BackendRateLimits,
+    BackendStatus,
     BackendTier,
     DispatchOrder,
     EngineResponse,
@@ -423,6 +425,18 @@ class RouterEngine:
             try:
                 adapter = create_adapter(backend_config)
                 self._registry.register(adapter)
+
+                # Mark KEY_INVALID if env_key is configured but env var is empty
+                if matched_provider.env_key and not os.environ.get(matched_provider.env_key, ""):
+                    _backend, state = self._registry.get(model_id)
+                    if state is not None:
+                        state.status = BackendStatus.KEY_INVALID
+                        logger.warning(
+                            "backend_key_missing",
+                            model_id=model_id,
+                            env_key=matched_provider.env_key,
+                        )
+
                 logger.info(
                     "backend_registered_from_matrix",
                     model_id=model_id,
@@ -528,6 +542,15 @@ class RouterEngine:
 
             # Filter by catalog — only if this model's provider was fetched
             if provider in fetched_providers and model_id not in live_models:
+                continue
+
+            # Exclude backends with invalid API keys
+            _backend, state = self._registry.get(model_id)
+            if state is not None and state.status == BackendStatus.KEY_INVALID:
+                logger.debug(
+                    "select_models_skipped_key_invalid",
+                    model_id=model_id,
+                )
                 continue
 
             filtered.append((model_id, rank, provider))
@@ -722,8 +745,23 @@ class RouterEngine:
             logger.warning("catalog_refresh_failed", error=str(exc))
             return
 
+        auth_failures: dict[str, int] = {}
+
         if isinstance(result, Ok):
-            catalog = result.value
+            refresh_result = result.value
+            # Support both CatalogRefreshResult and plain dict (legacy/test paths)
+            if hasattr(refresh_result, "catalog"):
+                catalog = refresh_result.catalog
+                if hasattr(refresh_result, "auth_failures"):
+                    auth_failures = refresh_result.auth_failures
+            elif isinstance(refresh_result, dict):
+                catalog = refresh_result
+            else:
+                logger.warning(
+                    "catalog_refresh_unexpected_type",
+                    type=type(refresh_result).__name__,
+                )
+                return
         elif isinstance(result, dict):
             catalog = result
         else:
@@ -734,6 +772,24 @@ class RouterEngine:
         if catalog:
             self._catalog.set(catalog)
             logger.info("catalog_refreshed", providers=list(catalog.keys()))
+
+        if auth_failures:
+            self._mark_key_invalid_backends(auth_failures)
+
+    def _mark_key_invalid_backends(self, auth_failures: dict[str, int]) -> None:
+        """Mark all backends belonging to providers with auth failures as KEY_INVALID."""
+        marked = 0
+        for name, _backend, state in self._registry.all_backends():
+            provider = self._resolve_provider(name)
+            if provider in auth_failures:
+                state.status = BackendStatus.KEY_INVALID
+                marked += 1
+        if marked:
+            logger.warning(
+                "backends_marked_key_invalid",
+                providers=list(auth_failures.keys()),
+                backend_count=marked,
+            )
 
     def _resolve_provider(self, model_id: str) -> str | None:
         """Resolve a model_id to its provider name via prefix matching."""

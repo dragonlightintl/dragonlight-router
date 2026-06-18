@@ -49,9 +49,13 @@ class TestBackendStatus:
         assert BackendStatus.CIRCUIT_OPEN.value == "circuit_open"
         assert BackendStatus.OFFLINE.value == "offline"
 
+    def test_key_invalid_value(self):
+        """[TM-017 AC-1] BackendStatus.KEY_INVALID has correct string value."""
+        assert BackendStatus.KEY_INVALID.value == "key_invalid"
+
     def test_all_members(self):
-        """[TM-017 AC-1] BackendStatus has exactly 8 members."""
-        assert len(BackendStatus) == 8
+        """[TM-017 AC-1] BackendStatus has exactly 9 members."""
+        assert len(BackendStatus) == 9
 
 
 class TestBackendCapabilities:

@@ -4,12 +4,13 @@ Spec traceability: TM-005 (Catalog refresh and provider model fetching)
 """
 from __future__ import annotations
 
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
-from dragonlight_router.catalog.refresher import CatalogRefresher
+from dragonlight_router.catalog.refresher import CatalogRefresher, CatalogRefreshResult
 from dragonlight_router.config.schema import ProviderSchema, RateLimitSchema
 from dragonlight_router.core.types import CatalogEntry
 from dragonlight_router.result import Ok
@@ -67,7 +68,7 @@ class TestCatalogRefresherInit:
 class TestRefresh:
     @pytest.mark.asyncio
     async def test_refresh_returns_ok_with_catalog(self):
-        """[TM-005 AC-2] refresh() returns Ok containing a dict keyed by provider name."""
+        """[TM-005 AC-2] refresh() returns Ok containing a CatalogRefreshResult."""
         provider = make_provider(name="groq", model_prefix="groq/")
         refresher = CatalogRefresher()
 
@@ -85,9 +86,11 @@ class TestRefresh:
             result = await refresher.refresh([provider])
 
         assert isinstance(result, Ok)
-        catalog = result.unwrap()
-        assert "groq" in catalog
-        assert len(catalog["groq"]) == 2
+        refresh_result = result.unwrap()
+        assert isinstance(refresh_result, CatalogRefreshResult)
+        assert "groq" in refresh_result.catalog
+        assert len(refresh_result.catalog["groq"]) == 2
+        assert refresh_result.auth_failures == {}
 
     @pytest.mark.asyncio
     async def test_refresh_multiple_providers(self):
@@ -117,9 +120,9 @@ class TestRefresh:
             result = await refresher.refresh([groq, nvidia])
 
         assert isinstance(result, Ok)
-        catalog = result.unwrap()
-        assert "groq" in catalog
-        assert "nvidia" in catalog
+        refresh_result = result.unwrap()
+        assert "groq" in refresh_result.catalog
+        assert "nvidia" in refresh_result.catalog
         assert call_count == 2
 
     @pytest.mark.asyncio
@@ -145,21 +148,23 @@ class TestRefresh:
             result = await refresher.refresh([groq, nvidia])
 
         assert isinstance(result, Ok)
-        catalog = result.unwrap()
-        assert "groq" in catalog
-        assert "nvidia" not in catalog
+        refresh_result = result.unwrap()
+        assert "groq" in refresh_result.catalog
+        assert "nvidia" not in refresh_result.catalog
 
     @pytest.mark.asyncio
     async def test_refresh_empty_providers_returns_empty_catalog(self):
-        """[TM-005 AC-2] refresh() with empty provider list returns Ok with empty dict."""
+        """[TM-005 AC-2] refresh() with empty providers returns empty result."""
         refresher = CatalogRefresher()
         result = await refresher.refresh([])
         assert isinstance(result, Ok)
-        assert result.unwrap() == {}
+        refresh_result = result.unwrap()
+        assert refresh_result.catalog == {}
+        assert refresh_result.auth_failures == {}
 
     @pytest.mark.asyncio
     async def test_refresh_all_providers_fail_returns_empty_catalog(self):
-        """[TM-005 AC-3] refresh() returns empty catalog dict when all providers fail."""
+        """[TM-005 AC-3] refresh() returns empty catalog when all providers fail."""
         provider = make_provider(name="groq", model_prefix="groq/")
 
         async def fake_fetch(p):
@@ -171,7 +176,99 @@ class TestRefresh:
             result = await refresher.refresh([provider])
 
         assert isinstance(result, Ok)
-        assert result.unwrap() == {}
+        refresh_result = result.unwrap()
+        assert refresh_result.catalog == {}
+        assert refresh_result.auth_failures == {}
+
+    @pytest.mark.asyncio
+    async def test_refresh_tracks_auth_failures(self):
+        """[TM-005 AC-7] refresh() records 401 responses in auth_failures."""
+        provider = make_provider(name="groq", model_prefix="groq/")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+
+        async def fake_fetch(p):
+            raise httpx.HTTPStatusError(
+                "401 Unauthorized",
+                request=MagicMock(),
+                response=mock_response,
+            )
+
+        refresher = CatalogRefresher()
+
+        with patch.object(refresher, "_fetch_provider", side_effect=fake_fetch):
+            result = await refresher.refresh([provider])
+
+        assert isinstance(result, Ok)
+        refresh_result = result.unwrap()
+        assert refresh_result.catalog == {}
+        assert refresh_result.auth_failures == {"groq": 401}
+
+    @pytest.mark.asyncio
+    async def test_refresh_distinguishes_auth_from_transient(self):
+        """[TM-005 AC-8] refresh() separates 401 auth failures from 500 transient errors."""
+        groq = make_provider(name="groq", model_prefix="groq/")
+        nvidia = make_provider(
+            name="nvidia",
+            base_url="https://integrate.api.nvidia.com/v1",
+            model_prefix="nvidia/",
+        )
+
+        mock_401_response = MagicMock()
+        mock_401_response.status_code = 401
+
+        mock_500_response = MagicMock()
+        mock_500_response.status_code = 500
+
+        async def fake_fetch(provider_arg):
+            if provider_arg.name == "groq":
+                raise httpx.HTTPStatusError(
+                    "401 Unauthorized",
+                    request=MagicMock(),
+                    response=mock_401_response,
+                )
+            raise httpx.HTTPStatusError(
+                "500 Internal Server Error",
+                request=MagicMock(),
+                response=mock_500_response,
+            )
+
+        refresher = CatalogRefresher()
+
+        with patch.object(refresher, "_fetch_provider", side_effect=fake_fetch):
+            result = await refresher.refresh([groq, nvidia])
+
+        assert isinstance(result, Ok)
+        refresh_result = result.unwrap()
+        assert refresh_result.catalog == {}
+        # Only the 401 should appear in auth_failures
+        assert refresh_result.auth_failures == {"groq": 401}
+        assert "nvidia" not in refresh_result.auth_failures
+
+    @pytest.mark.asyncio
+    async def test_refresh_tracks_403_as_auth_failure(self):
+        """[TM-005 AC-7] refresh() records 403 responses in auth_failures."""
+        provider = make_provider(name="groq", model_prefix="groq/")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+
+        async def fake_fetch(p):
+            raise httpx.HTTPStatusError(
+                "403 Forbidden",
+                request=MagicMock(),
+                response=mock_response,
+            )
+
+        refresher = CatalogRefresher()
+
+        with patch.object(refresher, "_fetch_provider", side_effect=fake_fetch):
+            result = await refresher.refresh([provider])
+
+        assert isinstance(result, Ok)
+        refresh_result = result.unwrap()
+        assert refresh_result.auth_failures == {"groq": 403}
 
 
 class TestFetchProvider:
@@ -229,7 +326,9 @@ class TestFetchProvider:
         with patch(refresher_client, return_value=mock_client):
             await refresher._fetch_provider(provider)
 
-        mock_client.get.assert_called_once_with("https://custom.groq.com/catalog")
+        mock_client.get.assert_called_once()
+        call_args = mock_client.get.call_args
+        assert call_args[0][0] == "https://custom.groq.com/catalog"
 
     @pytest.mark.asyncio
     async def test_fetch_provider_falls_back_to_base_url_models(self):
@@ -255,7 +354,68 @@ class TestFetchProvider:
         with patch(refresher_client, return_value=mock_client):
             await refresher._fetch_provider(provider)
 
-        mock_client.get.assert_called_once_with("https://api.groq.com/openai/v1/models")
+        mock_client.get.assert_called_once()
+        call_args = mock_client.get.call_args
+        assert call_args[0][0] == "https://api.groq.com/openai/v1/models"
+
+    @pytest.mark.asyncio
+    async def test_fetch_provider_sends_bearer_auth(self):
+        """_fetch_provider() sends Authorization: Bearer header when env_key is set."""
+        provider = make_provider(name="groq", model_prefix="groq/")
+        refresher = CatalogRefresher()
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"data": []}
+
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        refresher_client = "dragonlight_router.catalog.refresher.httpx.AsyncClient"
+        with (
+            patch(refresher_client, return_value=mock_client),
+            patch.dict(os.environ, {"GROQ_API_KEY": "test-key-123"}),
+        ):
+            await refresher._fetch_provider(provider)
+
+        call_kwargs = mock_client.get.call_args[1]
+        assert call_kwargs["headers"]["Authorization"] == "Bearer test-key-123"
+
+    @pytest.mark.asyncio
+    async def test_fetch_provider_sends_x_api_key_for_anthropic(self):
+        """_fetch_provider() sends x-api-key header for Anthropic provider."""
+        provider = ProviderSchema(
+            name="anthropic",
+            base_url="https://api.anthropic.com/v1",
+            catalog_url=None,
+            env_key="ANTHROPIC_API_KEY",
+            model_prefix="anthropic/",
+            rate_limits=RateLimitSchema(rpm=10, rpd=200, tpm=100000, daily_token_cap=None),
+        )
+        refresher = CatalogRefresher()
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"data": []}
+
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        refresher_client = "dragonlight_router.catalog.refresher.httpx.AsyncClient"
+        with (
+            patch(refresher_client, return_value=mock_client),
+            patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-123"}),
+        ):
+            await refresher._fetch_provider(provider)
+
+        call_kwargs = mock_client.get.call_args[1]
+        assert call_kwargs["headers"]["x-api-key"] == "sk-ant-123"
+        assert call_kwargs["headers"]["anthropic-version"] == "2023-06-01"
+        assert "Authorization" not in call_kwargs["headers"]
 
     @pytest.mark.asyncio
     async def test_fetch_provider_raises_on_http_error(self):

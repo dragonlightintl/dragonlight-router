@@ -164,6 +164,12 @@ class HealthCheckLoop:
         breaker = self._breakers[name]
         slo = self._latency_slos.get(name)
 
+        # Skip probing backends with invalid API keys — no point pinging
+        # a provider when credentials are known to be bad.
+        if state.status == BackendStatus.KEY_INVALID:
+            logger.debug("health_check_skipped_key_invalid", backend=name)
+            return
+
         if not breaker.allow_request() and breaker.state != CircuitState.HALF_OPEN:
             return
 

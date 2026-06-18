@@ -226,6 +226,10 @@ def _is_backend_healthy(
         logger.debug("skipping circuit open backend", backend_name=candidate.name, tier=tier.value)
         return False
 
+    if state.status == BackendStatus.KEY_INVALID:
+        logger.debug("skipping key_invalid backend", backend_name=candidate.name, tier=tier.value)
+        return False
+
     return True
 
 

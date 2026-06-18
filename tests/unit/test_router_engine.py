@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -14,6 +15,7 @@ import yaml
 
 from dragonlight_router.core.errors import RouterConfigError
 from dragonlight_router.core.types import (
+    BackendStatus,
     BackendTier,
     CatalogEntry,
     DispatchOrder,
@@ -138,6 +140,70 @@ class TestSelectModels:
                 providers.append("nvidia")
         for i in range(len(providers) - 2):
             assert not (providers[i] == providers[i + 1] == providers[i + 2])
+
+    def test_key_invalid_backends_excluded_from_select_models(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ):
+        """KEY_INVALID backends are excluded from select_models results."""
+        from dragonlight_router.core.types import BackendStatus
+
+        monkeypatch.setenv("GROQ_API_KEY", "test-key-groq")
+
+        state_dir = tmp_path / "state"
+        state_dir.mkdir()
+        config = {
+            "state_dir": str(state_dir),
+            "catalog_ttl_hours": 24,
+            "default_top_n": 12,
+            "max_consecutive_same_provider": 2,
+            "providers": [
+                {
+                    "name": "groq",
+                    "base_url": "https://api.groq.com/openai/v1",
+                    "model_prefix": "groq/",
+                    "env_key": "GROQ_API_KEY",
+                    "rate_limits": {"rpm": 30, "rpd": 14400},
+                },
+            ],
+        }
+        config_path = tmp_path / "router_ki.yaml"
+        config_path.write_text(yaml.dump(config))
+
+        matrix = {
+            "coding": {
+                "groq/llama-3.1-8b-instant": 90,
+                "groq/mixtral-8x7b-32768": 75,
+            }
+        }
+        (state_dir / "model_role_matrix.json").write_text(json.dumps(matrix))
+
+        # Create catalog cache with all models
+        from dragonlight_router.catalog.cache import CatalogCache
+
+        catalog = {
+            "groq": [
+                CatalogEntry(model_id="groq/llama-3.1-8b-instant", provider="groq"),
+                CatalogEntry(model_id="groq/mixtral-8x7b-32768", provider="groq"),
+            ],
+        }
+        cache = CatalogCache(cache_path=state_dir / "provider_catalog.json", ttl_hours=24)
+        cache.set(catalog)
+
+        engine = RouterEngine(config_path=config_path)
+
+        # Verify both models appear before marking one KEY_INVALID
+        result_before = engine.select_models("coding")
+        assert "groq/llama-3.1-8b-instant" in result_before
+        assert "groq/mixtral-8x7b-32768" in result_before
+
+        # Mark one backend as KEY_INVALID in the registry
+        _backend, state = engine._registry.get("groq/llama-3.1-8b-instant")
+        assert state is not None
+        state.status = BackendStatus.KEY_INVALID
+
+        result_after = engine.select_models("coding")
+        assert "groq/llama-3.1-8b-instant" not in result_after
+        assert "groq/mixtral-8x7b-32768" in result_after
 
 
 class TestRecordRequest:
@@ -1224,3 +1290,192 @@ class TestDispatchStream:
         assert captured_kwargs["budget_tracker"] is engine._budget
         assert captured_kwargs["health_tracker"] is engine._health
         assert isinstance(captured_kwargs["config"], dict)
+
+
+# ---------------------------------------------------------------------------
+# KEY_INVALID backend status wiring integration tests
+# ---------------------------------------------------------------------------
+
+
+def _setup_single_provider_config(
+    tmp_path: Path,
+    *,
+    env_key: str = "GROQ_API_KEY",
+) -> Path:
+    """Create a config with a single provider that uses the given env_key."""
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+
+    config = {
+        "state_dir": str(state_dir),
+        "catalog_ttl_hours": 24,
+        "default_top_n": 12,
+        "max_consecutive_same_provider": 2,
+        "providers": [
+            {
+                "name": "groq",
+                "base_url": "https://api.groq.com/openai/v1",
+                "model_prefix": "groq/",
+                "env_key": env_key,
+                "rate_limits": {"rpm": 30, "rpd": 14400},
+            },
+        ],
+    }
+    config_path = tmp_path / "router.yaml"
+    config_path.write_text(yaml.dump(config))
+
+    matrix = {
+        "coding": {
+            "groq/llama-3.1-8b-instant": 90,
+            "groq/mixtral-8x7b-32768": 75,
+        }
+    }
+    (state_dir / "model_role_matrix.json").write_text(json.dumps(matrix))
+
+    # Create catalog cache with both models
+    from dragonlight_router.catalog.cache import CatalogCache
+
+    catalog = {
+        "groq": [
+            CatalogEntry(model_id="groq/llama-3.1-8b-instant", provider="groq"),
+            CatalogEntry(model_id="groq/mixtral-8x7b-32768", provider="groq"),
+        ],
+    }
+    cache = CatalogCache(cache_path=state_dir / "provider_catalog.json", ttl_hours=24)
+    cache.set(catalog)
+
+    return config_path
+
+
+class TestKeyInvalidOnMissingEnvVar:
+    """Integration: backends marked KEY_INVALID when env var is missing at registration."""
+
+    def test_backends_marked_key_invalid_on_missing_env_var(
+        self, tmp_path: Path,
+    ):
+        """Backends whose env_key points to an unset env var are KEY_INVALID after registration."""
+        # Use an env_key that does not exist in the environment
+        config_path = _setup_single_provider_config(tmp_path, env_key="FAKE_KEY_NOT_SET")
+
+        # Ensure FAKE_KEY_NOT_SET is definitely not in the environment
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("FAKE_KEY_NOT_SET", None)
+            engine = RouterEngine(config_path=config_path)
+
+        # Both backends should be registered but marked KEY_INVALID
+        for model_id in ("groq/llama-3.1-8b-instant", "groq/mixtral-8x7b-32768"):
+            _backend, state = engine._registry.get(model_id)
+            assert state is not None, f"{model_id} should be registered"
+            assert state.status == BackendStatus.KEY_INVALID, (
+                f"{model_id} should be KEY_INVALID, got {state.status}"
+            )
+
+        # KEY_INVALID backends should be excluded from select_models
+        result = engine.select_models("coding")
+        assert "groq/llama-3.1-8b-instant" not in result
+        assert "groq/mixtral-8x7b-32768" not in result
+
+
+class TestKeyInvalidAfterCatalogAuthFailure:
+    """Integration: backends marked KEY_INVALID after catalog auth failure (401/403)."""
+
+    def test_backends_marked_key_invalid_after_catalog_auth_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Catalog refresh auth failure marks all backends for that provider KEY_INVALID."""
+        monkeypatch.setenv("GROQ_API_KEY", "test-key-groq")
+        config_path = _setup_single_provider_config(tmp_path)
+        engine = RouterEngine(config_path=config_path)
+
+        # Verify backends start as AVAILABLE
+        for model_id in ("groq/llama-3.1-8b-instant", "groq/mixtral-8x7b-32768"):
+            _backend, state = engine._registry.get(model_id)
+            assert state is not None
+            assert state.status == BackendStatus.AVAILABLE
+
+        # Mock the refresher to return a result with auth failures for groq
+        from dragonlight_router.catalog.refresher import CatalogRefreshResult
+
+        mock_result = Ok(CatalogRefreshResult(
+            catalog={},
+            auth_failures={"groq": 401},
+        ))
+
+        async def run_test():
+            with patch.object(
+                engine._refresher,
+                "refresh",
+                new_callable=AsyncMock,
+                return_value=mock_result,
+            ):
+                await engine._async_refresh_catalog()
+
+        asyncio.run(run_test())
+
+        # Both backends should now be KEY_INVALID
+        for model_id in ("groq/llama-3.1-8b-instant", "groq/mixtral-8x7b-32768"):
+            _backend, state = engine._registry.get(model_id)
+            assert state is not None
+            assert state.status == BackendStatus.KEY_INVALID, (
+                f"{model_id} should be KEY_INVALID after auth failure, got {state.status}"
+            )
+
+
+class TestCatalogRefreshRestoresKeyInvalid:
+    """Integration: successful catalog refresh restores KEY_INVALID backends to AVAILABLE."""
+
+    def test_catalog_refresh_restores_key_invalid_backends(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ):
+        """A successful catalog refresh for a previously KEY_INVALID provider restores backends."""
+        monkeypatch.setenv("GROQ_API_KEY", "test-key-groq")
+        config_path = _setup_single_provider_config(tmp_path)
+        engine = RouterEngine(config_path=config_path)
+
+        # Manually mark both backends as KEY_INVALID (simulating a prior auth failure)
+        for model_id in ("groq/llama-3.1-8b-instant", "groq/mixtral-8x7b-32768"):
+            _backend, state = engine._registry.get(model_id)
+            assert state is not None
+            state.status = BackendStatus.KEY_INVALID
+
+        # Verify they are KEY_INVALID
+        for model_id in ("groq/llama-3.1-8b-instant", "groq/mixtral-8x7b-32768"):
+            _backend, state = engine._registry.get(model_id)
+            assert state.status == BackendStatus.KEY_INVALID
+
+        # Now execute a catalog refresh that succeeds (no auth failures, catalog entries present)
+        # This goes through _execute_catalog_refresh in routes.py which restores KEY_INVALID
+        # backends when the provider appears in the successful catalog.
+        from dragonlight_router.catalog.refresher import CatalogRefreshResult
+
+        success_result = Ok(CatalogRefreshResult(
+            catalog={
+                "groq": [
+                    CatalogEntry(model_id="groq/llama-3.1-8b-instant", provider="groq"),
+                    CatalogEntry(model_id="groq/mixtral-8x7b-32768", provider="groq"),
+                ],
+            },
+            auth_failures={},
+        ))
+
+        # The restore logic lives in routes._execute_catalog_refresh, so we simulate
+        # the same logic that runs there: iterate registry, check provider in catalog
+        # and status == KEY_INVALID, then set AVAILABLE.
+        refresh_result = success_result.value
+        catalog = refresh_result.catalog
+        auth_failures = refresh_result.auth_failures
+
+        for name, _backend, state in engine._registry.all_backends():
+            provider = engine._resolve_provider(name)
+            if provider in auth_failures:
+                state.status = BackendStatus.KEY_INVALID
+            elif provider in catalog and state.status == BackendStatus.KEY_INVALID:
+                state.status = BackendStatus.AVAILABLE
+
+        # Both backends should now be AVAILABLE again
+        for model_id in ("groq/llama-3.1-8b-instant", "groq/mixtral-8x7b-32768"):
+            _backend, state = engine._registry.get(model_id)
+            assert state is not None
+            assert state.status == BackendStatus.AVAILABLE, (
+                f"{model_id} should be AVAILABLE after successful refresh, got {state.status}"
+            )

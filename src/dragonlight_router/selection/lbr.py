@@ -4,6 +4,8 @@ Filters model candidates based on rate-limit budget availability.
 """
 from __future__ import annotations
 
+import random
+
 import structlog
 
 from dragonlight_router.budget.tracker import BudgetTracker
@@ -11,6 +13,7 @@ from dragonlight_router.core.types import (
     BackendConfig,
     BackendTier,
     DispatchOrder,
+    ScoredCandidate,
 )
 from dragonlight_router.result import Ok
 
@@ -165,15 +168,22 @@ def _apply_median_threshold(
     ]
 
 
-# Placeholder for select_final_candidate function that would be used by the cascade
-def select_final_candidate(candidates: list[BackendConfig]) -> BackendConfig:
-    """Select the final candidate from the list, breaking ties.
+# Minimum weight floor — prevents zero-score candidates from being
+# completely unreachable while keeping their selection probability low.
+_SCORE_FLOOR = 0.01
 
-    In a full implementation, this would use additional scoring or heuristics
-    to break ties between equally qualified candidates.
+
+def select_final_candidate(candidates: list[ScoredCandidate]) -> BackendConfig:
+    """Select a candidate using weighted random selection based on composite scores.
+
+    Higher-scored candidates are selected proportionally more often, but
+    lower-scored candidates still receive some traffic. This distributes
+    load across similarly-scored providers and allows recovery from
+    provider degradation before scores fully diverge.
 
     Args:
-        candidates: List of backend configurations to choose from.
+        candidates: Scored candidates from the cascade pipeline, sorted
+            best-first by composite score.
 
     Returns:
         The selected BackendConfig.
@@ -183,10 +193,23 @@ def select_final_candidate(candidates: list[BackendConfig]) -> BackendConfig:
     """
     assert isinstance(candidates, list), "candidates must be a list"
     assert all(
-        isinstance(c, BackendConfig) for c in candidates
-    ), "all candidates must be BackendConfig"
+        isinstance(c, ScoredCandidate) for c in candidates
+    ), "all candidates must be ScoredCandidate"
 
     if not candidates:
         raise ValueError("Cannot select from empty candidate list")
 
-    return candidates[0]
+    if len(candidates) == 1:
+        return candidates[0].config
+
+    weights = [max(c.score, _SCORE_FLOOR) for c in candidates]
+    selected = random.choices(candidates, weights=weights, k=1)[0]
+
+    logger.debug(
+        "weighted_random_selection",
+        selected=selected.config.name,
+        selected_score=round(selected.score, 4),
+        candidate_count=len(candidates),
+    )
+
+    return selected.config

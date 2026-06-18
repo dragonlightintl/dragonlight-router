@@ -205,6 +205,17 @@ class ModelScore:
     composite: float
 
 @dataclass(frozen=True)
+class ScoredCandidate:
+    """A BackendConfig paired with its composite selection score.
+
+    Carries the CBR composite score alongside the config so that
+    downstream stages (LBR, final selection) can use the score for
+    weighted random selection and observability without re-computing it.
+    """
+    config: BackendConfig
+    score: float
+
+@dataclass(frozen=True)
 class CatalogEntry:
     """One model from a provider's catalog."""
     model_id: str

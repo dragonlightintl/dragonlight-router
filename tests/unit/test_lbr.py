@@ -17,6 +17,7 @@ from dragonlight_router.core.types import (
     BackendRateLimits,
     BackendTier,
     DispatchOrder,
+    ScoredCandidate,
 )
 from dragonlight_router.result import Ok
 from dragonlight_router.selection.lbr import filter_by_rate_limit
@@ -226,13 +227,12 @@ def test_local_and_non_local_mixed():
     assert result_names == {"local-llm", "good-cloud", "bad-cloud"}
 
 
-def test_select_final_candidate_returns_first():
-    """[TM-003 AC-6] select_final_candidate returns the first element of the list."""
+def test_select_final_candidate_single():
+    """[TM-003 AC-6] With one candidate, always returns it (no randomisation overhead)."""
     from dragonlight_router.selection.lbr import select_final_candidate
-    config_a = _make_backend_config(name="a", provider="prov_a")
-    config_b = _make_backend_config(name="b", provider="prov_b")
-    result = select_final_candidate([config_a, config_b])
-    assert result is config_a
+    config = _make_backend_config(name="only", provider="prov")
+    result = select_final_candidate([ScoredCandidate(config=config, score=80.0)])
+    assert result is config
 
 
 def test_select_final_candidate_empty_raises():
@@ -240,6 +240,76 @@ def test_select_final_candidate_empty_raises():
     from dragonlight_router.selection.lbr import select_final_candidate
     with pytest.raises(ValueError, match="Cannot select from empty candidate list"):
         select_final_candidate([])
+
+
+def test_select_final_candidate_weighted_distribution():
+    """Weighted random selection favours the higher-scored candidate."""
+    import random as _random
+
+    from dragonlight_router.selection.lbr import select_final_candidate
+
+    config_high = _make_backend_config(name="high", provider="prov_high")
+    config_low = _make_backend_config(name="low", provider="prov_low")
+    candidates = [
+        ScoredCandidate(config=config_high, score=90.0),
+        ScoredCandidate(config=config_low, score=10.0),
+    ]
+
+    _random.seed(42)
+    counts: dict[str, int] = {"high": 0, "low": 0}
+    for _ in range(1000):
+        result = select_final_candidate(candidates)
+        counts[result.name] += 1
+
+    # Score 90 vs 10 => high should be selected ~90% of the time
+    assert counts["high"] > 700, f"Expected >700, got {counts['high']}"
+    assert counts["low"] > 0, "Low-score candidate should still receive some traffic"
+
+
+def test_select_final_candidate_equal_scores():
+    """Equal-scored candidates all receive selections over many runs."""
+    import random as _random
+
+    from dragonlight_router.selection.lbr import select_final_candidate
+
+    configs = [
+        _make_backend_config(name=f"c{i}", provider=f"prov{i}") for i in range(3)
+    ]
+    candidates = [ScoredCandidate(config=c, score=50.0) for c in configs]
+
+    _random.seed(42)
+    counts: dict[str, int] = {c.name: 0 for c in configs}
+    for _ in range(1000):
+        result = select_final_candidate(candidates)
+        counts[result.name] += 1
+
+    for name, count in counts.items():
+        assert count > 100, f"{name} selected only {count} times; expected >100 with equal weights"
+
+
+def test_select_final_candidate_zero_score_handled():
+    """Candidates with score 0 are still selectable thanks to the epsilon floor."""
+    import random as _random
+
+    from dragonlight_router.selection.lbr import select_final_candidate
+
+    config_normal = _make_backend_config(name="normal", provider="prov_normal")
+    config_zero = _make_backend_config(name="zero", provider="prov_zero")
+    candidates = [
+        ScoredCandidate(config=config_normal, score=50.0),
+        ScoredCandidate(config=config_zero, score=0.0),
+    ]
+
+    _random.seed(42)
+    counts: dict[str, int] = {"normal": 0, "zero": 0}
+    for _ in range(1000):
+        result = select_final_candidate(candidates)
+        counts[result.name] += 1
+
+    # Zero-score candidate should still be selected at least a few times
+    assert counts["zero"] > 0, "Zero-score candidate should be selectable via epsilon floor"
+    # Normal candidate should dominate since 50.0 >> 0.01
+    assert counts["normal"] > 900, f"Expected >900, got {counts['normal']}"
 
 
 def test_extract_score_non_ok_with_value_attribute():

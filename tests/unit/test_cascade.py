@@ -13,6 +13,7 @@ from dragonlight_router.core.types import (
     BackendStatus,
     BackendTier,
     DispatchOrder,
+    ScoredCandidate,
 )
 from dragonlight_router.dispatch.cascade import (
     DispatchContext,
@@ -162,11 +163,12 @@ class TestRunLbrStageEmpty:
     def test_empty_lbr_result_returns_err(self, make_backend_config):
         """[TM-004 AC-3] LBR returning no candidates → Err(LBRNoCapacityError)."""
         backend = make_backend_config(name="b1", provider="prov")
+        scored = ScoredCandidate(config=backend, score=0.5)
         order = _make_order()
         ctx = _make_ctx()
 
         with patch("dragonlight_router.dispatch.cascade.filter_by_rate_limit", return_value=[]):
-            result = _run_lbr_stage(order, [backend], ctx)
+            result = _run_lbr_stage(order, [scored], ctx)
 
         assert result.is_err()
         from dragonlight_router.core.errors import LBRNoCapacityError
@@ -472,6 +474,7 @@ class TestDispatchStream:
     async def test_streams_tokens_on_success(self, make_backend_config):
         """[TM-004 AC-1] dispatch_stream yields token and metadata chunks on success."""
         backend = make_backend_config(name="b1", provider="prov")
+        scored = ScoredCandidate(config=backend, score=0.8)
         order = _make_order()
         registry = MagicMock(spec=BackendRegistry)
         budget_tracker = MagicMock()
@@ -481,7 +484,7 @@ class TestDispatchStream:
         cascade_mod = "dragonlight_router.dispatch.cascade"
         adapter_path = f"{cascade_mod}._adapters_mod.create_adapter"
         with (
-            patch(f"{cascade_mod}._run_cascade", return_value=Ok([backend])),
+            patch(f"{cascade_mod}._run_cascade", return_value=Ok([scored])),
             patch(adapter_path, return_value=adapter),
         ):
             chunks = []
@@ -522,6 +525,8 @@ class TestDispatchStream:
         """[TM-004 AC-2] dispatch_stream falls back to next candidate on adapter failure."""
         b1 = make_backend_config(name="b1", provider="prov1")
         b2 = make_backend_config(name="b2", provider="prov2")
+        sc1 = ScoredCandidate(config=b1, score=0.9)
+        sc2 = ScoredCandidate(config=b2, score=0.7)
         order = _make_order()
         registry = MagicMock(spec=BackendRegistry)
         budget_tracker = MagicMock()
@@ -542,7 +547,7 @@ class TestDispatchStream:
         cascade_mod = "dragonlight_router.dispatch.cascade"
         adapter_path = f"{cascade_mod}._adapters_mod.create_adapter"
         with (
-            patch(f"{cascade_mod}._run_cascade", return_value=Ok([b1, b2])),
+            patch(f"{cascade_mod}._run_cascade", return_value=Ok([sc1, sc2])),
             patch(adapter_path, side_effect=_create_adapter),
         ):
             chunks = []
@@ -562,6 +567,8 @@ class TestDispatchStream:
         """[TM-004 AC-6] dispatch_stream yields error when all backends fail."""
         b1 = make_backend_config(name="b1", provider="prov1")
         b2 = make_backend_config(name="b2", provider="prov2")
+        sc1 = ScoredCandidate(config=b1, score=0.9)
+        sc2 = ScoredCandidate(config=b2, score=0.7)
         order = _make_order()
         registry = MagicMock(spec=BackendRegistry)
         budget_tracker = MagicMock()
@@ -572,7 +579,7 @@ class TestDispatchStream:
         cascade_mod = "dragonlight_router.dispatch.cascade"
         adapter_path = f"{cascade_mod}._adapters_mod.create_adapter"
         with (
-            patch(f"{cascade_mod}._run_cascade", return_value=Ok([b1, b2])),
+            patch(f"{cascade_mod}._run_cascade", return_value=Ok([sc1, sc2])),
             patch(adapter_path, return_value=failing_adapter),
         ):
             chunks = []

@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import pytest
 
-from dragonlight_router.health.tracker import HealthTracker
 from dragonlight_router.core.types import Ok
+from dragonlight_router.health.tracker import HealthTracker
 
 
 class TestHealthTrackerInit:

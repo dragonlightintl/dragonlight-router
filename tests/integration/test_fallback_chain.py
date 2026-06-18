@@ -12,11 +12,9 @@ import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 import yaml
 from starlette.testclient import TestClient
 
-from dragonlight_router.core.state import BackendState
 from dragonlight_router.core.types import (
     BackendCapabilities,
     BackendConfig,
@@ -28,7 +26,6 @@ from dragonlight_router.core.types import (
     GenerativeBackend,
 )
 from dragonlight_router.server.app import create_app
-
 
 # ---------------------------------------------------------------------------
 # Helpers

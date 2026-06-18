@@ -5,6 +5,8 @@ Spec traceability: TM-002 (CBR cost-efficiency filtering)
 
 from __future__ import annotations
 
+import pytest
+
 from dragonlight_router.budget.tracker import BudgetTracker
 from dragonlight_router.core.types import (
     BackendCapabilities,
@@ -202,28 +204,28 @@ def test_filter_by_cost_assertions():
     # Test candidates not a list
     try:
         filter_by_cost("not a list", order, budget_tracker)  # type: ignore
-        assert False, "Should have raised AssertionError"
+        pytest.fail("Should have raised AssertionError")
     except AssertionError as e:
         assert "candidates must be a list" in str(e)
-    
+
     # Test candidates containing non-BackendConfig
     try:
         filter_by_cost(["not a backend"], order, budget_tracker)  # type: ignore
-        assert False, "Should have raised AssertionError"
+        pytest.fail("Should have raised AssertionError")
     except AssertionError as e:
         assert "all candidates must be BackendConfig instances" in str(e)
-    
+
     # Test order not a DispatchOrder
     try:
         filter_by_cost([], "not an order", budget_tracker)  # type: ignore
-        assert False, "Should have raised AssertionError"
+        pytest.fail("Should have raised AssertionError")
     except AssertionError as e:
         assert "order must be DispatchOrder instance" in str(e)
-    
+
     # Test budget_tracker not a BudgetTracker
     try:
         filter_by_cost([], order, "not a tracker")  # type: ignore
-        assert False, "Should have raised AssertionError"
+        pytest.fail("Should have raised AssertionError")
     except AssertionError as e:
         assert "budget_tracker must be BudgetTracker instance" in str(e)
 

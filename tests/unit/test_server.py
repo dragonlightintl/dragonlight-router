@@ -4,7 +4,6 @@ Spec traceability: TM-009 (HTTP API endpoints)
 """
 from __future__ import annotations
 
-import asyncio
 import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -24,14 +23,14 @@ from dragonlight_router.core.types import (
     BackendTier,
     StreamChunk,
 )
-from dragonlight_router.result import Ok, Err
+from dragonlight_router.result import Err, Ok
 from dragonlight_router.server.app import create_app
 from dragonlight_router.server.routes import (
     _backend_tier_to_trust,
-    _format_stream_chunk,
-    _validate_select_request,
-    _validate_dispatch_request,
     _execute_catalog_refresh,
+    _format_stream_chunk,
+    _validate_dispatch_request,
+    _validate_select_request,
 )
 
 
@@ -563,7 +562,11 @@ class TestExecuteCatalogRefresh:
         mock_refresher = AsyncMock()
         mock_refresher.refresh.return_value = Ok(mock_catalog)
 
-        with patch("dragonlight_router.server.routes._refresher_mod.CatalogRefresher", return_value=mock_refresher):
+        refresher_path = (
+            "dragonlight_router.server.routes"
+            "._refresher_mod.CatalogRefresher"
+        )
+        with patch(refresher_path, return_value=mock_refresher):
             response = await _execute_catalog_refresh(engine)
 
         data = response.body
@@ -677,9 +680,8 @@ class TestLifespan:
         ):
             app = create_app(config_path=config_path)
             engine = app.state.engine
-            with patch.object(engine, "save_state") as mock_save:
-                with TestClient(app):
-                    pass  # enter and exit triggers lifespan shutdown
+            with patch.object(engine, "save_state") as mock_save, TestClient(app):
+                pass  # enter and exit triggers lifespan shutdown
             mock_save.assert_called_once()
 
     def test_lifespan_shutdown_save_error_does_not_crash(self, tmp_path: Path):
@@ -698,10 +700,11 @@ class TestLifespan:
         ):
             app = create_app(config_path=config_path)
             engine = app.state.engine
-            with patch.object(engine, "save_state", side_effect=OSError("disk full")):
-                # Should not raise even though save_state fails
-                with TestClient(app):
-                    pass
+            with (
+                patch.object(engine, "save_state", side_effect=OSError("disk full")),
+                TestClient(app),
+            ):
+                pass  # Should not raise even though save_state fails
 
 
 class TestMain:
@@ -709,27 +712,40 @@ class TestMain:
         """[TM-009 AC-9] main() calls uvicorn.run with default host 127.0.0.1 port 8100."""
         import dragonlight_router.server.app as app_module
 
-        with patch.dict("os.environ", {}, clear_env := False):
-            for key in ("DRAGONLIGHT_ROUTER_CONFIG", "DRAGONLIGHT_HOST", "DRAGONLIGHT_PORT"):
-                patch.object
-            with patch("dragonlight_router.server.app.uvicorn.run") as mock_run, \
-                 patch("dragonlight_router.server.app.create_app") as mock_create:
-                mock_create.return_value = MagicMock()
-                import os
-                env_backup = {k: os.environ.pop(k, None) for k in ("DRAGONLIGHT_ROUTER_CONFIG", "DRAGONLIGHT_HOST", "DRAGONLIGHT_PORT")}
-                try:
-                    app_module.main()
-                finally:
-                    for k, v in env_backup.items():
-                        if v is not None:
-                            os.environ[k] = v
-                mock_run.assert_called_once()
-                _, kwargs = mock_run.call_args
-                assert kwargs.get("host", mock_run.call_args[0][1] if len(mock_run.call_args[0]) > 1 else "127.0.0.1") == "127.0.0.1"
+        app_mod = "dragonlight_router.server.app"
+        with (
+            patch(f"{app_mod}.uvicorn.run") as mock_run,
+            patch(f"{app_mod}.create_app") as mock_create,
+        ):
+            mock_create.return_value = MagicMock()
+            import os
+            env_keys = (
+                "DRAGONLIGHT_ROUTER_CONFIG",
+                "DRAGONLIGHT_HOST",
+                "DRAGONLIGHT_PORT",
+            )
+            env_backup = {
+                k: os.environ.pop(k, None) for k in env_keys
+            }
+            try:
+                app_module.main()
+            finally:
+                for k, v in env_backup.items():
+                    if v is not None:
+                        os.environ[k] = v
+            mock_run.assert_called_once()
+            _, kwargs = mock_run.call_args
+            call_args = mock_run.call_args[0]
+            default_host = (
+                call_args[1] if len(call_args) > 1 else "127.0.0.1"
+            )
+            host = kwargs.get("host", default_host)
+            assert host == "127.0.0.1"
 
     def test_main_uses_env_config_path(self, tmp_path: Path):
         """[TM-009 AC-9] main() passes config path from DRAGONLIGHT_ROUTER_CONFIG env var."""
         import os
+
         import dragonlight_router.server.app as app_module
 
         config_path = str(tmp_path / "router.yaml")
@@ -756,6 +772,7 @@ class TestMain:
     def test_main_uses_custom_host_and_port(self, tmp_path: Path):
         """[TM-009 AC-9] main() reads DRAGONLIGHT_HOST and DRAGONLIGHT_PORT env vars."""
         import os
+
         import dragonlight_router.server.app as app_module
 
         captured = {}
@@ -811,7 +828,11 @@ class TestExecuteCatalogRefreshError:
         mock_refresher = AsyncMock()
         mock_refresher.refresh.return_value = Err(RuntimeError("network down"))
 
-        with patch("dragonlight_router.server.routes._refresher_mod.CatalogRefresher", return_value=mock_refresher):
+        refresher_path = (
+            "dragonlight_router.server.routes"
+            "._refresher_mod.CatalogRefresher"
+        )
+        with patch(refresher_path, return_value=mock_refresher):
             response = await _execute_catalog_refresh(engine)
 
         import json as _json
@@ -911,7 +932,7 @@ class TestDispatchOkPath:
         assert "groq_llama70b" in data["attempted_backends"]
 
     def test_dispatch_err_non_dispatch_failure(self, tmp_path: Path):
-        """[TM-009 AC-8] dispatch_handler returns 500 for generic Err with non-DispatchFailure error."""
+        """[TM-009 AC-8] dispatch_handler returns 500 for generic Err (non-DispatchFailure)."""
         config_path = _setup_test_env(tmp_path)
         app = create_app(config_path=config_path)
         engine = app.state.engine

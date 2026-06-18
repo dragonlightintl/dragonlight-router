@@ -9,10 +9,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.dragonlight_router.health.check_loop import HealthCheckLoop, CircuitBreaker
-from dragonlight_router.core.types import BackendStatus, GenerativeBackend, LatencySLO
 from dragonlight_router.core.state import BackendState
+from dragonlight_router.core.types import BackendStatus, GenerativeBackend, LatencySLO
 from dragonlight_router.health.circuit_breaker import CircuitState
+from src.dragonlight_router.health.check_loop import CircuitBreaker, HealthCheckLoop
 
 
 @pytest.fixture
@@ -240,7 +240,9 @@ async def test_loop_respects_interval(health_check_loop):
 
 
 @pytest.mark.asyncio
-async def test_slo_violation_transitions_to_degraded_via_latency(health_check_loop, mock_backends, mock_states):
+async def test_slo_violation_transitions_to_degraded_via_latency(
+    health_check_loop, mock_backends, mock_states,
+):
     """[TM-008 AC-6] Exceeding latency SLO for 3 consecutive checks transitions to DEGRADED."""
     name = "backend1"
     backend = mock_backends[name]
@@ -273,8 +275,11 @@ async def test_slo_violation_transitions_to_degraded_via_latency(health_check_lo
 
     fake_time.calls = 0
 
-    with patch("dragonlight_router.health.check_loop.time.time", side_effect=fake_time):
-        with patch("asyncio.sleep", new_callable=AsyncMock):
+    time_path = "dragonlight_router.health.check_loop.time.time"
+    with (
+        patch(time_path, side_effect=fake_time),
+        patch("asyncio.sleep", new_callable=AsyncMock),
+    ):
             # First violation
             await health_check_loop._probe_backend(name, backend)
             assert health_check_loop._slo_violation_counts[name] == 1
@@ -292,7 +297,9 @@ async def test_slo_violation_transitions_to_degraded_via_latency(health_check_lo
 
 
 @pytest.mark.asyncio
-async def test_slo_violation_transitions_to_degraded_via_failure(health_check_loop, mock_backends, mock_states):
+async def test_slo_violation_transitions_to_degraded_via_failure(
+    health_check_loop, mock_backends, mock_states,
+):
     """[TM-008 AC-6] Three consecutive failed checks transition to DEGRADED."""
     name = "backend1"
     backend = mock_backends[name]
@@ -375,7 +382,9 @@ async def test_stop_when_not_running_is_noop(health_check_loop):
 
 
 @pytest.mark.asyncio
-async def test_probe_skipped_when_circuit_open_not_half_open(health_check_loop, mock_backends, mock_states):
+async def test_probe_skipped_when_circuit_open_not_half_open(
+    health_check_loop, mock_backends, mock_states,
+):
     """[TM-008 AC-3] Probe is skipped when circuit is OPEN and not HALF_OPEN (line 120)."""
     name = "backend1"
     backend = mock_backends[name]

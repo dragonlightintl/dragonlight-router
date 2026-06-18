@@ -14,37 +14,28 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch, AsyncMock
 
-import pytest
-
-from dragonlight_router.core.registry import BackendRegistry
 from dragonlight_router.core.types import (
-    BackendConfig,
     BackendCapabilities,
+    BackendConfig,
     BackendCostProfile,
     BackendRateLimits,
-    BackendStatus,
     BackendTier,
     DispatchOrder,
-    StreamChunk,
 )
 from dragonlight_router.dispatch.cascade import (
-    DispatchContext,
     _apply_fallback_policy,
     _estimate_token_count,
     _log_token_estimation,
 )
+from dragonlight_router.health.circuit_breaker import CircuitState
 from dragonlight_router.health.tracker import HealthTracker
-from dragonlight_router.health.circuit_breaker import CircuitBreaker, CircuitState
-from dragonlight_router.selection.mbr import estimate_complexity, _INTENT_TIER_FLOOR
+from dragonlight_router.selection.mbr import _INTENT_TIER_FLOOR, estimate_complexity
 from dragonlight_router.server.routes import (
-    _validate_dispatch_request,
-    _ALLOWED_INTENT_CATEGORIES,
     _ALLOWED_FALLBACK_POLICIES,
+    _ALLOWED_INTENT_CATEGORIES,
+    _validate_dispatch_request,
 )
-from dragonlight_router.result import Ok
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -52,15 +43,15 @@ from dragonlight_router.result import Ok
 
 
 def _make_order(**kwargs) -> DispatchOrder:
-    defaults = dict(
-        intent_category="test",
-        specific_intent="test",
-        operator_message="hello",
-        system_prompt="",
-        context_tokens=0,
-        requires_tool_use=False,
-        requires_long_context=False,
-    )
+    defaults = {
+        "intent_category": "test",
+        "specific_intent": "test",
+        "operator_message": "hello",
+        "system_prompt": "",
+        "context_tokens": 0,
+        "requires_tool_use": False,
+        "requires_long_context": False,
+    }
     defaults.update(kwargs)
     return DispatchOrder(**defaults)
 
@@ -552,8 +543,9 @@ class TestHealthEndpointAvailability:
 
     def test_health_endpoint_includes_status(self, tmp_path: Path):
         """[HAZ-003] GET /v1/health response includes 'status' field."""
-        from dragonlight_router.server.app import create_app
         from starlette.testclient import TestClient
+
+        from dragonlight_router.server.app import create_app
 
         state_dir = tmp_path / "state"
         state_dir.mkdir()

@@ -467,7 +467,7 @@ class TestCohereAdditionalCoverage:
         @asynccontextmanager
         async def fake_stream(method, url, **kwargs):
             raise httpx.ConnectError("refused")
-            yield  # noqa: unreachable
+            yield  # noqa: F841
 
         with patch("dragonlight_router.adapters.cohere.httpx.AsyncClient") as mock_cls:
             mock_client = AsyncMock()
@@ -500,7 +500,7 @@ class TestCohereAdditionalCoverage:
         @asynccontextmanager
         async def fake_stream(method, url, **kwargs):
             raise httpx.ReadTimeout("timed out")
-            yield  # noqa: unreachable
+            yield  # noqa: F841
 
         with patch("dragonlight_router.adapters.cohere.httpx.AsyncClient") as mock_cls:
             mock_client = AsyncMock()
@@ -554,8 +554,10 @@ class TestCohereAdditionalCoverage:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_cls.return_value = mock_client
 
-            with _patch.object(backend, "_parse_stream", _raise_runtime):
-                with pytest.raises(RuntimeError, match="inner cohere error"):
+            with (
+                _patch.object(backend, "_parse_stream", _raise_runtime),
+                pytest.raises(RuntimeError, match="inner cohere error"),
+            ):
                     async for _ in backend.generate(
                         [{"role": "user", "content": "Hi"}], stream=True,
                     ):

@@ -8,7 +8,6 @@ Spec traceability: HAZ-009 (Circuit Breaker Flapping)
 from __future__ import annotations
 
 import time
-from unittest.mock import patch
 
 import pytest
 
@@ -71,7 +70,7 @@ class TestJitteredCooldown:
         cb.record_error()
         cb.record_error()
         cb.record_error()
-        first_cooldown = cb._effective_cooldown_s
+        _first_cooldown = cb._effective_cooldown_s
 
         # Let it transition to HALF_OPEN, then fail again
         time.sleep(0.02)
@@ -121,7 +120,7 @@ class TestJitteredCooldown:
         cb = CircuitBreaker(error_threshold=3, cooldown_s=60.0, jitter_factor=0.25)
         cb.record_error()
         cb.record_error()
-        initial_cooldown = cb._effective_cooldown_s
+        _initial_cooldown = cb._effective_cooldown_s
         cb.record_error()  # trips circuit
         assert cb.state == CircuitState.OPEN
         # A new jittered cooldown was computed

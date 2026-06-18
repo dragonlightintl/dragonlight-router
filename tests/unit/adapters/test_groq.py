@@ -15,9 +15,8 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from dragonlight_router.adapters.groq import GroqBackend, _GROQ_BASE_URL
+from dragonlight_router.adapters.groq import _GROQ_BASE_URL, GroqBackend
 from dragonlight_router.core.types import BackendStatus
-
 
 # ---------------------------------------------------------------------------
 # Helpers

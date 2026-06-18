@@ -5,7 +5,6 @@ counters, latency percentiles, memory/uptime reporting, and reset.
 """
 from __future__ import annotations
 
-import time
 from unittest.mock import patch
 
 from dragonlight_router.server.metrics import MetricsCollector, _percentile
@@ -155,7 +154,8 @@ class TestMetricsCollectorSnapshot:
         class FakeRusage:
             ru_maxrss = 500  # 500 bytes on macOS => 0.0004 MB => triggers Linux path
 
-        with patch("dragonlight_router.server.metrics.resource.getrusage", return_value=FakeRusage()):
+        rusage_path = "dragonlight_router.server.metrics.resource.getrusage"
+        with patch(rusage_path, return_value=FakeRusage()):
             snap = mc.snapshot()
         # Linux path: 500 / 1024 ≈ 0.49
         assert snap["memory_mb"] > 0

@@ -11,9 +11,8 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from dragonlight_router.adapters.cerebras import CerebrasBackend, _DEFAULT_BASE_URL
+from dragonlight_router.adapters.cerebras import _DEFAULT_BASE_URL, CerebrasBackend
 from dragonlight_router.core.types import BackendStatus
-
 
 # ---------------------------------------------------------------------------
 # Helpers

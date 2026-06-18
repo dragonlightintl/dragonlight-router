@@ -4,8 +4,6 @@ Spec traceability: TM-019 (Complexity estimation)
 """
 from __future__ import annotations
 
-import pytest
-
 from dragonlight_router.core.types import BackendTier, ComplexityEstimate, DispatchOrder
 from dragonlight_router.selection.complexity import estimate_complexity
 
@@ -87,7 +85,7 @@ class TestComplexityEstimation:
         assert len(result.signals) >= 1
 
     def test_moderate_message_signal_when_long_message_low_context(self):
-        """[TM-019 AC-1] Long message with low context triggers 'moderate_message' signal (line 110)."""
+        """[TM-019 AC-1] Long message with low context triggers 'moderate_message' signal."""
         result = estimate_complexity(_order(
             operator_message="x" * 100,
             context_tokens=100,

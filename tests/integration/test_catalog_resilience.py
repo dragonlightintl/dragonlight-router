@@ -17,6 +17,7 @@ import yaml
 from starlette.testclient import TestClient
 
 from dragonlight_router.catalog.cache import CatalogCache
+from dragonlight_router.catalog.refresher import CatalogRefresher
 from dragonlight_router.core.types import (
     BackendCapabilities,
     BackendConfig,
@@ -27,9 +28,7 @@ from dragonlight_router.core.types import (
     CatalogEntry,
     GenerativeBackend,
 )
-from dragonlight_router.catalog.refresher import CatalogRefresher
 from dragonlight_router.server.app import create_app
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -199,18 +198,19 @@ class TestCatalogRefreshFailureDegracefully:
             engine._registry.register(mock_backend)
 
         # Force the catalog to appear stale so select_models triggers a refresh
-        with patch.object(engine._catalog, "is_stale", return_value=True):
-            # Make the underlying refresher raise — _refresh_catalog catches it
-            with patch.object(
+        with (
+            patch.object(engine._catalog, "is_stale", return_value=True),
+            patch.object(
                 engine._refresher,
                 "refresh",
                 new_callable=AsyncMock,
                 side_effect=RuntimeError("Network unreachable"),
-            ):
+            ),
+        ):
                 # select_models should NOT crash — _refresh_catalog catches
                 # the exception and select_models proceeds with stale cache
                 try:
-                    models = engine.select_models("coding", top_n=5)
+                    engine.select_models("coding", top_n=5)
                 except RuntimeError:
                     pytest.fail(
                         "select_models must not propagate catalog refresh errors"

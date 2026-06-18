@@ -7,17 +7,16 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-import pytest
-
-from dragonlight_router.caching.simple import SimpleCache
 from dragonlight_router.caching.semantic import SemanticCache
+from dragonlight_router.caching.simple import SimpleCache
 
 
 class TestSimpleCacheKey:
     def test_deterministic(self):
         """[TM-020 AC-1] Same inputs produce same cache key."""
-        key1 = SimpleCache.make_key("model-a", "system", [{"role": "user", "content": "hi"}], 0.7, 100)
-        key2 = SimpleCache.make_key("model-a", "system", [{"role": "user", "content": "hi"}], 0.7, 100)
+        msgs = [{"role": "user", "content": "hi"}]
+        key1 = SimpleCache.make_key("model-a", "system", msgs, 0.7, 100)
+        key2 = SimpleCache.make_key("model-a", "system", msgs, 0.7, 100)
         assert key1 == key2
 
     def test_different_model_different_key(self):
@@ -106,7 +105,7 @@ class TestSemanticCache:
         cache = SemanticCache(db_path=tmp_path / "cache.db", threshold=0.8)
         cache.put("explain quicksort algorithm in python", "Here is quicksort...")
         # Very similar text should match at 0.8 threshold
-        result = cache.get_similar("explain quicksort algorithm in python code")
+        cache.get_similar("explain quicksort algorithm in python code")
         # May or may not match depending on n-gram similarity
         # But exact should always match
         result2 = cache.get_similar("explain quicksort algorithm in python")
@@ -149,7 +148,7 @@ class TestSemanticCache:
         assert result2 == 0.0
 
     def test_eviction_removes_oldest_entries(self, tmp_path: Path):
-        """[TM-020 AC-3] Eviction removes oldest entries when max_entries exceeded (lines 115-122)."""
+        """[TM-020 AC-3] Eviction removes oldest entries when max_entries exceeded."""
         cache = SemanticCache(db_path=tmp_path / "cache.db", threshold=0.95, max_entries=2)
         cache.put("first entry text", "response1")
         cache.put("second entry text", "response2")

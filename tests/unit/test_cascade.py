@@ -4,8 +4,7 @@ Spec traceability: TM-004 (Cascade dispatch)
 """
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -14,7 +13,6 @@ from dragonlight_router.core.types import (
     BackendStatus,
     BackendTier,
     DispatchOrder,
-    StreamChunk,
 )
 from dragonlight_router.dispatch.cascade import (
     DispatchContext,
@@ -30,21 +28,20 @@ from dragonlight_router.dispatch.cascade import (
 )
 from dragonlight_router.result import Err, Ok
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def _make_order(**kwargs) -> DispatchOrder:
-    defaults = dict(
-        intent_category="test",
-        specific_intent="test",
-        operator_message="hello",
-        system_prompt="",
-        context_tokens=0,
-        requires_tool_use=False,
-        requires_long_context=False,
-    )
+    defaults = {
+        "intent_category": "test",
+        "specific_intent": "test",
+        "operator_message": "hello",
+        "system_prompt": "",
+        "context_tokens": 0,
+        "requires_tool_use": False,
+        "requires_long_context": False,
+    }
     defaults.update(kwargs)
     return DispatchOrder(**defaults)
 
@@ -90,9 +87,12 @@ class TestRunCbrStageCostGovernor:
         ctx = _make_ctx(registry=registry, budget_tracker=budget_tracker,
                         health_tracker=health_tracker, config=config)
 
-        with patch("dragonlight_router.dispatch.cascade.filter_by_cost") as mock_filter, \
-             patch("dragonlight_router.dispatch.cascade.cost_governor_active", return_value=True) as mock_gov, \
-             patch("dragonlight_router.dispatch.cascade.cost_adjusted_weights") as mock_adj:
+        cascade_mod = "dragonlight_router.dispatch.cascade"
+        with (
+            patch(f"{cascade_mod}.filter_by_cost") as mock_filter,
+            patch(f"{cascade_mod}.cost_governor_active", return_value=True) as mock_gov,
+            patch(f"{cascade_mod}.cost_adjusted_weights") as mock_adj,
+        ):
             mock_adj.return_value = MagicMock(
                 cost=0.70, latency=0.10, priority=0.10, queue=0.05, health=0.05
             )
@@ -187,8 +187,11 @@ class TestRoute:
         health_tracker = MagicMock()
         config = {}
 
-        with patch("dragonlight_router.dispatch.cascade._run_cascade", return_value=Ok([backend])), \
-             patch("dragonlight_router.dispatch.cascade.select_final_candidate", return_value=backend):
+        cascade_mod = "dragonlight_router.dispatch.cascade"
+        with (
+            patch(f"{cascade_mod}._run_cascade", return_value=Ok([backend])),
+            patch(f"{cascade_mod}.select_final_candidate", return_value=backend),
+        ):
             result = route(order, registry, budget_tracker, health_tracker, config)
 
         assert result.is_ok()
@@ -221,8 +224,11 @@ class TestRoute:
         health_tracker = MagicMock()
         config = {}
 
-        with patch("dragonlight_router.dispatch.cascade._run_cascade", return_value=Ok([b1, b2])) as mock_cas, \
-             patch("dragonlight_router.dispatch.cascade.select_final_candidate", return_value=b1) as mock_sel:
+        cascade_mod = "dragonlight_router.dispatch.cascade"
+        with (
+            patch(f"{cascade_mod}._run_cascade", return_value=Ok([b1, b2])),
+            patch(f"{cascade_mod}.select_final_candidate", return_value=b1) as mock_sel,
+        ):
             route(order, registry, budget_tracker, health_tracker, config)
 
         mock_sel.assert_called_once_with([b1, b2])
@@ -399,7 +405,8 @@ class TestTryStreamingDispatch:
         base_context = {"task": "hello"}
         adapter = _make_mock_adapter(["Hello", " world"])
 
-        with patch("dragonlight_router.dispatch.cascade._adapters_mod.create_adapter", return_value=adapter):
+        adapter_path = "dragonlight_router.dispatch.cascade._adapters_mod.create_adapter"
+        with patch(adapter_path, return_value=adapter):
             chunks = []
             async for chunk in _try_streaming_dispatch(backend, base_context, order, ctx, []):
                 chunks.append(chunk)
@@ -419,13 +426,15 @@ class TestTryStreamingDispatch:
 
     @pytest.mark.asyncio
     async def test_metadata_shows_fallback_when_chain_nonempty(self, make_backend_config):
-        """[TM-004 AC-2] _try_streaming_dispatch sets was_fallback=True when fallback_chain is non-empty."""
+        """[TM-004 AC-2] _try_streaming_dispatch sets was_fallback=True
+        when fallback_chain is non-empty."""
         backend = make_backend_config(name="b2", provider="prov")
         order = _make_order()
         ctx = _make_ctx()
         adapter = _make_mock_adapter(["ok"])
 
-        with patch("dragonlight_router.dispatch.cascade._adapters_mod.create_adapter", return_value=adapter):
+        adapter_path = "dragonlight_router.dispatch.cascade._adapters_mod.create_adapter"
+        with patch(adapter_path, return_value=adapter):
             chunks = []
             async for chunk in _try_streaming_dispatch(backend, {"task": "hi"}, order, ctx, ["b1"]):
                 chunks.append(chunk)
@@ -445,7 +454,8 @@ class TestTryStreamingDispatch:
         ctx = _make_ctx(health_tracker=health_tracker, budget_tracker=budget_tracker)
         adapter = _make_mock_adapter(["response"])
 
-        with patch("dragonlight_router.dispatch.cascade._adapters_mod.create_adapter", return_value=adapter):
+        adapter_path = "dragonlight_router.dispatch.cascade._adapters_mod.create_adapter"
+        with patch(adapter_path, return_value=adapter):
             async for _ in _try_streaming_dispatch(backend, {"task": "hi"}, order, ctx, []):
                 pass
 
@@ -468,10 +478,16 @@ class TestDispatchStream:
         health_tracker = MagicMock()
         adapter = _make_mock_adapter(["Hi", " there"])
 
-        with patch("dragonlight_router.dispatch.cascade._run_cascade", return_value=Ok([backend])), \
-             patch("dragonlight_router.dispatch.cascade._adapters_mod.create_adapter", return_value=adapter):
+        cascade_mod = "dragonlight_router.dispatch.cascade"
+        adapter_path = f"{cascade_mod}._adapters_mod.create_adapter"
+        with (
+            patch(f"{cascade_mod}._run_cascade", return_value=Ok([backend])),
+            patch(adapter_path, return_value=adapter),
+        ):
             chunks = []
-            async for chunk in dispatch_stream(order, registry, budget_tracker, health_tracker, {}):
+            async for chunk in dispatch_stream(
+                order, registry, budget_tracker, health_tracker, {},
+            ):
                 chunks.append(chunk)
 
         token_chunks = [c for c in chunks if c.event_type == "token"]
@@ -523,8 +539,12 @@ class TestDispatchStream:
                 return failing_adapter
             return success_adapter
 
-        with patch("dragonlight_router.dispatch.cascade._run_cascade", return_value=Ok([b1, b2])), \
-             patch("dragonlight_router.dispatch.cascade._adapters_mod.create_adapter", side_effect=_create_adapter):
+        cascade_mod = "dragonlight_router.dispatch.cascade"
+        adapter_path = f"{cascade_mod}._adapters_mod.create_adapter"
+        with (
+            patch(f"{cascade_mod}._run_cascade", return_value=Ok([b1, b2])),
+            patch(adapter_path, side_effect=_create_adapter),
+        ):
             chunks = []
             async for chunk in dispatch_stream(order, registry, budget_tracker, health_tracker, {}):
                 chunks.append(chunk)
@@ -549,10 +569,16 @@ class TestDispatchStream:
 
         failing_adapter = _make_failing_adapter(RuntimeError("boom"))
 
-        with patch("dragonlight_router.dispatch.cascade._run_cascade", return_value=Ok([b1, b2])), \
-             patch("dragonlight_router.dispatch.cascade._adapters_mod.create_adapter", return_value=failing_adapter):
+        cascade_mod = "dragonlight_router.dispatch.cascade"
+        adapter_path = f"{cascade_mod}._adapters_mod.create_adapter"
+        with (
+            patch(f"{cascade_mod}._run_cascade", return_value=Ok([b1, b2])),
+            patch(adapter_path, return_value=failing_adapter),
+        ):
             chunks = []
-            async for chunk in dispatch_stream(order, registry, budget_tracker, health_tracker, {}):
+            async for chunk in dispatch_stream(
+                order, registry, budget_tracker, health_tracker, {},
+            ):
                 chunks.append(chunk)
 
         assert len(chunks) == 1

@@ -7,7 +7,7 @@ function with a real BackendRegistry so they verify end-to-end behaviour.
 
 from __future__ import annotations
 
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 import pytest
 
@@ -21,16 +21,12 @@ from dragonlight_router.core.types import (
     BackendTier,
     DispatchOrder,
     Err,
-    Ok,
 )
 from dragonlight_router.selection.mbr import (
+    _TIER_RANK,
     _filter_by_capabilities,
     filter_by_capabilities,
-    MBRNoCandidatesError,
-    TIER_ORDER,
-    _TIER_RANK,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -280,7 +276,7 @@ def test_filter_by_capabilities_assertions_candidates_not_list() -> None:
             requires_tool_use=False,
             requires_long_context=False,
         ))
-        assert False, "Should have raised AssertionError"
+        pytest.fail("Should have raised AssertionError")
     except AssertionError as e:
         assert "candidates must be a list" in str(e)
 
@@ -297,7 +293,7 @@ def test_filter_by_capabilities_assertions_candidates_not_backendconfig() -> Non
             requires_tool_use=False,
             requires_long_context=False,
         ))
-        assert False, "Should have raised AssertionError"
+        pytest.fail("Should have raised AssertionError")
     except AssertionError as e:
         assert "all candidates must be BackendConfig instances" in str(e)
 
@@ -306,7 +302,7 @@ def test_filter_by_capabilities_assertions_order_not_dispatchorder() -> None:
     """[TM-001 AC-3] AssertionError when order is not a DispatchOrder."""
     try:
         _filter_by_capabilities([], "not an order")  # type: ignore
-        assert False, "Should have raised AssertionError"
+        pytest.fail("Should have raised AssertionError")
     except AssertionError as e:
         assert "order must be DispatchOrder instance" in str(e)
 
@@ -624,7 +620,7 @@ def test_filter_by_capabilities_returns_err_on_empty_registry() -> None:
 
 
 def test_resolve_tiers_unknown_tier_returns_err(monkeypatch) -> None:
-    """[TM-001 AC-3] _resolve_tiers_to_try returns Err when tier absent from TIER_ORDER (lines 77-79)."""
+    """[TM-001 AC-3] _resolve_tiers_to_try returns Err when tier absent from TIER_ORDER."""
     import dragonlight_router.selection.mbr as mbr_mod
     from dragonlight_router.selection.mbr import _resolve_tiers_to_try
 
@@ -635,7 +631,7 @@ def test_resolve_tiers_unknown_tier_returns_err(monkeypatch) -> None:
 
 
 def test_candidates_for_tier_no_capable_candidates() -> None:
-    """[TM-001 AC-3] _candidates_for_tier returns [] when no backend meets capability reqs (lines 132-133)."""
+    """[TM-001 AC-3] _candidates_for_tier returns [] when no backend meets cap reqs."""
     from dragonlight_router.selection.mbr import _candidates_for_tier
 
     backend = _make_config(
@@ -661,7 +657,7 @@ def test_candidates_for_tier_no_capable_candidates() -> None:
 
 
 def test_is_backend_healthy_missing_from_registry() -> None:
-    """[TM-001 AC-5] _is_backend_healthy returns False when backend absent from registry (lines 182-188)."""
+    """[TM-001 AC-5] _is_backend_healthy returns False when backend absent from registry."""
     from dragonlight_router.selection.mbr import _is_backend_healthy
 
     registry = BackendRegistry()
@@ -672,9 +668,9 @@ def test_is_backend_healthy_missing_from_registry() -> None:
 
 
 def test_meets_requirements_long_context_passes_when_cap_sufficient() -> None:
-    """[TM-001 AC-1] _meets_requirements returns True when long_context required and cap is sufficient (line 303 not taken)."""
-    from dragonlight_router.selection.mbr import _meets_requirements
+    """[TM-001 AC-1] _meets_requirements True when long_context required and cap sufficient."""
     from dragonlight_router.core.types import BackendCapabilities
+    from dragonlight_router.selection.mbr import _meets_requirements
 
     caps = BackendCapabilities(
         max_context_tokens=100_000,

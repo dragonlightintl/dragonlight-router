@@ -14,7 +14,6 @@ import pytest
 from dragonlight_router.adapters.anthropic import AnthropicBackend
 from dragonlight_router.core.types import BackendStatus
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -450,8 +449,10 @@ async def test_generate_runtime_error_propagates(make_backend_config):
 
     with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test-key"}):
         be = _make_backend(make_backend_config, None)
-        with patch.object(be, "_stream_generate", _raise_runtime_error):
-            with pytest.raises(RuntimeError, match="inner error"):
+        with (
+            patch.object(be, "_stream_generate", _raise_runtime_error),
+            pytest.raises(RuntimeError, match="inner error"),
+        ):
                 async for _ in be.generate(
                     [{"role": "user", "content": "Hi"}],
                     stream=True,

@@ -13,8 +13,14 @@ import pytest
 import yaml
 
 from dragonlight_router.core.errors import RouterConfigError
-from dragonlight_router.core.types import BackendTier, CatalogEntry, RequestOutcome, DispatchOrder, StreamChunk
-from dragonlight_router.result import Ok, Err
+from dragonlight_router.core.types import (
+    BackendTier,
+    CatalogEntry,
+    DispatchOrder,
+    RequestOutcome,
+    StreamChunk,
+)
+from dragonlight_router.result import Err, Ok
 from dragonlight_router.router import RouterEngine, get_router, reset_router
 
 
@@ -224,7 +230,7 @@ class TestBudgetSnapshot:
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
         snapshot = engine.budget_snapshot()
-        for provider_name, data in snapshot.items():
+        for _provider_name, data in snapshot.items():
             assert "score" in data
             assert "has_capacity" in data
 
@@ -306,7 +312,9 @@ class TestCatalogRefreshOnStale:
         engine = RouterEngine(config_path=config_path)
 
         with patch.object(
-            engine._refresher, "refresh", new_callable=AsyncMock, side_effect=Exception("network down")
+            engine._refresher, "refresh",
+            new_callable=AsyncMock,
+            side_effect=Exception("network down"),
         ):
             result = engine.select_models("coding")
 
@@ -452,8 +460,10 @@ class TestLoadConfig:
     """[TM-010 AC-8] _load_config error path and override application (lines 102-108)."""
 
     def test_load_config_error_falls_back_to_default(self):
-        """[TM-010 AC-8] When load_config returns Err, RouterConfig() default is used (line 102-103)."""
-        err_result = Err(RouterConfigError(message="simulated parse failure", config_path="/bad/path"))
+        """[TM-010 AC-8] When load_config returns Err, RouterConfig() default is used."""
+        err_result = Err(RouterConfigError(
+            message="simulated parse failure", config_path="/bad/path",
+        ))
         with patch("dragonlight_router.router.load_config", return_value=err_result):
             config = RouterEngine._load_config(None, {})
         from dragonlight_router.config.schema import RouterConfig
@@ -552,7 +562,7 @@ class TestEnsureMatrixInStateDir:
         state_matrix_path.unlink()
 
         # Patch the candidates inside _ensure_matrix_in_state_dir to point at our source
-        original_method = engine._ensure_matrix_in_state_dir
+        _original_method = engine._ensure_matrix_in_state_dir
 
         def patched_ensure():
             import shutil
@@ -619,7 +629,7 @@ class TestRegisterBackendsFromMatrix:
         return config_path
 
     def test_backends_registered_from_matrix(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        """[TM-010 AC-11] Backends with valid env_key are registered in the registry (lines 298-334)."""
+        """[TM-010 AC-11] Backends with valid env_key are registered in the registry."""
         monkeypatch.setenv("GROQ_API_KEY", "test-key-groq")
         config_path = self._setup_with_env_key(tmp_path)
         engine = RouterEngine(config_path=config_path)
@@ -861,7 +871,7 @@ class TestEnsureMatrixCopyBranch:
     """[TM-010 AC-16] _ensure_matrix_in_state_dir copies file from candidate (lines 159-172)."""
 
     def test_matrix_copied_from_real_candidate(self, tmp_path: Path):
-        """[TM-010 AC-16] Copy branch executes when candidate file exists and state matrix absent."""
+        """[TM-010 AC-16] Copy branch executes when candidate exists and state matrix absent."""
         # Set up a state_dir with NO matrix file initially
         state_dir = tmp_path / "state"
         state_dir.mkdir()
@@ -898,7 +908,11 @@ class TestEnsureMatrixCopyBranch:
         # Patch the candidates inside the method to point to our temp source
         with patch(
             "dragonlight_router.router.Path",
-            side_effect=lambda *args: candidate_src if args == ("config/model_role_matrix.json",) else Path(*args),
+            side_effect=lambda *args: (
+                candidate_src
+                if args == ("config/model_role_matrix.json",)
+                else Path(*args)
+            ),
         ):
             engine._ensure_matrix_in_state_dir()
 
@@ -909,7 +923,9 @@ class TestEnsureMatrixCopyBranch:
 class TestRegisterBackendsExceptionHandler:
     """[TM-010 AC-17] Exception in create_adapter is caught and logged (lines 335-341)."""
 
-    def test_backend_registration_failure_is_caught(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_backend_registration_failure_is_caught(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ):
         """[TM-010 AC-17] When create_adapter raises, the exception is logged and skipped."""
         monkeypatch.setenv("GROQ_API_KEY", "test-key-groq")
 
@@ -956,7 +972,7 @@ class TestDispatchMethod:
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
 
-        from dragonlight_router.core.types import DispatchOrder, EngineResponse, BackendTier
+        from dragonlight_router.core.types import BackendTier, DispatchOrder, EngineResponse
         order = DispatchOrder(
             intent_category="coding",
             specific_intent="write a function",
@@ -1022,7 +1038,7 @@ class TestGetRouterDoubleCheckedLock:
     def test_get_router_concurrent_race_hits_inner_guard(self, tmp_path: Path):
         """[TM-010 AC-19] Concurrent get_router calls hit the inner double-check (line 643)."""
         import threading
-        import dragonlight_router.router as router_mod
+
 
         reset_router()
         config_path = _setup_config(tmp_path)
@@ -1068,7 +1084,7 @@ class TestEnsureMatrixNoCandidateFound:
 
         # Patch both candidate Path() constructions to return non-existent paths
         nonexistent_a = tmp_path / "does_not_exist_a.json"
-        nonexistent_b = tmp_path / "does_not_exist_b.json"
+        _nonexistent_b = tmp_path / "does_not_exist_b.json"
 
         def fake_path(*args):
             if args == ("config/model_role_matrix.json",):
@@ -1139,7 +1155,7 @@ class TestBudgetStatePersistence:
             return_value=Err(MagicMock(message="corrupt")),
         ):
             # Should not raise
-            engine = RouterEngine(config_path=config_path)
+            RouterEngine(config_path=config_path)
 
 
 class TestDispatchStream:
@@ -1166,7 +1182,8 @@ class TestDispatchStream:
             context_tokens=0,
         )
 
-        with patch("dragonlight_router.router.cascade_dispatch_stream", side_effect=_mock_cascade_stream):
+        cascade_stream = "dragonlight_router.router.cascade_dispatch_stream"
+        with patch(cascade_stream, side_effect=_mock_cascade_stream):
             received = []
             async for chunk in engine.dispatch_stream(order):
                 received.append(chunk)
@@ -1197,7 +1214,8 @@ class TestDispatchStream:
             context_tokens=0,
         )
 
-        with patch("dragonlight_router.router.cascade_dispatch_stream", side_effect=_capture_stream):
+        cascade_stream = "dragonlight_router.router.cascade_dispatch_stream"
+        with patch(cascade_stream, side_effect=_capture_stream):
             async for _ in engine.dispatch_stream(order):
                 pass
 

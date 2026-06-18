@@ -5,9 +5,13 @@ Spec traceability: TM-002 (CBR cost-efficiency filtering)
 
 from __future__ import annotations
 
-import pytest
-
-from dragonlight_router.core.types import BackendConfig, BackendCapabilities, BackendCostProfile, BackendRateLimits, DispatchOrder
+from dragonlight_router.core.types import (
+    BackendCapabilities,
+    BackendConfig,
+    BackendCostProfile,
+    BackendRateLimits,
+    DispatchOrder,
+)
 from dragonlight_router.selection.cbr import filter_by_absolute_cost, filter_by_cost_efficiency
 
 
@@ -151,7 +155,7 @@ def test_filter_by_absolute_cost_zero_max():
 
 
 def test_filter_by_cost_efficiency_no_budget_for_provider():
-    """[TM-002 AC-2] Candidate whose provider has no budget score is passed through (lines 237-238)."""
+    """[TM-002 AC-2] Candidate whose provider has no budget score is passed through."""
     candidate = make_backend_config("no-budget", input_cost=1.0, output_cost=1.0)
     other = make_backend_config("with-budget", input_cost=1.0, output_cost=1.0)
     budget_scores = {"test_provider": 80.0}
@@ -169,7 +173,7 @@ def test_filter_by_cost_efficiency_no_budget_for_provider():
 
 
 def test_filter_by_cost_efficiency_all_providers_missing_budget():
-    """[TM-002 AC-2] When no provider has budget data, efficiencies list is empty → return all (line 219)."""
+    """[TM-002 AC-2] When no provider has budget data, efficiencies list is empty -- return all."""
     candidate = make_backend_config("x", input_cost=1.0, output_cost=1.0)
     budget_scores: dict[str, float] = {"other_provider": 80.0}
     order = DispatchOrder(
@@ -195,10 +199,10 @@ def test_single_efficiency_zero_cost_returns_inf():
 
 
 def test_filter_by_cost_all_budget_exhausted():
-    """[TM-002 AC-1] filter_by_cost returns empty when all providers are budget-exhausted (line 99)."""
-    from dragonlight_router.selection.cbr import filter_by_cost
-    from dragonlight_router.core.types import ProviderConfig
+    """[TM-002 AC-1] filter_by_cost returns empty when all providers are budget-exhausted."""
     from dragonlight_router.budget.tracker import BudgetTracker
+    from dragonlight_router.core.types import ProviderConfig
+    from dragonlight_router.selection.cbr import filter_by_cost
 
     candidate = make_backend_config("x", input_cost=1.0, output_cost=1.0)
     provider = ProviderConfig(
@@ -229,10 +233,10 @@ def test_filter_by_cost_all_budget_exhausted():
 
 
 def test_filter_by_cost_with_cost_governor_active():
-    """[TM-002 AC-4] filter_by_cost activates cost governor when daily spend exceeds threshold (lines 141-142)."""
-    from dragonlight_router.selection.cbr import filter_by_cost
-    from dragonlight_router.core.types import ProviderConfig
+    """[TM-002 AC-4] filter_by_cost activates cost governor when daily spend exceeds threshold."""
     from dragonlight_router.budget.tracker import BudgetTracker
+    from dragonlight_router.core.types import ProviderConfig
+    from dragonlight_router.selection.cbr import filter_by_cost
 
     candidate = make_backend_config("x", input_cost=1.0, output_cost=1.0)
     provider = ProviderConfig(

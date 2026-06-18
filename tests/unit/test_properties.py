@@ -15,8 +15,7 @@ from __future__ import annotations
 
 from unittest.mock import Mock
 
-import pytest
-from hypothesis import given, settings, assume
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from dragonlight_router.budget.tracker import BudgetTracker
@@ -38,7 +37,6 @@ from dragonlight_router.selection.scoring import (
     compute_composite_score,
     compute_health_score,
 )
-
 
 # ---------------------------------------------------------------------------
 # Strategies
@@ -173,7 +171,7 @@ class TestScoringInvariants:
         health_score=st.floats(min_value=0.0, max_value=100.0),
     )
     def test_composite_score_bounded(self, rank, budget_score, health_score):
-        """[TM-007 AC-1] Property: Invariant. compute_composite_score always returns value in [0.0, 100.0]."""
+        """[TM-007 AC-1] Property: compute_composite_score always returns value in [0.0, 100.0]."""
         result = compute_composite_score(rank, budget_score, health_score)
         assert 0.0 <= result <= 100.0
 
@@ -228,8 +226,10 @@ class TestScoringInvariants:
         last_success_age=st.floats(min_value=0.0, max_value=86400.0),
     )
     def test_health_score_circuit_open_always_zero(self, error_count, last_success_age):
-        """[TM-007 AC-4] Property: Invariant. Circuit open always yields zero health score."""
-        result = compute_health_score(error_count, circuit_open=True, last_success_age_s=last_success_age)
+        """[TM-007 AC-4] Property: Circuit open always yields zero health score."""
+        result = compute_health_score(
+            error_count, circuit_open=True, last_success_age_s=last_success_age,
+        )
         assert result == 0.0
 
 
@@ -252,8 +252,10 @@ class TestBudgetTrackerInvariants:
         num_requests=st.integers(min_value=0, max_value=20),
         tokens_per_request=st.integers(min_value=0, max_value=100),
     )
-    def test_score_always_bounded(self, rpm, rpd, tpm, daily_token_cap, num_requests, tokens_per_request):
-        """[TM-012 AC-2] Property: Invariant. score() always returns value in [0.0, 100.0]."""
+    def test_score_always_bounded(
+        self, rpm, rpd, tpm, daily_token_cap, num_requests, tokens_per_request,
+    ):
+        """[TM-012 AC-2] Property: score() always returns value in [0.0, 100.0]."""
         provider = ProviderConfig(
             name="test",
             base_url="http://localhost",
@@ -311,7 +313,7 @@ class TestBudgetTrackerInvariants:
         rpd=st.integers(min_value=1, max_value=10),
     )
     def test_has_capacity_false_when_limit_exceeded(self, rpm, rpd):
-        """[TM-012 AC-4] Property: Invariant. has_capacity returns False when any limit is exceeded."""
+        """[TM-012 AC-4] Property: has_capacity returns False when any limit is exceeded."""
         provider = ProviderConfig(
             name="test",
             base_url="http://localhost",
@@ -347,7 +349,7 @@ class TestMBRNeverDowngradeInvariant:
 
     @given(tier=st.sampled_from(list(BackendTier)))
     def test_estimate_complexity_returns_valid_tier(self, tier):
-        """[TM-001 AC-1] Property: Invariant. estimate_complexity always returns a valid BackendTier."""
+        """[TM-001 AC-1] Property: estimate_complexity always returns a valid BackendTier."""
         from dragonlight_router.selection.mbr import estimate_complexity
 
         order = DispatchOrder(
@@ -370,8 +372,8 @@ class TestMBRNeverDowngradeInvariant:
     def test_estimate_complexity_never_downgrades_with_more_requirements(
         self, context_tokens, requires_tool_use, requires_long_context,
     ):
-        """[TM-001 AC-4] Property: Invariant. Adding requirements never lowers the estimated tier."""
-        from dragonlight_router.selection.mbr import estimate_complexity, _TIER_RANK
+        """[TM-001 AC-4] Property: Adding requirements never lowers the estimated tier."""
+        from dragonlight_router.selection.mbr import _TIER_RANK, estimate_complexity
 
         # Base order with no requirements
         base_order = DispatchOrder(
@@ -408,8 +410,8 @@ class TestMBRNeverDowngradeInvariant:
         ),
     )
     def test_filter_by_capabilities_preserves_no_downgrade(self, candidates):
-        """[TM-001 AC-4] Property: Invariant. _filter_by_capabilities never adds lower-tier candidates."""
-        from dragonlight_router.selection.mbr import _filter_by_capabilities, _TIER_RANK
+        """[TM-001 AC-4] Property: _filter_by_capabilities never adds lower-tier candidates."""
+        from dragonlight_router.selection.mbr import _filter_by_capabilities
 
         order = DispatchOrder(
             intent_category="test",
@@ -463,7 +465,9 @@ class TestLBRInvariants:
                         supports_system_prompts=True,
                     ),
                     cost=BackendCostProfile(input_per_mtok=1.0, output_per_mtok=2.0),
-                    rate_limits=BackendRateLimits(rpm=60, rpd=1000, tpm=10000, daily_token_cap=100000),
+                    rate_limits=BackendRateLimits(
+                        rpm=60, rpd=1000, tpm=10000, daily_token_cap=100000,
+                    ),
                     priority=0,
                 )
             )
@@ -529,7 +533,9 @@ class TestLBRInvariants:
                         supports_system_prompts=True,
                     ),
                     cost=BackendCostProfile(input_per_mtok=10.0, output_per_mtok=20.0),
-                    rate_limits=BackendRateLimits(rpm=60, rpd=1000, tpm=10000, daily_token_cap=100000),
+                    rate_limits=BackendRateLimits(
+                        rpm=60, rpd=1000, tpm=10000, daily_token_cap=100000,
+                    ),
                     priority=0,
                 )
             )
@@ -594,8 +600,10 @@ class TestInterleaveInvariants:
         ),
         max_consecutive=st.integers(min_value=1, max_value=5),
     )
-    def test_no_more_than_max_consecutive_same_provider(self, scored, max_consecutive):
-        """[TM-010 AC-1] Property: Invariant. No more than max_consecutive same-provider in a row."""
+    def test_no_more_than_max_consecutive_same_provider(
+        self, scored, max_consecutive,
+    ):
+        """[TM-010 AC-1] Property: No more than max_consecutive same-provider in a row."""
         # Skip if only one provider (can't interleave)
         providers = {m.provider for m in scored}
         assume(len(providers) > 1)
@@ -606,7 +614,7 @@ class TestInterleaveInvariants:
         from collections import Counter
         counts = Counter(m.provider for m in scored)
         total = len(scored)
-        for prov, count in counts.items():
+        for _prov, count in counts.items():
             others = total - count
             separators_needed = (count - 1) // max_consecutive  # gaps needed
             assume(others >= separators_needed)

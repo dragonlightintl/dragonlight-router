@@ -8,6 +8,7 @@ Spec traceability: HAZ-008 (Stale Catalog Routing to Deprecated Models)
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -177,10 +178,8 @@ class TestOnCycleCallback:
         task.cancel()
         # _run_loop catches CancelledError internally via try/except break,
         # so the task completes normally rather than raising.
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
 
         assert loop._cycle_count > 0
         assert callback.call_count > 0

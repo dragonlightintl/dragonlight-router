@@ -7,10 +7,11 @@ from __future__ import annotations
 import time
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
-from dragonlight_router.core.types import ProviderConfig, Ok
 from dragonlight_router.budget.tracker import BudgetTracker
+from dragonlight_router.core.types import Ok, ProviderConfig
 
 
 def _provider(
@@ -98,7 +99,9 @@ class TestRecordRequest:
 
     def test_records_tokens(self):
         """[TM-012 AC-3] Recording requests with tokens decrements TPM and daily token capacity."""
-        bt = BudgetTracker(providers=[_provider("groq", rpm=100, rpd=1000, tpm=500, daily_token_cap=10000)])
+        bt = BudgetTracker(providers=[_provider(
+            "groq", rpm=100, rpd=1000, tpm=500, daily_token_cap=10000,
+        )])
         bt.record_request("groq", tokens_used=100)
         bt.record_request("groq", tokens_used=200)
         # RPM: 98/100, RPD: 998/1000, TPM: 200/500 → 60% remaining, daily: 9700/10000 → 97%
@@ -185,7 +188,8 @@ class TestSlidingWindow:
         bt.record_request("groq", tokens_used=5)  # total 95
         assert bt._tpm_remaining("groq") == 5
         # Next request would go over limit
-        bt.record_request("groq", tokens_used=1)  # total 96 -> still under? Wait, limit 100, 96 used -> 4 remaining
+        # total 96 -> limit 100, 96 used -> 4 remaining
+        bt.record_request("groq", tokens_used=1)
         # Actually, let's do exact: 30+40+20+5+1 = 96 -> remaining 4
         assert bt._tpm_remaining("groq") == 4
         # One more token would make 97
@@ -212,7 +216,9 @@ class TestDailyTokenCap:
 
     def test_daily_token_cap_tracking(self):
         """[TM-012 AC-6] Daily token usage is tracked and reflected in score."""
-        bt = BudgetTracker(providers=[_provider("groq", rpm=10000, rpd=10000, daily_token_cap=1000)])
+        bt = BudgetTracker(providers=[_provider(
+            "groq", rpm=10000, rpd=10000, daily_token_cap=1000,
+        )])
         bt.record_request("groq", tokens_used=300)
         bt.record_request("groq", tokens_used=400)
         assert bt._daily_token_remaining("groq") == 300
@@ -247,7 +253,9 @@ class TestDailyTokenCap:
 
     def test_daily_token_reset_at_day_boundary(self):
         """[TM-012 AC-6] Daily token counters reset at day boundary."""
-        bt = BudgetTracker(providers=[_provider("groq", rpm=10000, rpd=10000, daily_token_cap=1000)])
+        bt = BudgetTracker(providers=[_provider(
+            "groq", rpm=10000, rpd=10000, daily_token_cap=1000,
+        )])
         # Use some tokens
         bt.record_request("groq", tokens_used=500)
         assert bt._daily_token_remaining("groq") == 500
@@ -271,8 +279,8 @@ class TestScoreWithAllLimits:
             tpm=1000,    # TPM limit
             daily_token_cap=10000  # daily token cap
         )])
-        # Use 5 RPM (50% remaining), 5 RPD (95% remaining), 500 TPM (50% remaining), 500 daily tokens (95% remaining)
-        for i in range(5):
+        # Use 5 RPM (50%), 5 RPD (95%), 500 TPM (50%), 500 daily (95%)
+        for _ in range(5):
             bt.record_request("groq", tokens_used=100)
         # Each request: 100 tokens, 5 requests -> 500 tokens
         # RPM: 5 used -> 5 remaining -> 0.5
@@ -359,7 +367,7 @@ class TestHasCapacityTPMAndDailyTokenCap:
         assert bt.has_capacity("groq") is False
 
     def test_has_capacity_true_when_all_limits_within_bounds(self):
-        """[TM-012 AC-4] has_capacity returns True when RPM, RPD, TPM, and daily_token_cap all have headroom."""
+        """[TM-012 AC-4] has_capacity True when all limits have headroom."""
         bt = BudgetTracker(providers=[_provider(
             "groq", rpm=100, rpd=1000, tpm=10000, daily_token_cap=100000,
         )])
@@ -374,19 +382,23 @@ class TestHasCapacityTPMAndDailyTokenCap:
 
     def test_has_capacity_true_when_daily_token_cap_none(self):
         """[TM-012 AC-4] has_capacity returns True when daily_token_cap is None (unlimited)."""
-        bt = BudgetTracker(providers=[_provider("groq", rpm=100, rpd=1000, daily_token_cap=None)])
+        bt = BudgetTracker(providers=[_provider(
+            "groq", rpm=100, rpd=1000, daily_token_cap=None,
+        )])
         bt.record_request("groq", tokens_used=999999)
         assert bt.has_capacity("groq") is True
 
     def test_has_capacity_true_when_tpm_zero(self):
-        """[TM-012 AC-4] has_capacity returns True when tpm_limit is 0 (treated as unlimited)."""
+        """[TM-012 AC-4] has_capacity True when tpm_limit is 0 (unlimited)."""
         bt = BudgetTracker(providers=[_provider("groq", rpm=100, rpd=1000, tpm=0)])
         bt.record_request("groq", tokens_used=999999)
         assert bt.has_capacity("groq") is True
 
     def test_has_capacity_true_when_daily_token_cap_zero(self):
-        """[TM-012 AC-4] has_capacity returns True when daily_token_cap is 0 (treated as unlimited)."""
-        bt = BudgetTracker(providers=[_provider("groq", rpm=100, rpd=1000, daily_token_cap=0)])
+        """[TM-012 AC-4] has_capacity True when daily_token_cap is 0 (unlimited)."""
+        bt = BudgetTracker(providers=[_provider(
+            "groq", rpm=100, rpd=1000, daily_token_cap=0,
+        )])
         bt.record_request("groq", tokens_used=999999)
         assert bt.has_capacity("groq") is True
 
@@ -582,7 +594,13 @@ class TestPropertyTests:
         rpd=st.one_of(st.none(), st.integers(min_value=0, max_value=10000)),
         tpm=st.one_of(st.none(), st.integers(min_value=0, max_value=10000)),
         daily_token_cap=st.one_of(st.none(), st.integers(min_value=0, max_value=100000)),
-        requests=st.lists(st.tuples(st.integers(min_value=0, max_value=100), st.integers(min_value=0, max_value=1000)), max_size=10)
+        requests=st.lists(
+            st.tuples(
+                st.integers(min_value=0, max_value=100),
+                st.integers(min_value=0, max_value=1000),
+            ),
+            max_size=10,
+        )
     )
     def test_score_is_between_0_and_100(self, rpm, rpd, tpm, daily_token_cap, requests):
         """Score should always be between 0 and 100 inclusive."""

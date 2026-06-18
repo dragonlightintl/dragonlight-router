@@ -23,7 +23,6 @@ from dragonlight_router.adapters.openrouter import OpenRouterBackend
 from dragonlight_router.adapters.together import TogetherBackend
 from dragonlight_router.core.types import GenerativeBackend
 
-
 # ---------------------------------------------------------------------------
 # Provider → expected class mapping
 # ---------------------------------------------------------------------------

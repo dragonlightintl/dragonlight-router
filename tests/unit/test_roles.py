@@ -8,8 +8,6 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from dragonlight_router.roles.matrix import RoleMatrix
 
 
@@ -108,11 +106,11 @@ class TestRoleMatrix:
 
     def test_reload_if_changed_oserror_logs_warning(self, tmp_path: Path):
         """[TM-010 AC-1] reload_if_changed handles OSError from os.path.getmtime gracefully."""
-        import os
         path = tmp_path / "matrix.json"
         path.write_text(json.dumps({"coding": {"a": 70}}))
         matrix = RoleMatrix(matrix_path=path)
-        with patch("dragonlight_router.roles.matrix.os.path.getmtime", side_effect=OSError("stat failed")):
+        mtime_path = "dragonlight_router.roles.matrix.os.path.getmtime"
+        with patch(mtime_path, side_effect=OSError("stat failed")):
             matrix.reload_if_changed()
         assert matrix.get_rank("a", "coding") == 70
 

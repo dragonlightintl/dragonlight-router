@@ -18,7 +18,7 @@ from dragonlight_router.core.types import (
     BackendTier,
     DispatchOrder,
 )
-from dragonlight_router.result import Err, Ok
+from dragonlight_router.result import Ok
 from dragonlight_router.selection.lbr import filter_by_rate_limit
 
 
@@ -243,7 +243,7 @@ def test_select_final_candidate_empty_raises():
 
 
 def test_extract_score_non_ok_with_value_attribute():
-    """[TM-003 AC-5] _extract_score returns float(result.value) when result is not Ok but has .value."""
+    """[TM-003 AC-5] _extract_score returns float(result.value) when result has .value."""
     from dragonlight_router.selection.lbr import _extract_score
     budget_tracker = MagicMock()
     non_ok_result = MagicMock(spec=[])

@@ -20,7 +20,6 @@ import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 import yaml
 from starlette.testclient import TestClient
 
@@ -174,8 +173,10 @@ class TestDispatchSmoke:
         def _fake_create_adapter(config):
             return _make_mock_backend(config.name)
 
-        with patch("dragonlight_router.adapters.create_adapter", side_effect=_fake_create_adapter):
-            with TestClient(app) as client:
+        with (
+            patch("dragonlight_router.adapters.create_adapter", side_effect=_fake_create_adapter),
+            TestClient(app) as client,
+        ):
                 resp = client.post("/v1/dispatch", json={
                     "intent_category": "general",
                     "specific_intent": "greeting",
@@ -252,7 +253,8 @@ class TestGracefulShutdown:
         app = create_app(config_path=config_path)
         engine = app.state.engine
 
-        with patch.object(engine, "save_state", side_effect=OSError("disk full")):
-            # Should not raise
-            with TestClient(app):
-                pass
+        with (
+            patch.object(engine, "save_state", side_effect=OSError("disk full")),
+            TestClient(app),
+        ):
+            pass  # Should not raise

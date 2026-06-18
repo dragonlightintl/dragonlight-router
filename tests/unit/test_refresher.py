@@ -80,7 +80,8 @@ class TestRefresh:
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(return_value=mock_response)
 
-        with patch("dragonlight_router.catalog.refresher.httpx.AsyncClient", return_value=mock_client):
+        refresher_client = "dragonlight_router.catalog.refresher.httpx.AsyncClient"
+        with patch(refresher_client, return_value=mock_client):
             result = await refresher.refresh([provider])
 
         assert isinstance(result, Ok)
@@ -91,15 +92,24 @@ class TestRefresh:
     @pytest.mark.asyncio
     async def test_refresh_multiple_providers(self):
         """[TM-005 AC-2] refresh() aggregates results from multiple providers."""
-        groq = make_provider(name="groq", base_url="https://api.groq.com/openai/v1", model_prefix="groq/")
-        nvidia = make_provider(name="nvidia", base_url="https://integrate.api.nvidia.com/v1", model_prefix="nvidia/")
+        groq = make_provider(
+            name="groq",
+            base_url="https://api.groq.com/openai/v1",
+            model_prefix="groq/",
+        )
+        nvidia = make_provider(
+            name="nvidia",
+            base_url="https://integrate.api.nvidia.com/v1",
+            model_prefix="nvidia/",
+        )
 
         call_count = 0
 
         async def fake_fetch(provider_arg):
             nonlocal call_count
             call_count += 1
-            return [CatalogEntry(model_id=f"{provider_arg.model_prefix}model-a", provider=provider_arg.name)]
+            model_id = f"{provider_arg.model_prefix}model-a"
+            return [CatalogEntry(model_id=model_id, provider=provider_arg.name)]
 
         refresher = CatalogRefresher()
 
@@ -116,7 +126,11 @@ class TestRefresh:
     async def test_refresh_partial_results_on_provider_failure(self):
         """[TM-005 AC-3] refresh() returns partial catalog when one provider fails."""
         groq = make_provider(name="groq", model_prefix="groq/")
-        nvidia = make_provider(name="nvidia", base_url="https://integrate.api.nvidia.com/v1", model_prefix="nvidia/")
+        nvidia = make_provider(
+            name="nvidia",
+            base_url="https://integrate.api.nvidia.com/v1",
+            model_prefix="nvidia/",
+        )
 
         async def fake_fetch(provider_arg):
             if provider_arg.name == "nvidia":
@@ -164,19 +178,26 @@ class TestFetchProvider:
     @pytest.mark.asyncio
     async def test_fetch_provider_happy_path(self):
         """[TM-005 AC-4] _fetch_provider() returns a list of CatalogEntry on success."""
-        provider = make_provider(name="groq", base_url="https://api.groq.com/openai/v1", model_prefix="groq/")
+        provider = make_provider(
+            name="groq",
+            base_url="https://api.groq.com/openai/v1",
+            model_prefix="groq/",
+        )
         refresher = CatalogRefresher()
 
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
-        mock_response.json.return_value = make_models_response(["llama-70b"], created=1700000000)
+        mock_response.json.return_value = make_models_response(
+            ["llama-70b"], created=1700000000,
+        )
 
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(return_value=mock_response)
 
-        with patch("dragonlight_router.catalog.refresher.httpx.AsyncClient", return_value=mock_client):
+        refresher_client = "dragonlight_router.catalog.refresher.httpx.AsyncClient"
+        with patch(refresher_client, return_value=mock_client):
             entries = await refresher._fetch_provider(provider)
 
         assert len(entries) == 1
@@ -204,7 +225,8 @@ class TestFetchProvider:
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(return_value=mock_response)
 
-        with patch("dragonlight_router.catalog.refresher.httpx.AsyncClient", return_value=mock_client):
+        refresher_client = "dragonlight_router.catalog.refresher.httpx.AsyncClient"
+        with patch(refresher_client, return_value=mock_client):
             await refresher._fetch_provider(provider)
 
         mock_client.get.assert_called_once_with("https://custom.groq.com/catalog")
@@ -229,7 +251,8 @@ class TestFetchProvider:
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(return_value=mock_response)
 
-        with patch("dragonlight_router.catalog.refresher.httpx.AsyncClient", return_value=mock_client):
+        refresher_client = "dragonlight_router.catalog.refresher.httpx.AsyncClient"
+        with patch(refresher_client, return_value=mock_client):
             await refresher._fetch_provider(provider)
 
         mock_client.get.assert_called_once_with("https://api.groq.com/openai/v1/models")
@@ -250,9 +273,12 @@ class TestFetchProvider:
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(return_value=mock_response)
 
-        with patch("dragonlight_router.catalog.refresher.httpx.AsyncClient", return_value=mock_client):
-            with pytest.raises(httpx.HTTPStatusError):
-                await refresher._fetch_provider(provider)
+        refresher_client = "dragonlight_router.catalog.refresher.httpx.AsyncClient"
+        with (
+            patch(refresher_client, return_value=mock_client),
+            pytest.raises(httpx.HTTPStatusError),
+        ):
+            await refresher._fetch_provider(provider)
 
     @pytest.mark.asyncio
     async def test_fetch_provider_timeout_passed_to_client(self):
@@ -291,7 +317,8 @@ class TestFetchProvider:
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.get = AsyncMock(return_value=mock_response)
 
-        with patch("dragonlight_router.catalog.refresher.httpx.AsyncClient", return_value=mock_client):
+        refresher_client = "dragonlight_router.catalog.refresher.httpx.AsyncClient"
+        with patch(refresher_client, return_value=mock_client):
             entries = await refresher._fetch_provider(provider)
 
         assert all(isinstance(e, CatalogEntry) for e in entries)

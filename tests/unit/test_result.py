@@ -145,6 +145,6 @@ class TestUnwrapErr:
             unwrap_err(ok("success"))
 
     def test_unwrap_err_raises_assertion_error_not_other(self):
-        """[TM-010 AC-6] unwrap_err() raises specifically AssertionError, not a generic exception."""
+        """[TM-010 AC-6] unwrap_err() raises specifically AssertionError, not generic."""
         with pytest.raises(AssertionError, match="unwrap_err"):
             unwrap_err(ok("success"))

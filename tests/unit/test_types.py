@@ -4,6 +4,8 @@ Spec traceability: TM-017 (Core type definitions)
 """
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from dragonlight_router.core.types import (
@@ -62,7 +64,7 @@ class TestBackendCapabilities:
             supports_json_mode=True,
             supports_system_prompts=True,
         )
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError):
             caps.max_context_tokens = 256_000  # type: ignore[misc]
 
     def test_fields(self):
@@ -88,7 +90,7 @@ class TestBackendCostProfile:
     def test_frozen(self):
         """[TM-017 AC-2] BackendCostProfile is frozen (immutable)."""
         cost = BackendCostProfile(input_per_mtok=15.0, output_per_mtok=75.0)
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError):
             cost.input_per_mtok = 0.0  # type: ignore[misc]
 
 
@@ -116,7 +118,7 @@ class TestBackendConfig:
             cost=BackendCostProfile(0.0, 0.0),
             rate_limits=BackendRateLimits(30, 1000, 6000, 0),
         )
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError):
             config.name = "changed"  # type: ignore[misc]
 
     def test_default_priority(self):
@@ -179,7 +181,7 @@ class TestDispatchOrder:
             system_prompt="You are an engineer",
             context_tokens=2000,
         )
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError):
             order.context_tokens = 5000  # type: ignore[misc]
 
     def test_defaults(self):

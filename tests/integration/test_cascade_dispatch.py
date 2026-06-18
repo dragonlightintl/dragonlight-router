@@ -5,12 +5,12 @@ Spec traceability: TM-011 (Cascade dispatch integration), TM-004 (Fallback chain
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from dragonlight_router.core.types import (
     DispatchOrder,
-    EngineResponse,
 )
 from dragonlight_router.router import RouterEngine
 
@@ -65,7 +65,8 @@ class TestCascadeDispatchIntegration:
 
                     # Verify we get a result (either Ok or Err is acceptable for this skeleton test)
                     assert result is not None
-                    # In a full implementation with real backends, we would assert Ok(EngineResponse)
+                    # In a full implementation with real backends,
+                    # we would assert Ok(EngineResponse)
 
     @pytest.mark.asyncio
     async def test_primary_failure_triggers_fallback_to_next_candidate(

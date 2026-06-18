@@ -14,7 +14,6 @@ import pytest
 from dragonlight_router.adapters.openrouter import OpenRouterBackend
 from dragonlight_router.core.types import BackendStatus
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

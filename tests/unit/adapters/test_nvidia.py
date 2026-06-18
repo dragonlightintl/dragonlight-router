@@ -11,9 +11,8 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from dragonlight_router.adapters.nvidia import NvidiaBackend, _DEFAULT_BASE_URL
+from dragonlight_router.adapters.nvidia import _DEFAULT_BASE_URL, NvidiaBackend
 from dragonlight_router.core.types import BackendStatus
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -466,8 +465,10 @@ async def test_generate_runtime_error_propagates(make_backend_config):
         if False:
             yield  # make it an async generator
 
-    with _patch.object(backend, "_parse_sse_stream", _raise_runtime):
-        with pytest.raises(RuntimeError, match="inner runtime error"):
+    with (
+        _patch.object(backend, "_parse_sse_stream", _raise_runtime),
+        pytest.raises(RuntimeError, match="inner runtime error"),
+    ):
             async for _ in backend.generate(
                 [{"role": "user", "content": "Hi"}],
                 stream=True,

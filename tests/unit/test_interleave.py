@@ -4,8 +4,6 @@ Spec traceability: TM-004 (Provider interleaving)
 """
 from __future__ import annotations
 
-import pytest
-
 from dragonlight_router.core.types import ModelScore
 from dragonlight_router.selection.interleave import interleave_providers
 
@@ -57,7 +55,7 @@ class TestInterleave:
             _ms("m5", "nvidia", 70.0),
         ]
         result = interleave_providers(scored, max_consecutive=2)
-        assert set(m.model_id for m in result) == {"m1", "m2", "m3", "m4", "m5"}
+        assert {m.model_id for m in result} == {"m1", "m2", "m3", "m4", "m5"}
 
     def test_single_provider_unchanged(self):
         """[TM-004 AC-1] If only one provider, can't interleave -- returns as-is."""
@@ -85,7 +83,7 @@ class TestInterleave:
         result = interleave_providers(scored, max_consecutive=1)
         providers = [m.provider for m in result]
         for i in range(len(providers) - 1):
-            assert providers[i] != providers[i + 1] or len(set(m.provider for m in scored)) == 1
+            assert providers[i] != providers[i + 1] or len({m.provider for m in scored}) == 1
 
     def test_constraint_not_satisfiable_returns_original(self):
         """[TM-004 AC-1] Returns original order when constraint cannot be satisfied (line 34)."""
@@ -100,7 +98,7 @@ class TestInterleave:
         assert [m.model_id for m in result] == [m.model_id for m in scored]
 
     def test_is_constraint_satisfiable_returns_false_for_dominant_provider(self):
-        """[TM-004 AC-2] _is_constraint_satisfiable returns False when one provider dominates (line 62)."""
+        """[TM-004 AC-2] _is_constraint_satisfiable returns False when one provider dominates."""
         from dragonlight_router.selection.interleave import _is_constraint_satisfiable
 
         scored = [
@@ -113,7 +111,7 @@ class TestInterleave:
         assert _is_constraint_satisfiable(scored, max_consecutive=1) is False
 
     def test_build_interleaved_fallback_when_not_placed(self):
-        """[TM-004 AC-3] _build_interleaved appends remaining when no placement possible (lines 85-86)."""
+        """[TM-004 AC-3] _build_interleaved appends remaining when no placement possible."""
         from dragonlight_router.selection.interleave import _build_interleaved
 
         scored = [
@@ -123,10 +121,10 @@ class TestInterleave:
         ]
         result = _build_interleaved(scored, max_consecutive=2)
         assert len(result) == len(scored)
-        assert set(m.model_id for m in result) == {"m1", "m2", "m3"}
+        assert {m.model_id for m in result} == {"m1", "m2", "m3"}
 
     def test_try_place_best_returns_false_when_no_placeable(self):
-        """[TM-004 AC-3] _try_place_best returns False when no candidate can be placed (line 107)."""
+        """[TM-004 AC-3] _try_place_best returns False when no candidate can be placed."""
         from dragonlight_router.selection.interleave import _try_place_best
 
         result = [_ms("m1", "groq", 90.0), _ms("m2", "groq", 85.0)]

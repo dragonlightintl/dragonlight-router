@@ -6,8 +6,6 @@ from __future__ import annotations
 
 import time
 
-import pytest
-
 from dragonlight_router.health.circuit_breaker import CircuitBreaker, CircuitState
 
 

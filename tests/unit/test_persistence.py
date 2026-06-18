@@ -7,8 +7,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from dragonlight_router.budget.persistence import load_budget_state, save_budget_state
 
 
@@ -76,7 +74,7 @@ class TestLoadBudgetState:
 
     def test_oserror_on_load_returns_err(self, tmp_path: Path):
         """[TM-022 AC-3] OSError during read returns Err(StatePersistenceError) (lines 78-80)."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch
 
         path = tmp_path / "budget.json"
         path.write_text('{"x": 1}')
@@ -87,8 +85,7 @@ class TestLoadBudgetState:
 
 class TestSaveBudgetStateError:
     def test_oserror_during_write_returns_err(self, tmp_path: Path):
-        """[TM-022 AC-2] OSError during atomic write returns Err(StatePersistenceError) (lines 46-51)."""
-        import os
+        """[TM-022 AC-2] OSError during atomic write returns Err(StatePersistenceError)."""
         from unittest.mock import patch
 
         path = tmp_path / "budget.json"

@@ -4,16 +4,19 @@ Spec traceability: TM-016 (Configuration loading and schema)
 """
 from __future__ import annotations
 
-import json
-import os
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 import yaml
 
-from dragonlight_router.config.loader import load_config, _resolve_config_path, _load_yaml_config, _load_from_yaml
-from dragonlight_router.config.schema import RouterConfig, ProviderSchema, RateLimitSchema
+from dragonlight_router.config.loader import (
+    _load_from_yaml,
+    _load_yaml_config,
+    _resolve_config_path,
+    load_config,
+)
+from dragonlight_router.config.schema import ProviderSchema, RateLimitSchema
 from dragonlight_router.core.errors import RouterConfigError
 from dragonlight_router.result import Err, Ok
 
@@ -153,7 +156,8 @@ class TestLoadYamlConfigErrorPath:
         """[TM-010 AC-2] _load_yaml_config returns Err(RouterConfigError) on OSError."""
         path = tmp_path / "readable.yaml"
         path.write_text("catalog_ttl_hours: 3")
-        with patch("dragonlight_router.config.loader._load_from_yaml", side_effect=OSError("disk error")):
+        load_yaml_path = "dragonlight_router.config.loader._load_from_yaml"
+        with patch(load_yaml_path, side_effect=OSError("disk error")):
             result = _load_yaml_config(path)
         assert isinstance(result, Err)
         assert isinstance(result.error, RouterConfigError)
@@ -171,6 +175,8 @@ class TestLoadFromYamlErrorPath:
         """[TM-010 AC-3] _load_from_yaml re-raises OSError on read failure."""
         path = tmp_path / "file.yaml"
         path.write_text("a: 1")
-        with patch("pathlib.Path.read_text", side_effect=OSError("no disk")):
-            with pytest.raises(OSError):
-                _load_from_yaml(path)
+        with (
+            patch("pathlib.Path.read_text", side_effect=OSError("no disk")),
+            pytest.raises(OSError),
+        ):
+            _load_from_yaml(path)

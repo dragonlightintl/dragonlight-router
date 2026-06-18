@@ -15,7 +15,6 @@ import pytest
 from dragonlight_router.adapters.local import LocalBackend
 from dragonlight_router.core.types import BackendStatus
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -184,7 +183,7 @@ class TestLocalGenerate:
         @asynccontextmanager
         async def fake_stream(method, url, **kwargs):
             raise httpx.ConnectError("connection refused")
-            yield  # noqa: unreachable
+            yield  # noqa: F841
 
         with patch("dragonlight_router.adapters.local.httpx.AsyncClient") as mock_cls:
             mock_client = AsyncMock()
@@ -207,7 +206,7 @@ class TestLocalGenerate:
         @asynccontextmanager
         async def fake_stream(method, url, **kwargs):
             raise httpx.ReadTimeout("timed out")
-            yield  # noqa: unreachable
+            yield  # noqa: F841
 
         with patch("dragonlight_router.adapters.local.httpx.AsyncClient") as mock_cls:
             mock_client = AsyncMock()
@@ -422,7 +421,7 @@ class TestLocalGenerateAdditional:
         @asynccontextmanager
         async def fake_stream(method, url, **kwargs):
             raise httpx.HTTPError("generic HTTP error")
-            yield  # noqa: unreachable
+            yield  # noqa: F841
 
         with patch("dragonlight_router.adapters.local.httpx.AsyncClient") as mock_cls:
             mock_client = AsyncMock()

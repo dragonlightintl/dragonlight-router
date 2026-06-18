@@ -8,8 +8,8 @@ from __future__ import annotations
 import pytest
 
 from src.dragonlight_router.selection.context_filter import (
-    TrustTier,
     ProviderTrustTier,
+    TrustTier,
     filter_by_trust_tier,
     filter_context_for_provider,
 )

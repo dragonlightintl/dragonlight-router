@@ -12,7 +12,6 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
 
-import pytest
 import yaml
 from starlette.testclient import TestClient
 
@@ -228,17 +227,24 @@ class TestAdminAuthCatalogRefresh:
     def test_catalog_refresh_no_admin_key_allows_access(self, tmp_path: Path):
         """[HAZ-011 AC-1] Without admin_api_key, catalog/refresh works without auth."""
         from unittest.mock import AsyncMock, patch
-        from dragonlight_router.result import Ok
+
         from dragonlight_router.core.types import CatalogEntry
+        from dragonlight_router.result import Ok
 
         config_path = _setup_test_env_with_admin_key(tmp_path, admin_key=None)
         app = create_app(config_path=config_path)
 
         mock_refresher = AsyncMock()
-        mock_refresher.refresh.return_value = Ok({"test": [CatalogEntry(model_id="m1", provider="test")]})
+        mock_refresher.refresh.return_value = Ok(
+            {"test": [CatalogEntry(model_id="m1", provider="test")]}
+        )
 
         client = TestClient(app)
-        with patch("dragonlight_router.server.routes._refresher_mod.CatalogRefresher", return_value=mock_refresher):
+        refresher_path = (
+            "dragonlight_router.server.routes"
+            "._refresher_mod.CatalogRefresher"
+        )
+        with patch(refresher_path, return_value=mock_refresher):
             response = client.post("/v1/catalog/refresh")
         assert response.status_code == 200
 
@@ -254,17 +260,24 @@ class TestAdminAuthCatalogRefresh:
     def test_catalog_refresh_with_valid_auth(self, tmp_path: Path):
         """[HAZ-011 AC-2] Valid bearer token allows catalog/refresh."""
         from unittest.mock import AsyncMock, patch
-        from dragonlight_router.result import Ok
+
         from dragonlight_router.core.types import CatalogEntry
+        from dragonlight_router.result import Ok
 
         config_path = _setup_test_env_with_admin_key(tmp_path, admin_key="refresh-key")
         app = create_app(config_path=config_path)
 
         mock_refresher = AsyncMock()
-        mock_refresher.refresh.return_value = Ok({"test": [CatalogEntry(model_id="m1", provider="test")]})
+        mock_refresher.refresh.return_value = Ok(
+            {"test": [CatalogEntry(model_id="m1", provider="test")]}
+        )
 
         client = TestClient(app)
-        with patch("dragonlight_router.server.routes._refresher_mod.CatalogRefresher", return_value=mock_refresher):
+        refresher_path = (
+            "dragonlight_router.server.routes"
+            "._refresher_mod.CatalogRefresher"
+        )
+        with patch(refresher_path, return_value=mock_refresher):
             response = client.post(
                 "/v1/catalog/refresh",
                 headers={"Authorization": "Bearer refresh-key"},

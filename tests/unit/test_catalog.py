@@ -4,7 +4,6 @@ Spec traceability: TM-015 (Catalog cache and refresh)
 """
 from __future__ import annotations
 
-import json
 import time
 from pathlib import Path
 
@@ -80,17 +79,18 @@ class TestCatalogCache:
         assert isinstance(result, Err)
 
     def test_set_write_failure_cleans_up_tmp(self, tmp_path: Path):
-        """[TM-015 AC-3] Write failure during set() raises and cleans up tmp file (lines 107-110)."""
-        import os
+        """[TM-015 AC-3] Write failure during set() raises and cleans up tmp file."""
         from unittest.mock import patch
 
         path = tmp_path / "catalog.json"
         cache = CatalogCache(cache_path=path, ttl_hours=24)
         catalog = {"groq": [CatalogEntry(model_id="x", provider="groq")]}
 
-        with patch("os.rename", side_effect=OSError("rename failed")):
-            with pytest.raises(OSError):
-                cache.set(catalog)
+        with (
+            patch("os.rename", side_effect=OSError("rename failed")),
+            pytest.raises(OSError),
+        ):
+            cache.set(catalog)
 
         tmp_files = list(path.parent.glob(".catalog_cache_*.tmp"))
         assert len(tmp_files) == 0

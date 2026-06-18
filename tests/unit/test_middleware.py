@@ -4,9 +4,7 @@ Covers QA-022, QA-023, QA-024.
 """
 from __future__ import annotations
 
-import time
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import yaml
@@ -18,7 +16,6 @@ from dragonlight_router.server.middleware import (
     get_cors_config,
 )
 from dragonlight_router.server.routes import _sanitize_prompt, _validate_llm_response
-
 
 # ---------------------------------------------------------------------------
 # QA-023: Rate-limiting middleware
@@ -219,8 +216,8 @@ class TestRateLimitMiddlewareDispatch:
     def test_rate_limit_exceeded_returns_429(self, tmp_path: Path):
         """[TM-008 AC-1] Exhausted bucket causes middleware to return 429."""
         from starlette.applications import Starlette
-        from starlette.routing import Route
         from starlette.responses import JSONResponse
+        from starlette.routing import Route
         from starlette.testclient import TestClient as TC
 
         async def _dummy(request):
@@ -237,11 +234,9 @@ class TestRateLimitMiddlewareDispatch:
 
     def test_rate_limit_exceeded_via_direct_dispatch(self):
         """[TM-008 AC-1] Middleware dispatch returns 429 JSON when bucket is empty."""
-        import asyncio
-        from starlette.testclient import TestClient
         from starlette.applications import Starlette
-        from starlette.routing import Route
         from starlette.responses import JSONResponse
+        from starlette.routing import Route
 
         async def _dummy(request):
             return JSONResponse({"ok": True})
@@ -326,15 +321,20 @@ class TestCORSConfig:
     def test_cors_preflight_request(self, tmp_path):
         """CORS preflight OPTIONS request receives correct headers."""
         from starlette.applications import Starlette
-        from starlette.routing import Route
         from starlette.responses import JSONResponse
+        from starlette.routing import Route
         from starlette.testclient import TestClient
 
         async def _dummy(request):
             return JSONResponse({"ok": True})
 
         app = Starlette(routes=[Route("/v1/health", _dummy, methods=["GET"])])
-        app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["*"])
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["*"],
+        )
         client = TestClient(app)
 
         response = client.options(
@@ -350,15 +350,20 @@ class TestCORSConfig:
     def test_cors_actual_request(self, tmp_path):
         """CORS actual request receives Access-Control-Allow-Origin header."""
         from starlette.applications import Starlette
-        from starlette.routing import Route
         from starlette.responses import JSONResponse
+        from starlette.routing import Route
         from starlette.testclient import TestClient
 
         async def _dummy(request):
             return JSONResponse({"ok": True})
 
         app = Starlette(routes=[Route("/v1/health", _dummy, methods=["GET"])])
-        app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"])
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_methods=["GET"],
+            allow_headers=["*"],
+        )
         client = TestClient(app)
 
         response = client.get("/v1/health", headers={"Origin": "https://example.com"})
@@ -368,15 +373,20 @@ class TestCORSConfig:
     def test_cors_restricted_origin(self, tmp_path):
         """CORS with restricted origins rejects unlisted origins."""
         from starlette.applications import Starlette
-        from starlette.routing import Route
         from starlette.responses import JSONResponse
+        from starlette.routing import Route
         from starlette.testclient import TestClient
 
         async def _dummy(request):
             return JSONResponse({"ok": True})
 
         app = Starlette(routes=[Route("/v1/health", _dummy, methods=["GET"])])
-        app.add_middleware(CORSMiddleware, allow_origins=["https://allowed.com"], allow_methods=["GET"], allow_headers=["*"])
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["https://allowed.com"],
+            allow_methods=["GET"],
+            allow_headers=["*"],
+        )
         client = TestClient(app)
 
         response = client.get("/v1/health", headers={"Origin": "https://evil.com"})

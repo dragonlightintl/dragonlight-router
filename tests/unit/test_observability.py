@@ -9,9 +9,7 @@ from __future__ import annotations
 import json
 import uuid
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 import yaml
 from starlette.testclient import TestClient
 
@@ -339,8 +337,8 @@ class TestMiddlewareMetricsIntegration:
     def test_correlation_middleware_without_metrics(self):
         """Middleware works correctly when no MetricsCollector is provided."""
         from starlette.applications import Starlette
-        from starlette.routing import Route
         from starlette.responses import JSONResponse
+        from starlette.routing import Route
 
         async def _dummy(request):
             return JSONResponse({"ok": True})

@@ -13,11 +13,9 @@ import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 import yaml
 from starlette.testclient import TestClient
 
-from dragonlight_router.core.state import BackendState
 from dragonlight_router.core.types import (
     BackendCapabilities,
     BackendConfig,
@@ -29,7 +27,6 @@ from dragonlight_router.core.types import (
     GenerativeBackend,
 )
 from dragonlight_router.server.app import create_app
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -232,7 +229,9 @@ class TestDispatchReturnsResponse:
             client = TestClient(app)
             response = client.post("/v1/dispatch", json=VALID_DISPATCH_BODY)
 
-        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+        assert response.status_code == 200, (
+            f"Expected 200, got {response.status_code}: {response.text}"
+        )
 
         data = response.json()
 
@@ -249,7 +248,12 @@ class TestDispatchReturnsResponse:
 
         # Verify content is real text from the mock adapter, not placeholder
         assert len(data["content"]) > 20, "Content should be substantive, not a placeholder"
-        assert "fib" in data["content"] or "Fibonacci" in data["content"] or "fibonacci" in data["content"], (
+        has_fib = (
+            "fib" in data["content"]
+            or "Fibonacci" in data["content"]
+            or "fibonacci" in data["content"]
+        )
+        assert has_fib, (
             "Content should contain the fibonacci code from the mock adapter"
         )
 
@@ -362,7 +366,9 @@ class TestSelectEndpointE2E:
         assert isinstance(data["models"], list)
         assert isinstance(data["scores"], list)
         assert len(data["models"]) > 0, "Should return at least one model for the 'coding' role"
-        assert len(data["scores"]) == len(data["models"]), "Scores list must match models list length"
+        assert len(data["scores"]) == len(data["models"]), (
+            "Scores list must match models list length"
+        )
 
         # Each score entry should have the expected fields
         for score_entry in data["scores"]:
@@ -661,7 +667,9 @@ class TestMultiProviderDispatchE2E:
                     supports_system_prompts=True,
                 ),
                 cost=BackendCostProfile(input_per_mtok=0.10, output_per_mtok=0.30),
-                rate_limits=BackendRateLimits(rpm=60, rpd=14400, tpm=100000, daily_token_cap=500000),
+                rate_limits=BackendRateLimits(
+                    rpm=60, rpd=14400, tpm=100000, daily_token_cap=500000,
+                ),
                 priority=10,
             ),
             BackendConfig(
@@ -679,7 +687,9 @@ class TestMultiProviderDispatchE2E:
                     supports_system_prompts=True,
                 ),
                 cost=BackendCostProfile(input_per_mtok=10.0, output_per_mtok=30.0),
-                rate_limits=BackendRateLimits(rpm=60, rpd=14400, tpm=100000, daily_token_cap=500000),
+                rate_limits=BackendRateLimits(
+                    rpm=60, rpd=14400, tpm=100000, daily_token_cap=500000,
+                ),
                 priority=5,
             ),
             BackendConfig(
@@ -697,7 +707,9 @@ class TestMultiProviderDispatchE2E:
                     supports_system_prompts=True,
                 ),
                 cost=BackendCostProfile(input_per_mtok=3.0, output_per_mtok=15.0),
-                rate_limits=BackendRateLimits(rpm=60, rpd=14400, tpm=100000, daily_token_cap=500000),
+                rate_limits=BackendRateLimits(
+                    rpm=60, rpd=14400, tpm=100000, daily_token_cap=500000,
+                ),
                 priority=3,
             ),
         ]
@@ -826,7 +838,11 @@ class TestContextFilteringE2E:
             "intent_category": "general",
             "specific_intent": "write_function",
             "operator_message": "Write a function to sort a list",
-            "system_prompt": "You are a helpful assistant. BEHAVIORAL RULE: always be kind. PERSONA: Korrigon.",
+            "system_prompt": (
+                "You are a helpful assistant."
+                " BEHAVIORAL RULE: always be kind."
+                " PERSONA: Korrigon."
+            ),
             "context_tokens": 100,
             "requires_tool_use": False,
             "requires_long_context": False,
@@ -931,7 +947,11 @@ class TestContextFilteringE2E:
             adapter.generate = _capture_generate
             return adapter
 
-        system_prompt_text = "You are a sovereign operator assistant. BEHAVIORAL RULE: dharmic alignment. PERSONA: Korrigon."
+        system_prompt_text = (
+            "You are a sovereign operator assistant."
+            " BEHAVIORAL RULE: dharmic alignment."
+            " PERSONA: Korrigon."
+        )
 
         full_context_body = {
             "intent_category": "general",

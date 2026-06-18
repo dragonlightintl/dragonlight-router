@@ -19,7 +19,6 @@ from dragonlight_router.adapters.google import (
 )
 from dragonlight_router.core.types import BackendStatus
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

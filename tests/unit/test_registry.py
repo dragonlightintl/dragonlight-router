@@ -4,8 +4,7 @@ Spec traceability: TM-021 (Backend registry)
 """
 from __future__ import annotations
 
-from typing import AsyncIterator
-from unittest.mock import AsyncMock
+from collections.abc import AsyncIterator
 
 import pytest
 

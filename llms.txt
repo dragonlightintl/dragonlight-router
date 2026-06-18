@@ -1,0 +1,35 @@
+# dragonlight-router
+
+> Multi-provider LLM routing engine — intelligent model selection and cascade dispatch across 11 providers.
+
+## Overview
+
+dragonlight-router selects the best available model for each request, dispatches through a three-stage cascade (MBR → CBR → LBR), and handles fallback automatically when providers fail. It replaces hand-rolled provider switching, health-check spreadsheets, and rate-limit math with a single component.
+
+## Key Features
+
+- 11 providers: Anthropic, Cerebras, Cohere, Gemini, Groq, Mistral, NVIDIA NIM, Ollama, OpenAI, OpenRouter, Together
+- MBR → CBR → LBR cascade: capability filtering, cost-aware scoring, rate-limit enforcement
+- Circuit breaking: failing models removed from rotation until recovery
+- Budget enforcement: sliding-window RPM, RPD, and TPM tracking per provider
+- Dual interface: ranked model list (you call the LLM) or full dispatch with fallback
+- Hot-reload: change role-to-model matrix or provider config without restart
+- Response caching: exact-match and semantic near-duplicate caching (SQLite-backed)
+- SSE streaming: token-by-token events with automatic fallback
+
+## Quick Start
+
+```bash
+pip install -e ".[all]"
+```
+
+```python
+from dragonlight_router import RouterEngine
+
+router = RouterEngine()
+models = router.select_models("code_review", top_n=5)
+```
+
+## Documentation
+
+https://dragonlightintl.github.io/dragonlight-router/

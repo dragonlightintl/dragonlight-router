@@ -1,57 +1,88 @@
 # Changelog
 
 All notable changes to dragonlight-router are documented here.
+
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+### Added
+
+- MkDocs Material documentation site with getting-started guide, architecture, provider reference, and ADRs
+- GitHub Actions docs deployment workflow (GitHub Pages)
+- ARCHITECTURE.md with cascade pipeline diagram and package structure
+- ADR-001 (Result type pattern), ADR-002 (Provider adapter pattern), ADR-003 (Cascade dispatch design)
+- OpenAPI specification and deployment runbook
+- CONTRIBUTING.md with development setup, code style, and PR conventions
+- SECURITY.md with vulnerability disclosure policy
+- GitHub issue templates and pull request template
+
+### Changed
+
+- README rewritten with professional badges, feature list, cascade diagram, and streamlined quickstart
+- CI workflow split into separate lint, typecheck, security, and test jobs with Python 3.11/3.12/3.13 matrix
+- pyproject.toml enriched with full classifiers, keywords, and project URLs
+- Makefile expanded with `format`, `docs`, `docs-serve`, and `all` targets
+
+### Fixed
+
+- Mock anti-patterns in test suite (async generators instead of plain async functions for failing backends)
+- Expanded property-based tests and added acceptance and security test suites
+
+### Security
+
+- CORS hardening, admin auth rate limiting, SSRF URL validation (SEC-003, SEC-005, SEC-006)
+- Container image and supply-chain hardening (SEC-004, SEC-008)
 
 ## [0.2.6] — 2026-06-17
 
 ### Added
 
-- **Full cascade dispatch pipeline** — MBR (Model-Based Ranking) -> CBR (Cost-Based Ranking) -> LBR (Limit-Based Ranking) composition with fallback across the ranked candidate list
-- **11 provider adapters** — Anthropic, Cerebras, Cohere, Google, Groq, Local (Ollama), Mistral, NVIDIA NIM, OpenAI, OpenRouter, Together (up from 1 in v0.1.0)
-- **SSE streaming dispatch** — `dispatch_stream()` yields `StreamChunk` events (token, metadata, error) for real-time token streaming with fallback across backends
-- **Context trust tier filtering** — HAZ-001 mitigation: `context_trust_tier` parameter on dispatch orders enforces minimum provider trust level (LOCAL > TRUSTED > SEMI_TRUSTED > UNTRUSTED), preventing sensitive context from reaching lower-trust providers
-- **Cost governor** — Activates when daily or monthly spend exceeds configurable thresholds; reweights scoring to 70% cost / 10% latency / 10% priority / 5% queue / 5% health to aggressively prefer cheaper backends
-- **Degraded backend deprioritization** — Backends in DEGRADED health status receive a 0.5x score penalty to route traffic toward healthy alternatives
-- **Intent-based tier floor** — HAZ-013 mitigation: Maps intent categories (e.g., `complex_reasoning`, `code_review`, `debugging`) to minimum required backend tiers, preventing under-qualified model selection
-- **Fallback policy control** — HAZ-004 mitigation: `fallback_policy` parameter (`allow` / `deny` / `same_tier`) restricts which backends are eligible for cascade fallback
-- **State persistence** — Budget tracker state survives restarts via atomic file I/O (.tmp -> rename pattern)
-- **Observability stack** — Prometheus-style metrics endpoint, correlation ID middleware (X-Request-ID propagation), structured logging via structlog, `/readiness` probe, OpenAPI spec generation
-- **CORS middleware** — Configurable cross-origin resource sharing for browser-based clients
-- **Admin auth** — Bearer token authentication for admin endpoints (metrics, health management)
-- **Graceful shutdown** — Clean shutdown handler for the Starlette server
-- **Docker + Makefile + CI** — Production-ready container image, `make test`, `make lint`, `make typecheck` targets
-- **Property-based tests** — Hypothesis-driven invariant testing for scoring bounds, BudgetTracker monotonicity, MBR never-downgrade, LBR subset, and interleave permutation properties
-- **`requirements.lock`** — Pinned dependency lockfile for reproducible production deploys
+- **Full cascade dispatch pipeline** — MBR (Model-Based Ranking) → CBR (Cost-Based Ranking) → LBR (Limit-Based Ranking) composition with fallback across the ranked candidate list
+- **11 provider adapters** — Anthropic, Cerebras, Cohere, Google, Groq, Local (Ollama), Mistral, NVIDIA NIM, OpenAI, OpenRouter, Together
+- **SSE streaming dispatch** — `dispatch_stream()` yields `StreamChunk` events for real-time token streaming with fallback
+- **Context trust tier filtering** — `context_trust_tier` parameter enforces minimum provider trust level, preventing sensitive context from reaching lower-trust providers
+- **Cost governor** — activates when spend exceeds thresholds; reweights scoring to aggressively prefer cheaper backends
+- **Degraded backend deprioritization** — backends in DEGRADED health receive a 0.5x score penalty
+- **Intent-based tier floor** — maps intent categories to minimum required backend tiers
+- **Fallback policy control** — `fallback_policy` parameter (`allow`/`deny`/`same_tier`) restricts cascade fallback eligibility
+- **Budget state persistence** — atomic file I/O (.tmp → rename) survives restarts
+- **Observability** — Prometheus-style metrics, correlation ID middleware (X-Request-ID), structlog, `/readiness` probe
+- **CORS middleware** — configurable cross-origin resource sharing
+- **Admin auth** — bearer token authentication for admin endpoints
+- **Graceful shutdown** — clean shutdown handler for the Starlette server
+- **Docker + Makefile + CI** — production-ready container image and development workflow
+- **Property-based tests** — Hypothesis-driven invariant testing for scoring, budget, MBR, LBR, and interleave
+- **`requirements.lock`** — pinned dependency lockfile for reproducible production deploys
+- **Response caching** — exact-match (SHA-256) and semantic near-duplicate (n-gram Jaccard) caching via SQLite
+- **Real cost tracking** — USD/Mtok cost data per model with cost-aware scoring
+- **Retry with backoff** — exponential backoff + jitter on OpenAI-compatible adapters
 
 ### Changed
 
-- Provider adapter architecture refactored to use `GenerativeBackend` protocol with per-dispatch fresh adapter instantiation (HAZ-014 mitigation: prevents concurrent status mutation)
-- Token estimation centralized via `_estimate_token_count()` with observability logging (HAZ-010 mitigation)
+- Provider adapter architecture refactored to `GenerativeBackend` protocol with per-dispatch fresh instantiation
+- Token estimation centralized via `_estimate_token_count()` with observability logging
 - Scoring weights extracted to `ScoringWeightsConfig` dataclass for cost governor override
-- `DispatchOrder` extended with `context_trust_tier`, `fallback_policy`, `requires_long_context` fields
-- `BackendConfig` extended with `capabilities`, `cost`, `rate_limits`, `priority` fields
-- Test suite expanded from ~2,000 lines to 986 tests with 100% line coverage
+- `DispatchOrder` extended with `context_trust_tier`, `fallback_policy`, `requires_long_context`
+- `BackendConfig` extended with `capabilities`, `cost`, `rate_limits`, `priority`
+- OpenAI-compatible adapter base class extracted, consolidating 7 adapters
+- Function decomposition across adapters, cascade, and router modules
+- Server input validation, error sanitization, and rate limiting middleware
+- All ruff lint errors resolved (228 fixes across source and tests)
 
 ### Fixed
 
-- Unclosed SQLite connections in `SimpleCache` and `SemanticCache` — added `close()` method to both classes
-- Coroutine-never-awaited warnings in fallback chain integration tests — mock failing backends now use async generators instead of plain async functions
-- All 16 pytest warnings resolved (ResourceWarning: unclosed sqlite3.Connection, RuntimeWarning: coroutine never awaited)
-- Strict warning mode (`pytest -W error`) now passes all 986 tests with zero warnings
+- Unclosed SQLite connections in `SimpleCache` and `SemanticCache` — added `close()` methods
+- Coroutine-never-awaited warnings in fallback chain integration tests
+- Groq 404 from URL doubling — health check now delegates to adapter
+- Gemini double-pathing in base URL
+- Google/Local adapters now raise exceptions instead of yielding error strings
+- All pytest warnings resolved (strict mode passes with zero warnings)
 
 ### Security
 
 - 14 hazard mitigations implemented (HAZ-001 through HAZ-014) covering context data egress, budget exhaustion, fallback control, model capability mismatch, concurrent adapter state, and token estimation accuracy
-- 1 low-severity bandit finding: `random` module used for jitter in health check intervals — correct usage (not cryptographic)
-
-### Quality
-
-- 986 tests, 100% line coverage
-- 0 mypy strict-mode errors
-- 0 ruff lint errors
-- All tests pass under `pytest -W error` strict warning mode
 
 ## [0.1.0] — 2025-05-18
 
@@ -60,14 +91,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `RoleMatrix` — hot-reloadable JSON file mapping roles to ranked model IDs
 - `BudgetTracker` — sliding-window RPM + daily RPD tracking per provider
 - `HealthTracker` — per-model error counting and EWMA latency tracking
-- `CircuitBreaker` — CLOSED→OPEN→HALF_OPEN state machine with configurable thresholds
+- `CircuitBreaker` — CLOSED → OPEN → HALF_OPEN state machine
 - `CatalogCache` — file-backed TTL cache of live provider model lists
 - `CatalogRefresher` — concurrent async fetch from provider `/v1/models` endpoints
 - `RouterEngine` — orchestration layer with `select_models()` + `record_request()` interface
 - `Server` — Starlette HTTP API: `/v1/select`, `/v1/record`, `/v1/health`, `/v1/catalog`
 - `SimpleCache` — SHA-256 exact-match response cache backed by SQLite (WAL mode)
 - `SemanticCache` — character n-gram Jaccard similarity cache for near-duplicate detection
-- `ComplexityEstimator` — heuristic mapping intent + context size to tier (LOCAL/HAIKU/SONNET/OPUS)
-- Full unit test suite (15 files, ~2,000 lines)
+- `ComplexityEstimator` — heuristic tier mapping from intent + context size
+- Full unit test suite (15 files)
 - `mypy --strict` typing throughout
 - Provider support: NVIDIA NIM, Groq, OpenRouter, Cerebras, Gemini, Mistral, Anthropic, Ollama
+
+[Unreleased]: https://github.com/dragonlightintl/dragonlight-router/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/dragonlightintl/dragonlight-router/compare/v0.1.0...v0.2.6
+[0.1.0]: https://github.com/dragonlightintl/dragonlight-router/releases/tag/v0.1.0

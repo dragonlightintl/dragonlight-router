@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Bug report
+    url: https://github.com/dragonlightintl/dragonlight-router/discussions/categories/bug-reports
+    about: Report a bug via Discussions first — confirmed bugs get promoted to Issues.
+  - name: Feature request
+    url: https://github.com/dragonlightintl/dragonlight-router/discussions/categories/ideas
+    about: Suggest a feature or improvement via Discussions.
+  - name: Questions & help
+    url: https://github.com/dragonlightintl/dragonlight-router/discussions/categories/q-a
+    about: Ask a question or get help with configuration.

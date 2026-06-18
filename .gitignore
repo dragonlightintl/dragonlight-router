@@ -8,6 +8,10 @@ build/
 .eggs/
 *.egg
 
+# Virtual environments
+.venv/
+venv/
+
 # Secrets — never commit
 .env
 .env.*
@@ -23,10 +27,19 @@ router_state/
 .mypy_cache/
 .ruff_cache/
 .coverage
+coverage.xml
 htmlcov/
 
-# OS / Editor
+# MkDocs build output
+site/
+
+# OS
 .DS_Store
 Thumbs.db
+
+# IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+*~

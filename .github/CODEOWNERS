@@ -1,0 +1,13 @@
+# Default
+* @Korrigon
+
+# Adapters
+src/dragonlight_router/adapters/ @Korrigon
+
+# Selection pipeline
+src/dragonlight_router/selection/ @Korrigon
+
+# Security
+src/dragonlight_router/core/validation.py @Korrigon
+src/dragonlight_router/server/middleware.py @Korrigon
+SECURITY.md @Korrigon

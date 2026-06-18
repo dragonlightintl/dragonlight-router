@@ -151,14 +151,12 @@ class TestGoogleGenerate:
         )
         backend = GoogleBackend(config)
 
-        chunks = []
-        async for chunk in backend.generate(
-            [{"role": "user", "content": "test"}]
-        ):
-            chunks.append(chunk)
+        with pytest.raises(ValueError, match="API key not configured"):
+            async for _ in backend.generate(
+                [{"role": "user", "content": "test"}]
+            ):
+                pass
 
-        assert len(chunks) == 1
-        assert "not set" in chunks[0]
         assert backend.status == BackendStatus.ERROR
 
     async def test_no_env_key_configured(self, make_backend_config):
@@ -170,14 +168,13 @@ class TestGoogleGenerate:
         )
         backend = GoogleBackend(config)
 
-        chunks = []
-        async for chunk in backend.generate(
-            [{"role": "user", "content": "test"}]
-        ):
-            chunks.append(chunk)
+        with pytest.raises(ValueError, match="No API key configured"):
+            async for _ in backend.generate(
+                [{"role": "user", "content": "test"}]
+            ):
+                pass
 
-        assert len(chunks) == 1
-        assert "No API key configured" in chunks[0]
+        assert backend.status == BackendStatus.ERROR
 
     async def test_api_error_status(self, backend):
         fake_response = _FakeStreamResponse([], status_code=429)
@@ -193,14 +190,12 @@ class TestGoogleGenerate:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_cls.return_value = mock_client
 
-            chunks = []
-            async for chunk in backend.generate(
-                [{"role": "user", "content": "test"}]
-            ):
-                chunks.append(chunk)
+            with pytest.raises(RuntimeError, match="429"):
+                async for _ in backend.generate(
+                    [{"role": "user", "content": "test"}]
+                ):
+                    pass
 
-        assert len(chunks) == 1
-        assert "429" in chunks[0]
         assert backend.status == BackendStatus.ERROR
 
     async def test_system_instruction_included(self, backend):
@@ -241,7 +236,7 @@ class TestGoogleGenerate:
         @asynccontextmanager
         async def fake_stream(method, url, **kwargs):
             raise httpx.ReadTimeout("timed out")
-            yield  # noqa: unreachable — required for generator syntax
+            yield  # noqa: F841 — unreachable, required for generator syntax
 
         with patch("dragonlight_router.adapters.google.httpx.AsyncClient") as mock_cls:
             mock_client = AsyncMock()
@@ -250,14 +245,12 @@ class TestGoogleGenerate:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_cls.return_value = mock_client
 
-            chunks = []
-            async for chunk in backend.generate(
-                [{"role": "user", "content": "test"}]
-            ):
-                chunks.append(chunk)
+            with pytest.raises(RuntimeError, match="Google connection failed"):
+                async for _ in backend.generate(
+                    [{"role": "user", "content": "test"}]
+                ):
+                    pass
 
-        assert len(chunks) == 1
-        assert "timed out" in chunks[0].lower()
         assert backend.status == BackendStatus.ERROR
 
     async def test_url_contains_model_and_key_in_header(self, backend):
@@ -510,7 +503,7 @@ class TestGoogleAdditionalCoverage:
 
     # lines 149-152 — TimeoutException and HTTPError in generate()
     async def test_generate_http_error(self, make_backend_config, monkeypatch):
-        """Generic httpx.HTTPError in generate sets ERROR and yields error message.
+        """Generic httpx.HTTPError in generate sets ERROR and raises RuntimeError.
 
         Covers google.py lines 149-152.
         """
@@ -526,7 +519,7 @@ class TestGoogleAdditionalCoverage:
         @asynccontextmanager
         async def fake_stream(method, url, **kwargs):
             raise httpx.HTTPError("generic http error")
-            yield  # noqa: unreachable
+            yield  # noqa: F841 — unreachable, required for generator syntax
 
         with patch("dragonlight_router.adapters.google.httpx.AsyncClient") as mock_cls:
             mock_client = AsyncMock()
@@ -535,14 +528,12 @@ class TestGoogleAdditionalCoverage:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_cls.return_value = mock_client
 
-            chunks = []
-            async for chunk in backend.generate(
-                [{"role": "user", "content": "test"}]
-            ):
-                chunks.append(chunk)
+            with pytest.raises(RuntimeError, match="Google API error"):
+                async for _ in backend.generate(
+                    [{"role": "user", "content": "test"}]
+                ):
+                    pass
 
-        assert len(chunks) == 1
-        assert "HTTP error" in chunks[0]
         assert backend.status == BackendStatus.ERROR
 
     # line 201 — _parse_sse_line returns None for empty/non-data lines

@@ -169,14 +169,12 @@ class TestLocalGenerate:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_cls.return_value = mock_client
 
-            chunks = []
-            async for chunk in backend.generate(
-                [{"role": "user", "content": "test"}]
-            ):
-                chunks.append(chunk)
+            with pytest.raises(RuntimeError, match="500"):
+                async for _ in backend.generate(
+                    [{"role": "user", "content": "test"}]
+                ):
+                    pass
 
-        assert len(chunks) == 1
-        assert "500" in chunks[0]
         assert backend.status == BackendStatus.ERROR
 
     async def test_connection_refused(self, backend):
@@ -192,14 +190,12 @@ class TestLocalGenerate:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_cls.return_value = mock_client
 
-            chunks = []
-            async for chunk in backend.generate(
-                [{"role": "user", "content": "test"}]
-            ):
-                chunks.append(chunk)
+            with pytest.raises(ConnectionError, match="Cannot connect"):
+                async for _ in backend.generate(
+                    [{"role": "user", "content": "test"}]
+                ):
+                    pass
 
-        assert len(chunks) == 1
-        assert "Cannot connect" in chunks[0]
         assert backend.status == BackendStatus.OFFLINE
 
     async def test_timeout(self, backend):
@@ -215,14 +211,12 @@ class TestLocalGenerate:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_cls.return_value = mock_client
 
-            chunks = []
-            async for chunk in backend.generate(
-                [{"role": "user", "content": "test"}]
-            ):
-                chunks.append(chunk)
+            with pytest.raises(RuntimeError, match="Local connection failed"):
+                async for _ in backend.generate(
+                    [{"role": "user", "content": "test"}]
+                ):
+                    pass
 
-        assert len(chunks) == 1
-        assert "timed out" in chunks[0].lower()
         assert backend.status == BackendStatus.ERROR
 
     async def test_generation_params_forwarded(self, backend):
@@ -415,9 +409,9 @@ class TestLocalGenerateAdditional:
         assert backend.config.name == "ollama-llama"
         assert backend.config.provider == "local"
 
-    # lines 81-84 — ConnectError in generate while streaming
+    # lines 81-84 — HTTPError in generate while streaming
     async def test_http_error_in_stream(self, backend):
-        """httpx.HTTPError during stream sets ERROR and yields error message."""
+        """httpx.HTTPError during stream sets ERROR and raises RuntimeError."""
         @asynccontextmanager
         async def fake_stream(method, url, **kwargs):
             raise httpx.HTTPError("generic HTTP error")
@@ -430,14 +424,12 @@ class TestLocalGenerateAdditional:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_cls.return_value = mock_client
 
-            chunks = []
-            async for chunk in backend.generate(
-                [{"role": "user", "content": "test"}]
-            ):
-                chunks.append(chunk)
+            with pytest.raises(RuntimeError, match="Local API error"):
+                async for _ in backend.generate(
+                    [{"role": "user", "content": "test"}]
+                ):
+                    pass
 
-        assert len(chunks) == 1
-        assert "HTTP error" in chunks[0]
         assert backend.status == BackendStatus.ERROR
 
     # line 129 — _parse_sse_line: empty line
@@ -457,7 +449,7 @@ class TestLocalGenerateAdditional:
 
     # lines 150-157 — non-stream error response
     async def test_non_streaming_api_error(self, backend):
-        """Non-streaming path: error status code sets ERROR and yields error message."""
+        """Non-streaming path: error status code sets ERROR and raises RuntimeError."""
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 503
         mock_response.text = "Service Unavailable"
@@ -469,15 +461,13 @@ class TestLocalGenerateAdditional:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_cls.return_value = mock_client
 
-            chunks = []
-            async for chunk in backend.generate(
-                [{"role": "user", "content": "test"}],
-                stream=False,
-            ):
-                chunks.append(chunk)
+            with pytest.raises(RuntimeError, match="503"):
+                async for _ in backend.generate(
+                    [{"role": "user", "content": "test"}],
+                    stream=False,
+                ):
+                    pass
 
-        assert len(chunks) == 1
-        assert "503" in chunks[0]
         assert backend.status == BackendStatus.ERROR
 
     # lines 181-183 — health_check HTTPError

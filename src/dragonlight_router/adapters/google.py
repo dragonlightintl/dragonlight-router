@@ -130,13 +130,16 @@ class GoogleBackend(GenerativeBackend):
 
         if not api_key and self._config.env_key:
             self._status = BackendStatus.ERROR
-            yield f"[Google] Error: Environment variable {self._config.env_key} not set"
-            return
+            raise ValueError(
+                f"google: API key not configured "
+                f"(env: {self._config.env_key})"
+            )
 
         if not api_key and not self._config.env_key:
             self._status = BackendStatus.ERROR
-            yield f"[Google] Error: No API key configured for backend {self._config.name}"
-            return
+            raise ValueError(
+                f"google: No API key configured for backend {self._config.name}"
+            )
 
         body = self._build_request_body(messages, max_tokens=max_tokens, temperature=temperature)
         url = self._build_url(self._config.model)
@@ -145,14 +148,14 @@ class GoogleBackend(GenerativeBackend):
         try:
             async for chunk in self._execute_stream(url, headers, body):
                 yield chunk
-        except httpx.TimeoutException:
+        except httpx.TimeoutException as exc:
             self._status = BackendStatus.ERROR
             logger.error("google_api_timeout", model=self._config.model)
-            yield "[Google] Request timed out"
+            raise RuntimeError(f"Google connection failed: {exc}") from exc
         except httpx.HTTPError as exc:
             self._status = BackendStatus.ERROR
             logger.error("google_api_http_error", error=str(exc))
-            yield f"[Google] HTTP error: {exc}"
+            raise RuntimeError(f"Google API error: {exc}") from exc
 
     def _build_request_body(
         self,
@@ -190,8 +193,9 @@ class GoogleBackend(GenerativeBackend):
                     status=response.status_code,
                     body=error_body[:500],
                 )
-                yield f"[Google] API error {response.status_code}"
-                return
+                raise RuntimeError(
+                    f"Google API error {response.status_code}"
+                )
 
             async for line in response.aiter_lines():
                 text = self._parse_sse_line(line.strip())

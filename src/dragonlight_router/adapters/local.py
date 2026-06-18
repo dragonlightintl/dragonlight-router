@@ -71,18 +71,20 @@ class LocalBackend(GenerativeBackend):
             else:
                 async for chunk in self._non_stream_response(url, body, headers):
                     yield chunk
-        except httpx.ConnectError:
+        except httpx.ConnectError as exc:
             self._status = BackendStatus.OFFLINE
             logger.error("ollama_connect_error", base_url=self._base_url)
-            yield f"[Local] Cannot connect to Ollama at {self._base_url}"
-        except httpx.TimeoutException:
+            raise ConnectionError(
+                f"Local connection failed: Cannot connect to Ollama at {self._base_url}"
+            ) from exc
+        except httpx.TimeoutException as exc:
             self._status = BackendStatus.ERROR
             logger.error("ollama_timeout", model=self._config.model)
-            yield "[Local] Request timed out"
+            raise RuntimeError(f"Local connection failed: {exc}") from exc
         except httpx.HTTPError as exc:
             self._status = BackendStatus.ERROR
             logger.error("ollama_http_error", error=str(exc))
-            yield f"[Local] HTTP error: {exc}"
+            raise RuntimeError(f"Local API error: {exc}") from exc
 
     def _build_request_body(
         self,
@@ -116,8 +118,9 @@ class LocalBackend(GenerativeBackend):
                     status=response.status_code,
                     body=error_body[:500],
                 )
-                yield f"[Local] API error {response.status_code}"
-                return
+                raise RuntimeError(
+                    f"Local API error {response.status_code}"
+                )
 
             async for line in response.aiter_lines():
                 text = self._parse_sse_line(line.strip())
@@ -156,8 +159,9 @@ class LocalBackend(GenerativeBackend):
                     status=response.status_code,
                     body=response.text[:500],
                 )
-                yield f"[Local] API error {response.status_code}"
-                return
+                raise RuntimeError(
+                    f"Local API error {response.status_code}"
+                )
 
             data = response.json()
             content = (

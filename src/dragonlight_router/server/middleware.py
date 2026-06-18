@@ -169,32 +169,42 @@ class RequestCorrelationMiddleware(BaseHTTPMiddleware):
         return response
 
 
-def get_cors_config() -> dict[str, Any]:
+def get_cors_config() -> dict[str, Any] | None:
     """Build CORS middleware configuration from environment variables.
 
     Environment variables:
         DRAGONLIGHT_CORS_ORIGINS: Comma-separated list of allowed origins.
-            Default: ``*`` (allow all origins, suitable for development).
+            Default: ``""`` (empty — CORS disabled, no Access-Control-Allow-Origin header).
+            For development: set to ``*`` to allow all origins.
             For production: set to specific origin(s), e.g. ``https://app.example.com``.
         DRAGONLIGHT_CORS_METHODS: Comma-separated list of allowed HTTP methods.
             Default: ``GET,POST,OPTIONS``.
         DRAGONLIGHT_CORS_HEADERS: Comma-separated list of allowed request headers.
             Default: ``*`` (allow all headers).
+        DRAGONLIGHT_CORS_CREDENTIALS: Whether to allow credentials (cookies, auth headers).
+            Default: ``false``. Set to ``true`` to enable.
 
     Returns:
-        Dict of keyword arguments for ``CORSMiddleware``.
+        Dict of keyword arguments for ``CORSMiddleware``, or None if CORS is disabled
+        (no origins configured).
     """
-    origins_env = os.environ.get("DRAGONLIGHT_CORS_ORIGINS", "*")
+    origins_env = os.environ.get("DRAGONLIGHT_CORS_ORIGINS", "")
     methods_env = os.environ.get("DRAGONLIGHT_CORS_METHODS", "GET,POST,OPTIONS")
     headers_env = os.environ.get("DRAGONLIGHT_CORS_HEADERS", "*")
+    credentials_env = os.environ.get("DRAGONLIGHT_CORS_CREDENTIALS", "false")
 
     allow_origins = [o.strip() for o in origins_env.split(",") if o.strip()]
     allow_methods = [m.strip() for m in methods_env.split(",") if m.strip()]
     allow_headers = [h.strip() for h in headers_env.split(",") if h.strip()]
+    allow_credentials = credentials_env.lower() in ("true", "1", "yes")
+
+    # When no origins are configured, CORS is disabled entirely.
+    if not allow_origins:
+        return None
 
     return {
         "allow_origins": allow_origins,
-        "allow_credentials": True,
+        "allow_credentials": allow_credentials,
         "allow_methods": allow_methods,
         "allow_headers": allow_headers,
     }

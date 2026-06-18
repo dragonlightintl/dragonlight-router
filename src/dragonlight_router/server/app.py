@@ -50,6 +50,15 @@ from dragonlight_router.server.routes import (
 _DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT = 10
 
 
+# DEVIATION CS-004: create_app is 77 lines (limit: 40).
+# Justification: Function contains a nested async lifespan context manager that
+# closes over `engine`, plus the route table and middleware stack. Extracting these
+# into separate functions would scatter the Starlette factory pattern, reduce
+# locality of the lifespan/engine coupling, and make the startup sequence harder
+# to follow. The function is linear and single-purpose.
+# Approved by: architect. Scope: create_app only. Expiration: revisit if routes exceed 20.
+
+
 def create_app(config_path: Path | None = None, **overrides: Any) -> Starlette:
     """Create and configure the Starlette application.
 
@@ -60,6 +69,13 @@ def create_app(config_path: Path | None = None, **overrides: Any) -> Starlette:
     engine = RouterEngine(config_path=config_path, **overrides)
 
     _lifespan_logger = structlog.get_logger()
+
+    # SEC-006: Warn at startup if admin API key is not configured.
+    if not engine._config.admin_api_key:
+        _lifespan_logger.warning(
+            "admin_endpoints_unprotected",
+            detail="No admin_api_key configured — admin endpoints are open to all callers.",
+        )
 
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncGenerator[None, None]:
@@ -111,23 +127,25 @@ def create_app(config_path: Path | None = None, **overrides: Any) -> Starlette:
     app.state.engine = engine
     app.state.metrics = metrics
     # Middleware is applied in reverse order (last added = outermost).
-    # Order: CORS (outermost) → Correlation → RateLimit (innermost)
+    # Order: CORS (outermost, if configured) → Correlation → RateLimit (innermost)
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(RequestCorrelationMiddleware, metrics=metrics)
-    app.add_middleware(CORSMiddleware, **get_cors_config())
+    cors_config = get_cors_config()
+    if cors_config is not None:
+        app.add_middleware(CORSMiddleware, **cors_config)
+    assert hasattr(app.state, "engine"), "app must have engine attached to state"
+    assert hasattr(app.state, "metrics"), "app must have metrics attached to state"
     return app
 
 
-def main() -> None:
-    """CLI entrypoint — run the server with uvicorn.
+def _parse_server_config() -> tuple[Path | None, str, int, int]:
+    """Parse server configuration from environment variables.
 
-    Configures graceful shutdown so in-flight requests have time to drain
-    before the process exits. SIGTERM/SIGINT are handled by uvicorn which
-    triggers the Starlette lifespan exit path.
+    Returns:
+        Tuple of (config_path, host, port, graceful_timeout).
     """
     config_env = os.environ.get("DRAGONLIGHT_ROUTER_CONFIG")
     config_path = Path(config_env) if config_env else None
-    app = create_app(config_path=config_path)
     host = os.environ.get("DRAGONLIGHT_HOST", "127.0.0.1")
     port = int(os.environ.get("DRAGONLIGHT_PORT", "8100"))
     graceful_timeout = int(
@@ -136,11 +154,17 @@ def main() -> None:
             str(_DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT),
         )
     )
+    assert isinstance(host, str) and host, "host must be a non-empty string"
+    assert port > 0, f"port must be positive, got {port}"
+    return config_path, host, port, graceful_timeout
 
-    # Ignore SIGTERM in the parent — let uvicorn's signal handling drive
-    # the shutdown sequence. This prevents duplicate signal handling when
-    # running under container orchestrators (Docker, Kubernetes) that send
-    # SIGTERM followed by SIGKILL.
+
+def main() -> None:
+    """CLI entrypoint — run the server with uvicorn."""
+    config_path, host, port, graceful_timeout = _parse_server_config()
+    app = create_app(config_path=config_path)
+
+    # Let uvicorn's signal handling drive the shutdown sequence.
     if hasattr(signal, "SIGTERM"):
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
 

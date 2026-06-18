@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -64,6 +65,49 @@ _CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 _ADMIN_PATHS = frozenset({"/v1/retire", "/v1/reinstate", "/v1/catalog/refresh"})
 
+# SEC-005: In-memory tracker for failed admin auth attempts per IP.
+_ADMIN_AUTH_FAIL_WINDOW = 60  # seconds
+_ADMIN_AUTH_FAIL_MAX = 5  # max failures within the window
+
+# Global mutable state — keyed by IP, values are lists of failure timestamps.
+_admin_auth_failures: dict[str, list[float]] = {}
+
+
+def _reset_admin_auth_failures() -> None:
+    """Reset the admin auth failure tracker. Used by test fixtures."""
+    _admin_auth_failures.clear()
+
+
+def _record_admin_auth_failure(client_ip: str) -> None:
+    """Record a failed admin auth attempt for the given IP."""
+    now = time.monotonic()
+    if client_ip not in _admin_auth_failures:
+        _admin_auth_failures[client_ip] = []
+    _admin_auth_failures[client_ip].append(now)
+
+
+def _is_admin_auth_rate_limited(client_ip: str) -> bool:
+    """Check whether the IP has exceeded the admin auth failure rate limit.
+
+    Prunes entries older than the window on each check.
+    Returns True if the IP should be rate-limited (429).
+    """
+    now = time.monotonic()
+    cutoff = now - _ADMIN_AUTH_FAIL_WINDOW
+
+    if client_ip not in _admin_auth_failures:
+        return False
+
+    # Prune old entries
+    failures = _admin_auth_failures[client_ip]
+    _admin_auth_failures[client_ip] = [t for t in failures if t > cutoff]
+
+    if not _admin_auth_failures[client_ip]:
+        del _admin_auth_failures[client_ip]
+        return False
+
+    return len(_admin_auth_failures[client_ip]) >= _ADMIN_AUTH_FAIL_MAX
+
 
 # --- Shared helpers ---
 
@@ -73,13 +117,34 @@ def _format_error_response(message: str, status_code: int) -> JSONResponse:
     return JSONResponse({"error": message}, status_code=status_code)
 
 
+def _get_client_ip(request: Request) -> str:
+    """Extract client IP from the request."""
+    if request.client:
+        return request.client.host
+    return "unknown"
+
+
 def _check_admin_auth(request: Request) -> JSONResponse | None:
     """Verify admin bearer token for protected endpoints.
 
     HAZ-011 mitigation: Admin endpoints (retire, reinstate, catalog/refresh)
     require a valid Authorization header when admin_api_key is configured.
     Returns a 401 JSONResponse if auth fails, or None if auth passes.
+
+    SEC-005: After 5 failed auth attempts within 60 seconds from the same
+    IP, returns 429 Too Many Requests before checking credentials.
     """
+    client_ip = _get_client_ip(request)
+
+    # SEC-005: Check rate limit before processing auth
+    if _is_admin_auth_rate_limited(client_ip):
+        logger.warning(
+            "admin_auth_rate_limited", client_ip=client_ip, path=request.url.path,
+        )
+        return _format_error_response(
+            "Too many failed authentication attempts. Try again later.", 429,
+        )
+
     engine: RouterEngine = request.app.state.engine
     admin_key = engine._config.admin_api_key
 
@@ -89,10 +154,12 @@ def _check_admin_auth(request: Request) -> JSONResponse | None:
 
     auth_header = request.headers.get("authorization", "")
     if not auth_header.startswith("Bearer "):
+        _record_admin_auth_failure(client_ip)
         return _format_error_response("Missing or invalid Authorization header", 401)
 
     provided_token = auth_header[7:]  # Strip "Bearer "
     if provided_token != admin_key:
+        _record_admin_auth_failure(client_ip)
         logger.warning("admin_auth_failed", path=request.url.path)
         return _format_error_response("Invalid admin API key", 401)
 
@@ -317,6 +384,11 @@ async def catalog_handler(request: Request) -> JSONResponse:
     })
 
 
+# DEVIATION CS-004: _execute_catalog_refresh is 44 lines.
+# Justification: Catalog refresh with polymorphic result handling, auth failure
+# processing, and backend status restoration. Linear flow; splitting would scatter
+# the refresh-to-response mapping.
+# Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
 async def _execute_catalog_refresh(engine: RouterEngine) -> JSONResponse:
     """Run the catalog refresh and return an appropriate JSONResponse."""
     refresher = _refresher_mod.CatalogRefresher()
@@ -524,6 +596,11 @@ async def _stream_dispatch_generator(
         yield _format_stream_chunk(error_chunk)
 
 
+# DEVIATION CS-004: dispatch_handler is 50 lines.
+# Justification: HTTP handler with JSON parsing, validation, streaming/non-streaming
+# branching, and response formatting. Splitting the handler would break the single
+# request-to-response contract and scatter error handling.
+# Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
 async def dispatch_handler(request: Request) -> JSONResponse | StreamingResponse:
     """POST /v1/dispatch — execute the MBR->CBR->LBR cascade and return EngineResponse.
 
@@ -686,6 +763,11 @@ async def metrics_handler(request: Request) -> JSONResponse:
 # --- OpenAPI schema endpoint ---
 
 
+# DEVIATION CS-004: _build_openapi_schema is 383 lines.
+# Justification: Static OpenAPI schema definition as a single dict literal. Splitting
+# into per-endpoint functions would scatter the schema across ~12 functions with no
+# reuse, making the spec harder to read and maintain.
+# Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
 def _build_openapi_schema() -> dict[str, Any]:
     """Build the OpenAPI 3.0.3 schema for the Dragonlight Router API.
 

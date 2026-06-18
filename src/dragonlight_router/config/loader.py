@@ -15,6 +15,7 @@ import yaml
 
 from dragonlight_router.config.schema import RouterConfig
 from dragonlight_router.core.errors import RouterConfigError
+from dragonlight_router.core.validation import validate_provider_url
 from dragonlight_router.result import Err, Ok, Result
 
 logger = structlog.get_logger()
@@ -62,12 +63,45 @@ def _load_yaml_config(path: Path) -> Result[RouterConfig, RouterConfigError]:
         ))
 
 
+def _validate_provider_urls(config: RouterConfig) -> None:
+    """SEC-003: Validate all provider URLs against SSRF rules.
+
+    Raises ValueError if any provider URL targets a private IP or
+    uses an insecure scheme for non-localhost URLs.
+    """
+    for provider in config.providers:
+        try:
+            validate_provider_url(provider.base_url)
+        except ValueError as exc:
+            logger.warning(
+                "provider_url_ssrf_rejected",
+                provider=provider.name,
+                url=provider.base_url,
+                error=str(exc),
+            )
+            raise
+
+        if provider.catalog_url:
+            try:
+                validate_provider_url(provider.catalog_url)
+            except ValueError as exc:
+                logger.warning(
+                    "provider_catalog_url_ssrf_rejected",
+                    provider=provider.name,
+                    url=provider.catalog_url,
+                    error=str(exc),
+                )
+                raise
+
+
 def _load_from_yaml(path: Path) -> RouterConfig:
     """Parse a YAML config file into a validated RouterConfig."""
     try:
         text = path.read_text()
         data = yaml.safe_load(text) or {}
-        return RouterConfig(**data)
+        config = RouterConfig(**data)
+        _validate_provider_urls(config)
+        return config
     except (yaml.YAMLError, OSError) as exc:
         logger.error("config_load_failed", path=str(path), error=str(exc))
         raise

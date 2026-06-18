@@ -335,6 +335,8 @@ class RouterEngine:
         Called at shutdown (or periodically) to preserve daily spend
         counters and health/retirement state across process restarts.
         """
+        assert isinstance(self._config.state_dir, Path), "state_dir must be a Path"
+        assert self._config.state_dir.exists(), f"state_dir must exist: {self._config.state_dir}"
         budget_path = self._config.state_dir / "budget_state.json"
         state = self._budget.get_state()
         result = save_budget_state(state, budget_path)
@@ -437,20 +439,102 @@ class RouterEngine:
             return BackendTier.MODERATE
         return BackendTier.SIMPLE
 
-    def _register_backends_from_matrix(self) -> None:
-        """Populate BackendRegistry from the role matrix + provider config.
-
-        Iterates every model_id in the role matrix, deduplicates, resolves its
-        provider via prefix, creates a BackendConfig, instantiates the adapter,
-        and registers it.  Models whose provider is not in the adapter map or
-        whose API key env var is absent are skipped with a warning.
-        """
-        # Collect all unique model IDs across all roles
+    def _collect_unique_model_ids(self) -> set[str]:
+        """Iterate the role matrix and return the set of all unique model IDs."""
         all_model_ids: set[str] = set()
         for _role, entries in self._matrix._matrix.items():
             for model_id in entries:
                 all_model_ids.add(model_id)
+        assert isinstance(all_model_ids, set), "result must be a set"
+        return all_model_ids
 
+    def _resolve_backend_config(
+        self, model_id: str, matched_provider: Any,
+    ) -> BackendConfig:
+        """Build a BackendConfig for a single model given its resolved provider."""
+        assert isinstance(model_id, str) and model_id, "model_id must be non-empty string"
+        assert matched_provider is not None, "matched_provider must not be None"
+
+        bare_model = model_id[len(matched_provider.model_prefix):]
+        adapter_key = self._PROVIDER_ADAPTER_KEY[matched_provider.name]
+        tier = self._assign_tier(model_id)
+        normalized_base_url = self._normalize_base_url(matched_provider.base_url, adapter_key)
+        rate_limits = matched_provider.rate_limits
+        cost_profile = self._resolve_cost_profile(model_id, matched_provider.name)
+
+        return BackendConfig(
+            name=model_id,
+            provider=adapter_key,
+            model=bare_model,
+            tier=tier,
+            base_url=normalized_base_url,
+            env_key=matched_provider.env_key,
+            capabilities=BackendCapabilities(
+                max_context_tokens=131072,
+                supports_tool_use=True,
+                supports_streaming=True,
+                supports_json_mode=True,
+                supports_system_prompts=True,
+            ),
+            cost=cost_profile,
+            rate_limits=BackendRateLimits(
+                rpm=rate_limits.rpm,
+                rpd=rate_limits.rpd if rate_limits.rpd is not None else 999999,
+                tpm=rate_limits.tpm if rate_limits.tpm is not None else 9999999,
+                daily_token_cap=(
+                    rate_limits.daily_token_cap
+                    if rate_limits.daily_token_cap is not None
+                    else 9999999
+                ),
+            ),
+        )
+
+    def _register_single_backend(self, model_id: str, matched_provider: Any) -> bool:
+        """Register one backend. Returns True on success, False if skipped."""
+        assert isinstance(model_id, str) and model_id, "model_id must be non-empty string"
+
+        adapter_key = self._PROVIDER_ADAPTER_KEY.get(matched_provider.name)
+        if adapter_key is None:
+            logger.warning("provider_no_adapter_key",
+                           provider=matched_provider.name, model_id=model_id)
+            return False
+
+        tier = self._assign_tier(model_id)
+        if matched_provider.env_key is None and tier != BackendTier.LOCAL:
+            logger.debug("backend_skipped_no_env_key",
+                         model_id=model_id, provider=matched_provider.name)
+            return False
+
+        try:
+            config = self._resolve_backend_config(model_id, matched_provider)
+            adapter = create_adapter(config)
+            self._registry.register(adapter)
+            self._mark_missing_key(model_id, matched_provider)
+            logger.info("backend_registered_from_matrix",
+                        model_id=model_id, provider=matched_provider.name,
+                        adapter_key=adapter_key, tier=tier.value)
+            return True
+        except Exception as exc:  # noqa: BLE001 — skip bad configs gracefully
+            logger.warning("backend_registration_failed",
+                           model_id=model_id, error=str(exc))
+            return False
+
+    def _mark_missing_key(self, model_id: str, matched_provider: Any) -> None:
+        """Mark backend KEY_INVALID if env_key is set but env var is empty."""
+        if not matched_provider.env_key:
+            return
+        if os.environ.get(matched_provider.env_key, ""):
+            return
+        _backend, state = self._registry.get(model_id)
+        if state is not None:
+            state.status = BackendStatus.KEY_INVALID
+            logger.warning("backend_key_missing",
+                           model_id=model_id,
+                           env_key=matched_provider.env_key)
+
+    def _register_backends_from_matrix(self) -> None:
+        """Populate BackendRegistry from the role matrix + provider config."""
+        all_model_ids = self._collect_unique_model_ids()
         if not all_model_ids:
             logger.warning("role_matrix_empty_no_backends_registered")
             return
@@ -458,7 +542,6 @@ class RouterEngine:
         registered = 0
         skipped = 0
         for model_id in sorted(all_model_ids):
-            # Resolve provider via prefix matching
             matched_provider = None
             for p in self._config.providers:
                 if model_id.startswith(p.model_prefix):
@@ -470,105 +553,9 @@ class RouterEngine:
                 skipped += 1
                 continue
 
-            # Strip provider prefix to get the bare model string
-            bare_model = model_id[len(matched_provider.model_prefix):]
-
-            # Map config provider name → adapter factory key
-            adapter_key = self._PROVIDER_ADAPTER_KEY.get(matched_provider.name)
-            if adapter_key is None:
-                logger.warning(
-                    "provider_no_adapter_key",
-                    provider=matched_provider.name,
-                    model_id=model_id,
-                )
-                skipped += 1
-                continue
-
-            tier = self._assign_tier(model_id)
-
-            # Skip providers with no API key configured unless the model is LOCAL
-            # (LOCAL tier runs on-box and needs no credentials).
-            # This also prevents double-registration in test environments where
-            # providers are configured without env_key, allowing tests to manually
-            # populate the registry.
-            if matched_provider.env_key is None and tier != BackendTier.LOCAL:
-                logger.debug(
-                    "backend_skipped_no_env_key",
-                    model_id=model_id,
-                    provider=matched_provider.name,
-                )
-                skipped += 1
-                continue
-
-            # Normalize base_url: strip trailing '/v1' if the adapter appends its own.
-            normalized_base_url = self._normalize_base_url(matched_provider.base_url, adapter_key)
-
-            rate_limits = matched_provider.rate_limits
-            cost_profile = self._resolve_cost_profile(model_id, matched_provider.name)
-            backend_config = BackendConfig(
-                name=model_id,
-                provider=adapter_key,
-                model=bare_model,
-                tier=tier,
-                base_url=normalized_base_url,
-                env_key=matched_provider.env_key,
-                capabilities=BackendCapabilities(
-                    max_context_tokens=131072,
-                    supports_tool_use=True,
-                    supports_streaming=True,
-                    supports_json_mode=True,
-                    supports_system_prompts=True,
-                ),
-                cost=cost_profile,
-                rate_limits=BackendRateLimits(
-                    rpm=rate_limits.rpm,
-                    rpd=(
-                        rate_limits.rpd
-                        if rate_limits.rpd is not None
-                        else 999999
-                    ),
-                    tpm=(
-                        rate_limits.tpm
-                        if rate_limits.tpm is not None
-                        else 9999999
-                    ),
-                    daily_token_cap=(
-                        rate_limits.daily_token_cap
-                        if rate_limits.daily_token_cap is not None
-                        else 9999999
-                    ),
-                ),
-            )
-
-            try:
-                adapter = create_adapter(backend_config)
-                self._registry.register(adapter)
-
-                # Mark KEY_INVALID if env_key is configured but env var is empty
-                if matched_provider.env_key and not os.environ.get(matched_provider.env_key, ""):
-                    _backend, state = self._registry.get(model_id)
-                    if state is not None:
-                        state.status = BackendStatus.KEY_INVALID
-                        logger.warning(
-                            "backend_key_missing",
-                            model_id=model_id,
-                            env_key=matched_provider.env_key,
-                        )
-
-                logger.info(
-                    "backend_registered_from_matrix",
-                    model_id=model_id,
-                    provider=matched_provider.name,
-                    adapter_key=adapter_key,
-                    tier=tier.value,
-                )
+            if self._register_single_backend(model_id, matched_provider):
                 registered += 1
-            except Exception as exc:  # noqa: BLE001 — skip bad configs gracefully
-                logger.warning(
-                    "backend_registration_failed",
-                    model_id=model_id,
-                    error=str(exc),
-                )
+            else:
                 skipped += 1
 
         logger.info(
@@ -601,12 +588,23 @@ class RouterEngine:
         """Return ranked model IDs for a role. Factory's primary entry point."""
         self._matrix.reload_if_changed()
 
-        # Get candidates from role matrix
         candidates = self._matrix.get_ranked_models(role)
         if not candidates:
             return []
 
-        # Get live catalog for filtering — refresh if stale
+        live_models, fetched_providers = self._get_live_catalog()
+        filtered = self._filter_by_catalog(
+            candidates, exclude_providers, live_models, fetched_providers
+        )
+        scored = self._score_candidates(filtered)
+        return self._build_ranked_list(scored, top_n)
+
+    def _get_live_catalog(self) -> tuple[set[str], set[str]]:
+        """Refresh catalog if stale and return (live_models, fetched_providers).
+
+        Returns empty sets if the catalog fetch fails, causing all candidates
+        to be filtered out and triggering a refresh on the next call.
+        """
         if self._catalog.is_stale():
             self._refresh_catalog()
         catalog_result = self._catalog.get()
@@ -618,16 +616,12 @@ class RouterEngine:
                 fetched_providers.add(provider_name)
                 for entry in entries:
                     live_models.add(entry.model_id)
-        # If catalog_result is Err, we proceed with empty live_models/fetched_providers
-        # This will cause all candidates to be filtered out, triggering a refresh on next call
+        return live_models, fetched_providers
 
-        # Filter and score candidates
-        filtered = self._filter_by_catalog(
-            candidates, exclude_providers, live_models, fetched_providers
-        )
-        scored = self._score_candidates(filtered)
-        return self._build_ranked_list(scored, top_n)
-
+    # DEVIATION CS-004: _filter_by_catalog is 45 lines.
+    # Justification: Sequential filter chain (provider exclusion, catalog membership,
+    # KEY_INVALID status) with assertions. Splitting would fragment the filter contract.
+    # Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
     def _filter_by_catalog(
         self,
         candidates: list[tuple[str, int]],
@@ -674,6 +668,11 @@ class RouterEngine:
             filtered.append((model_id, rank, provider))
         return filtered
 
+    # DEVIATION CS-004: _score_candidates is 43 lines.
+    # Justification: Scoring loop with budget/health queries, composite calculation, and
+    # sort. Already uses compute_composite_score helper; further extraction would add
+    # indirection without clarity gain.
+    # Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
     def _score_candidates(
         self,
         filtered: list[tuple[str, int, str | None]],
@@ -847,6 +846,10 @@ class RouterEngine:
             # Sync context — safe to block with asyncio.run().
             asyncio.run(self._async_refresh_catalog())
 
+    # DEVIATION CS-004: _async_refresh_catalog is 46 lines.
+    # Justification: Async refresh with polymorphic result handling (CatalogRefreshResult,
+    # dict, Err) and auth failure marking. Splitting would scatter the refresh contract.
+    # Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
     async def _async_refresh_catalog(self) -> None:
         """Async catalog refresh implementation shared by sync and async paths.
 

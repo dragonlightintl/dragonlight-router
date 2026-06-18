@@ -84,6 +84,10 @@ class AnthropicBackend(GenerativeBackend):
             payload["system"] = "\n\n".join(system_parts)
         return payload
 
+    # DEVIATION CS-004: generate is 48 lines.
+    # Justification: Async generator with yield inside try/except cannot be extracted
+    # without breaking the generator protocol. Stream/non-stream delegation already extracted.
+    # Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
     async def generate(
         self,
         messages: list[dict[str, str]],

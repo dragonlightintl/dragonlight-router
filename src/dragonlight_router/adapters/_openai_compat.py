@@ -132,6 +132,86 @@ class OpenAICompatibleBackend(GenerativeBackend):
         assert delay >= 0, "computed delay must be non-negative"
         return delay
 
+    def _handle_http_retry(
+        self, exc: httpx.HTTPStatusError, attempt: int,
+    ) -> float | None:
+        """Handle an HTTP error during retry loop.
+
+        Returns the backoff delay if the error is retryable and retries remain,
+        or None if this was the last attempt. Raises RuntimeError for
+        non-retryable status codes.
+        """
+        if not self._is_retryable_status(exc.response.status_code):
+            self._status = BackendStatus.ERROR
+            raise RuntimeError(f"{self._provider_name} API error: {exc}") from exc
+        if attempt < self._max_retries - 1:
+            delay = self._compute_backoff_delay(attempt)
+            logger.warning(
+                "retrying_after_http_error",
+                provider=self._provider_name,
+                status_code=exc.response.status_code,
+                attempt=attempt + 1,
+                max_retries=self._max_retries,
+                delay_s=round(delay, 3),
+            )
+            return delay
+        return None
+
+    def _handle_connection_retry(
+        self, exc: httpx.ConnectError | httpx.TimeoutException, attempt: int,
+    ) -> float | None:
+        """Handle a connection/timeout error during retry loop.
+
+        Returns the backoff delay if retries remain, or None on last attempt.
+        """
+        if attempt < self._max_retries - 1:
+            delay = self._compute_backoff_delay(attempt)
+            logger.warning(
+                "retrying_after_connection_error",
+                provider=self._provider_name,
+                error_type=type(exc).__name__,
+                attempt=attempt + 1,
+                max_retries=self._max_retries,
+                delay_s=round(delay, 3),
+            )
+            return delay
+        return None
+
+    def _raise_retries_exhausted(self, last_exc: Exception | None) -> None:
+        """Raise a RuntimeError after all retry attempts are exhausted."""
+        self._status = BackendStatus.ERROR
+        if isinstance(last_exc, httpx.HTTPStatusError):
+            raise RuntimeError(f"{self._provider_name} API error: {last_exc}") from last_exc
+        raise RuntimeError(f"{self._provider_name} connection failed: {last_exc}") from last_exc
+
+    def _validate_and_prepare_request(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        max_tokens: int,
+        temperature: float,
+        stream: bool,
+    ) -> tuple[str, dict[str, str], dict[str, object]]:
+        """Validate API key and build (url, headers, payload) for a request."""
+        if not self._api_key:
+            self._status = BackendStatus.ERROR
+            raise ValueError(
+                f"{self._provider_name.lower()}: API key not configured "
+                f"(env: {self._config.env_key})"
+            )
+        base_url = self._resolve_base_url()
+        url = f"{base_url}{self._completions_path}"
+        headers = self._build_auth_headers()
+        payload = self._build_request_payload(
+            messages, max_tokens=max_tokens, temperature=temperature, stream=stream,
+        )
+        return url, headers, payload
+
+    # DEVIATION CS-004: generate is 59 lines.
+    # Justification: Async generator with yield inside a retry loop cannot be extracted
+    # into a sub-function without breaking the generator protocol. Retry handling and
+    # request preparation are already extracted into helpers.
+    # Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
     async def generate(
         self,
         messages: list[dict[str, str]],
@@ -149,17 +229,7 @@ class OpenAICompatibleBackend(GenerativeBackend):
         assert isinstance(messages, list), "messages must be a list"
         assert len(messages) > 0, "messages must not be empty"
 
-        if not self._api_key:
-            self._status = BackendStatus.ERROR
-            raise ValueError(
-                f"{self._provider_name.lower()}: API key not configured "
-                f"(env: {self._config.env_key})"
-            )
-
-        base_url = self._resolve_base_url()
-        url = f"{base_url}{self._completions_path}"
-        headers = self._build_auth_headers()
-        payload = self._build_request_payload(
+        url, headers, payload = self._validate_and_prepare_request(
             messages, max_tokens=max_tokens, temperature=temperature, stream=stream,
         )
 
@@ -184,48 +254,23 @@ class OpenAICompatibleBackend(GenerativeBackend):
                 return  # Success — exit retry loop
             except httpx.HTTPStatusError as e:
                 last_exc = e
-                if not self._is_retryable_status(e.response.status_code):
-                    # Non-retryable client error — fail immediately
-                    self._status = BackendStatus.ERROR
-                    raise RuntimeError(f"{self._provider_name} API error: {e}") from e
-                if attempt < self._max_retries - 1:
-                    delay = self._compute_backoff_delay(attempt)
-                    logger.warning(
-                        "retrying_after_http_error",
-                        provider=self._provider_name,
-                        status_code=e.response.status_code,
-                        attempt=attempt + 1,
-                        max_retries=self._max_retries,
-                        delay_s=round(delay, 3),
-                    )
+                delay = self._handle_http_retry(e, attempt)
+                if delay is not None:
                     await asyncio.sleep(delay)
                     continue
             except (httpx.ConnectError, httpx.TimeoutException) as e:
                 last_exc = e
-                if attempt < self._max_retries - 1:
-                    delay = self._compute_backoff_delay(attempt)
-                    logger.warning(
-                        "retrying_after_connection_error",
-                        provider=self._provider_name,
-                        error_type=type(e).__name__,
-                        attempt=attempt + 1,
-                        max_retries=self._max_retries,
-                        delay_s=round(delay, 3),
-                    )
+                delay = self._handle_connection_retry(e, attempt)
+                if delay is not None:
                     await asyncio.sleep(delay)
                     continue
             except RuntimeError:
                 raise
             except (json.JSONDecodeError, KeyError, ValueError) as e:
-                # Parse errors are not retryable — the response is malformed
                 self._status = BackendStatus.ERROR
                 raise RuntimeError(f"{self._provider_name} request failed: {e}") from e
 
-        # All retries exhausted — propagate the last error
-        self._status = BackendStatus.ERROR
-        if isinstance(last_exc, httpx.HTTPStatusError):
-            raise RuntimeError(f"{self._provider_name} API error: {last_exc}") from last_exc
-        raise RuntimeError(f"{self._provider_name} connection failed: {last_exc}") from last_exc
+        self._raise_retries_exhausted(last_exc)
 
     async def _parse_sse_stream(self, response: httpx.Response) -> AsyncIterator[str]:
         """Parse SSE stream from response and yield content chunks."""

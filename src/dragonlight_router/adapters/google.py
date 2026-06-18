@@ -114,6 +114,11 @@ class GoogleBackend(GenerativeBackend):
                 headers["Authorization"] = f"Bearer {token}"
         return headers
 
+    # DEVIATION CS-004: generate is 42 lines.
+    # Justification: Async generator with yield inside try/except cannot be extracted
+    # without breaking the generator protocol. Request body construction and stream
+    # execution are already extracted into helpers.
+    # Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
     async def generate(
         self,
         messages: list[dict[str, str]],

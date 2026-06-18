@@ -48,6 +48,18 @@ def _hard_capacity_gate(
     return filtered
 
 
+def _filter_by_median_score(
+    candidates: list[BackendConfig],
+    budget_tracker: BudgetTracker,
+) -> list[BackendConfig]:
+    """Score providers, compute median threshold, and return candidates above it."""
+    assert len(candidates) > 0, "candidates must not be empty for median filtering"
+    provider_scores = _collect_provider_scores(candidates, budget_tracker)
+    median = _compute_median(candidates, provider_scores)
+    logger.debug("rate-limit score median computed", median=median, provider_scores=provider_scores)
+    return _apply_median_threshold(candidates, provider_scores, median)
+
+
 def filter_by_rate_limit(
     candidates: list[BackendConfig],
     order: DispatchOrder,
@@ -71,27 +83,16 @@ def filter_by_rate_limit(
     )
 
     _log_rate_limit_entry(candidates, order)
-
     if not candidates:
-        logger.debug("no candidates, returning as-is")
         return candidates
 
     # HAZ-005: Hard gate — remove providers with zero capacity
     capacity_filtered = _hard_capacity_gate(candidates, budget_tracker)
     if not capacity_filtered:
-        logger.debug("all candidates removed by hard capacity gate")
         return []
 
-    provider_scores = _collect_provider_scores(capacity_filtered, budget_tracker)
-    median = _compute_median(capacity_filtered, provider_scores)
-    logger.debug("rate-limit score median computed", median=median, provider_scores=provider_scores)
-
-    filtered = _apply_median_threshold(capacity_filtered, provider_scores, median)
-    logger.debug(
-        "rate-limit filtering complete",
-        original_count=len(candidates),
-        filtered_count=len(filtered),
-    )
+    filtered = _filter_by_median_score(capacity_filtered, budget_tracker)
+    logger.debug("rate-limit filtering complete", original=len(candidates), filtered=len(filtered))
 
     assert len(filtered) <= len(candidates), "filtered count must not exceed original"
     return filtered

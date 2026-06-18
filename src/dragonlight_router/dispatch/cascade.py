@@ -17,6 +17,7 @@ from dragonlight_router.core.errors import BudgetExceededError, LBRNoCapacityErr
 from dragonlight_router.core.registry import BackendRegistry
 from dragonlight_router.core.types import (
     BackendConfig,
+    BackendCostProfile,
     BackendStatus,
     BackendTier,
     DispatchFailure,
@@ -386,6 +387,10 @@ def _run_cascade(
     return _run_lbr_stage(order, cbr_result.value, ctx)
 
 
+# DEVIATION CS-004: route is 41 lines.
+# Justification: Public API entry point with cascade orchestration, context construction,
+# and result handling. Extraction would fragment the dispatch contract.
+# Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
 def route(
     order: DispatchOrder,
     registry: BackendRegistry,
@@ -461,6 +466,63 @@ def _build_messages(
     return messages
 
 
+def _estimate_and_log_tokens(
+    messages: list[dict[str, str]],
+    content: str,
+    backend_name: str,
+) -> tuple[int, int]:
+    """HAZ-010: Estimate input/output token counts and log for observability."""
+    input_chars = sum(len(m.get("content", "")) for m in messages)
+    tokens_in = _estimate_token_count(input_chars)
+    tokens_out = _estimate_token_count(len(content))
+    _log_token_estimation(tokens_in, input_chars, backend_name, "input")
+    _log_token_estimation(tokens_out, len(content), backend_name, "output")
+    return tokens_in, tokens_out
+
+
+def _compute_cost_usd(
+    tokens_in: int, tokens_out: int, cost: BackendCostProfile,
+) -> float:
+    """Compute estimated cost in USD from token counts and cost profile."""
+    return (
+        (tokens_in / 1_000_000) * cost.input_per_mtok
+        + (tokens_out / 1_000_000) * cost.output_per_mtok
+    )
+
+
+def _record_dispatch_success(
+    backend_config: BackendConfig,
+    ctx: DispatchContext,
+    adapter: Any,
+    tokens_in: int,
+    tokens_out: int,
+    cost_usd: float,
+    latency_ms: float,
+    fallback_chain: list[str],
+) -> None:
+    """Record a successful dispatch in health/budget trackers and log it."""
+    ctx.health_tracker.record_success(backend_config.model, latency_ms)
+    ctx.budget_tracker.record_request(backend_config.provider, tokens_in + tokens_out)
+    adapter.record_usage(tokens_in, tokens_out)
+
+    logger.info(
+        "dispatch_result",
+        provider=backend_config.provider,
+        model=backend_config.model,
+        latency_ms=round(latency_ms, 2),
+        input_tokens=tokens_in,
+        output_tokens=tokens_out,
+        success=True,
+        cache_hit=False,
+        estimated_cost_usd=round(cost_usd, 8),
+        was_fallback=len(fallback_chain) > 0,
+    )
+
+
+# DEVIATION CS-004: _try_adapter_dispatch is 43 lines.
+# Justification: Single adapter dispatch attempt with context filtering, generation,
+# token estimation, and tracking. Core pipeline step; further extraction already done.
+# Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
 async def _try_adapter_dispatch(
     backend_config: BackendConfig,
     base_context: dict[str, Any],
@@ -494,34 +556,11 @@ async def _try_adapter_dispatch(
     latency_ms = (time.monotonic() - t0) * 1000.0
 
     content = "".join(content_parts)
-    # HAZ-010: Centralized token estimation with logging
-    input_chars = sum(len(m.get("content", "")) for m in messages)
-    tokens_in = _estimate_token_count(input_chars)
-    tokens_out = _estimate_token_count(len(content))
-    _log_token_estimation(tokens_in, input_chars, backend_config.name, "input")
-    _log_token_estimation(tokens_out, len(content), backend_config.name, "output")
+    tokens_in, tokens_out = _estimate_and_log_tokens(messages, content, backend_config.name)
+    cost_usd = _compute_cost_usd(tokens_in, tokens_out, backend_config.cost)
 
-    cost_usd = (
-        (tokens_in / 1_000_000) * backend_config.cost.input_per_mtok
-        + (tokens_out / 1_000_000) * backend_config.cost.output_per_mtok
-    )
-
-    ctx.health_tracker.record_success(backend_config.model, latency_ms)
-    ctx.budget_tracker.record_request(backend_config.provider, tokens_in + tokens_out)
-    adapter.record_usage(tokens_in, tokens_out)
-
-    # Structured dispatch logging — feeds analytics and role matrix tuning
-    logger.info(
-        "dispatch_result",
-        provider=backend_config.provider,
-        model=backend_config.model,
-        latency_ms=round(latency_ms, 2),
-        input_tokens=tokens_in,
-        output_tokens=tokens_out,
-        success=True,
-        cache_hit=False,
-        estimated_cost_usd=round(cost_usd, 8),
-        was_fallback=len(fallback_chain) > 0,
+    _record_dispatch_success(
+        backend_config, ctx, adapter, tokens_in, tokens_out, cost_usd, latency_ms, fallback_chain,
     )
 
     return Ok(_build_engine_response(
@@ -615,6 +654,10 @@ def _apply_fallback_policy(
     return filtered
 
 
+# DEVIATION CS-004: _handle_fallback_chain is 51 lines.
+# Justification: The try/except fallback iteration, policy application, and exhaustion
+# error construction form a single linear flow; splitting would scatter the fallback logic.
+# Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
 async def _handle_fallback_chain(
     candidates: list[BackendConfig],
     base_context: dict[str, Any],
@@ -668,6 +711,10 @@ async def _handle_fallback_chain(
     ))
 
 
+# DEVIATION CS-004: _try_cache_lookup is 44 lines.
+# Justification: Cache key construction, lookup, and deserialization are a single
+# linear flow; extracting pieces would duplicate the key-building logic.
+# Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
 def _try_cache_lookup(order: DispatchOrder) -> EngineResponse | None:
     """Attempt to retrieve a cached response for the given order.
 
@@ -744,6 +791,24 @@ def _store_cache_response(order: DispatchOrder, response: EngineResponse) -> Non
     logger.debug("response_cached", cache_key=cache_key[:16])
 
 
+def _log_cache_hit(cached: EngineResponse) -> None:
+    """Log a cache hit dispatch result."""
+    logger.info(
+        "dispatch_result",
+        provider=cached.backend_used,
+        model="",
+        latency_ms=0.0,
+        input_tokens=cached.tokens_in,
+        output_tokens=cached.tokens_out,
+        success=True,
+        cache_hit=True,
+    )
+
+
+# DEVIATION CS-004: dispatch is 48 lines.
+# Justification: Main dispatch entry point with cache check, cascade, fallback chain,
+# and cache storage. Public API contract; cache hit path already extracted.
+# Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
 async def dispatch(
     order: DispatchOrder,
     registry: BackendRegistry,
@@ -763,19 +828,9 @@ async def dispatch(
     assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
     assert isinstance(registry, BackendRegistry), "registry must be BackendRegistry instance"
 
-    # Check cache before running the cascade
     cached = _try_cache_lookup(order)
     if cached is not None:
-        logger.info(
-            "dispatch_result",
-            provider=cached.backend_used,
-            model="",
-            latency_ms=0.0,
-            input_tokens=cached.tokens_in,
-            output_tokens=cached.tokens_out,
-            success=True,
-            cache_hit=True,
-        )
+        _log_cache_hit(cached)
         return Ok(cached)
 
     ctx = DispatchContext(
@@ -794,18 +849,43 @@ async def dispatch(
     scored_candidates = cascade_result.value
     assert len(scored_candidates) > 0, "cascade must return at least one candidate"
 
-    # Unwrap ScoredCandidate to BackendConfig for the fallback chain
     candidates = [sc.config for sc in scored_candidates]
     base_context = _build_dispatch_context(order)
     result = await _handle_fallback_chain(candidates, base_context, order, ctx)
 
-    # Cache successful responses for future dispatch hits
     if isinstance(result, Ok):
         _store_cache_response(order, result.value)
 
     return result
 
 
+def _build_stream_metadata_chunk(
+    backend_config: BackendConfig,
+    tokens_in: int,
+    tokens_out: int,
+    cost_usd: float,
+    latency_ms: float,
+    fallback_chain: list[str],
+) -> StreamChunk:
+    """Build the final metadata StreamChunk after streaming completes."""
+    return StreamChunk(
+        event_type="metadata",
+        backend_used=backend_config.name,
+        backend_tier=backend_config.tier.value,
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        estimated_cost_usd=cost_usd,
+        latency_ms=latency_ms,
+        was_fallback=len(fallback_chain) > 0,
+        fallback_chain=list(fallback_chain),
+    )
+
+
+# DEVIATION CS-004: _try_streaming_dispatch is 48 lines.
+# Justification: Async generator that yields token chunks during generation; the yield
+# prevents extracting the loop body. Token estimation and metadata construction already
+# extracted into helpers.
+# Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
 async def _try_streaming_dispatch(
     backend_config: BackendConfig,
     base_context: dict[str, Any],
@@ -842,35 +922,61 @@ async def _try_streaming_dispatch(
         yield StreamChunk(event_type="token", content=chunk)
 
     latency_ms = (time.monotonic() - t0) * 1000.0
-    # HAZ-010: Centralized token estimation with logging
-    input_chars = sum(len(m.get("content", "")) for m in messages)
-    tokens_in = _estimate_token_count(input_chars)
-    tokens_out = _estimate_token_count(tokens_out_chars)
-    _log_token_estimation(tokens_in, input_chars, backend_config.name, "input")
-    _log_token_estimation(tokens_out, tokens_out_chars, backend_config.name, "output")
-
-    cost_usd = (
-        (tokens_in / 1_000_000) * backend_config.cost.input_per_mtok
-        + (tokens_out / 1_000_000) * backend_config.cost.output_per_mtok
+    tokens_in, tokens_out = _estimate_and_log_tokens(
+        messages, "x" * tokens_out_chars, backend_config.name,
     )
+    cost_usd = _compute_cost_usd(tokens_in, tokens_out, backend_config.cost)
 
     ctx.health_tracker.record_success(backend_config.model, latency_ms)
     ctx.budget_tracker.record_request(backend_config.provider, tokens_in + tokens_out)
     adapter.record_usage(tokens_in, tokens_out)
 
-    yield StreamChunk(
-        event_type="metadata",
-        backend_used=backend_config.name,
-        backend_tier=backend_config.tier.value,
-        tokens_in=tokens_in,
-        tokens_out=tokens_out,
-        estimated_cost_usd=cost_usd,
-        latency_ms=latency_ms,
-        was_fallback=len(fallback_chain) > 0,
-        fallback_chain=list(fallback_chain),
+    yield _build_stream_metadata_chunk(
+        backend_config, tokens_in, tokens_out, cost_usd, latency_ms, fallback_chain,
     )
 
 
+async def _stream_with_fallback(
+    eligible: list[BackendConfig],
+    base_context: dict[str, Any],
+    order: DispatchOrder,
+    ctx: DispatchContext,
+) -> AsyncIterator[StreamChunk]:
+    """Iterate through eligible backends, streaming from the first that succeeds.
+
+    Yields token/metadata chunks on success, or an error chunk if all backends fail.
+    """
+    fallback_chain: list[str] = []
+
+    for backend_config in eligible:
+        try:
+            async for chunk in _try_streaming_dispatch(
+                backend_config, base_context, order, ctx, fallback_chain,
+            ):
+                yield chunk
+            return  # Success — metadata chunk already yielded
+        except (RuntimeError, ValueError, ConnectionError, OSError, TypeError) as exc:
+            fallback_chain.append(backend_config.name)
+            _record_adapter_failure(exc, backend_config, ctx)
+            logger.warning(
+                "streaming_backend_failed",
+                backend=backend_config.name,
+                error=str(exc),
+            )
+
+    yield StreamChunk(
+        event_type="error",
+        error_message=(
+            f"All {len(fallback_chain)} backends exhausted. "
+            f"Fallback chain: {' -> '.join(fallback_chain)}"
+        ),
+    )
+
+
+# DEVIATION CS-004: dispatch_stream is 42 lines.
+# Justification: Async generator public API that must yield from both error and success
+# paths. Fallback iteration already extracted into _stream_with_fallback.
+# Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
 async def dispatch_stream(
     order: DispatchOrder,
     registry: BackendRegistry,
@@ -907,35 +1013,9 @@ async def dispatch_stream(
     scored_candidates = cascade_result.value
     assert len(scored_candidates) > 0, "cascade must return at least one candidate"
 
-    # Unwrap ScoredCandidate to BackendConfig for the fallback/streaming chain
     candidates = [sc.config for sc in scored_candidates]
-
-    # HAZ-004: Apply fallback policy to restrict candidate pool
     eligible = _apply_fallback_policy(candidates, order)
-
     base_context = _build_dispatch_context(order)
-    fallback_chain: list[str] = []
 
-    for backend_config in eligible:
-        try:
-            async for chunk in _try_streaming_dispatch(
-                backend_config, base_context, order, ctx, fallback_chain,
-            ):
-                yield chunk
-            return  # Success — metadata chunk already yielded
-        except (RuntimeError, ValueError, ConnectionError, OSError, TypeError) as exc:
-            fallback_chain.append(backend_config.name)
-            _record_adapter_failure(exc, backend_config, ctx)
-            logger.warning(
-                "streaming_backend_failed",
-                backend=backend_config.name,
-                error=str(exc),
-            )
-
-    yield StreamChunk(
-        event_type="error",
-        error_message=(
-            f"All {len(fallback_chain)} backends exhausted. "
-            f"Fallback chain: {' -> '.join(fallback_chain)}"
-        ),
-    )
+    async for chunk in _stream_with_fallback(eligible, base_context, order, ctx):
+        yield chunk

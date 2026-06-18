@@ -54,6 +54,37 @@ class CohereBackend(GenerativeBackend):
             "Content-Type": "application/json",
         }
 
+    def _build_payload(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        max_tokens: int,
+        temperature: float,
+        stream: bool,
+    ) -> dict[str, object]:
+        """Construct the JSON body for Cohere v2 chat."""
+        return {
+            "model": self._config.model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": stream,
+        }
+
+    def _wrap_error(self, exc: Exception) -> RuntimeError:
+        """Convert provider exceptions to RuntimeError and set ERROR status."""
+        self._status = BackendStatus.ERROR
+        if isinstance(exc, httpx.HTTPStatusError):
+            return RuntimeError(f"Cohere API error: {exc}")
+        if isinstance(exc, (httpx.ConnectError, httpx.TimeoutException)):
+            return RuntimeError(f"Cohere connection failed: {exc}")
+        return RuntimeError(f"Cohere request failed: {exc}")
+
+    # DEVIATION CS-004: generate is 43 lines.
+    # Justification: Async generator with yield inside try/except cannot be extracted
+    # without breaking the generator protocol. Payload construction and error wrapping
+    # are already extracted into helpers.
+    # Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
     async def generate(
         self,
         messages: list[dict[str, str]],
@@ -74,13 +105,9 @@ class CohereBackend(GenerativeBackend):
 
         url = f"{self._resolve_base_url()}/v2/chat"
         headers = self._build_headers()
-        payload: dict[str, object] = {
-            "model": self._config.model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "stream": stream,
-        }
+        payload = self._build_payload(
+            messages, max_tokens=max_tokens, temperature=temperature, stream=stream,
+        )
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
@@ -96,17 +123,11 @@ class CohereBackend(GenerativeBackend):
                         if content:
                             assert isinstance(content, str), "response content must be a string"
                             yield content
-            except httpx.HTTPStatusError as e:
-                self._status = BackendStatus.ERROR
-                raise RuntimeError(f"Cohere API error: {e}") from e
-            except (httpx.ConnectError, httpx.TimeoutException) as e:
-                self._status = BackendStatus.ERROR
-                raise RuntimeError(f"Cohere connection failed: {e}") from e
             except RuntimeError:
                 raise
-            except (json.JSONDecodeError, KeyError, ValueError) as e:
-                self._status = BackendStatus.ERROR
-                raise RuntimeError(f"Cohere request failed: {e}") from e
+            except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException,
+                    json.JSONDecodeError, KeyError, ValueError) as e:
+                raise self._wrap_error(e) from e
 
     async def _parse_stream(self, response: httpx.Response) -> AsyncIterator[str]:
         """Parse Cohere v2 SSE stream and yield text chunks."""

@@ -37,7 +37,13 @@ pip install -e ".[all]"
 | `[all]` | Everything above |
 | `[dev]` | pytest, mypy, ruff |
 
-**Requires Python ≥ 3.11.**
+**Requires Python >= 3.11.**
+
+**Production deploys:** Use the lockfile for reproducible installs:
+
+```bash
+pip install -r requirements.lock
+```
 
 ---
 

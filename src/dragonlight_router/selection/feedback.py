@@ -10,6 +10,7 @@ Spec reference: intent-based-router-v0.1.0-spec.md section 3.2, Method 2.
 from __future__ import annotations
 
 import sqlite3
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -52,6 +53,7 @@ class FeedbackStore:
     def __init__(self, db_path: Path) -> None:
         assert isinstance(db_path, Path), "db_path must be a Path instance"
         self._db_path = db_path
+        self._lock = threading.Lock()
         self._conn = self._open_connection()
         self._ensure_schema()
 
@@ -136,37 +138,42 @@ class FeedbackStore:
         """Apply EMA update for one dimension with floor enforcement."""
         assert 0.0 <= observation <= 1.0, "observation must be in [0.0, 1.0]"
 
-        row = self._conn.execute(
-            "SELECT score, sample_count FROM feedback_scores "
-            "WHERE model_id = ? AND dimension_type = ? AND dimension_value = ?",
-            (model_id, dim_type, dim_value),
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT score, sample_count FROM feedback_scores "
+                "WHERE model_id = ? AND dimension_type = ? "
+                "AND dimension_value = ?",
+                (model_id, dim_type, dim_value),
+            ).fetchone()
 
-        if row is not None:
-            old_score, old_count = row
-            new_score = _EMA_ALPHA * observation + (1.0 - _EMA_ALPHA) * old_score
-            new_count = old_count + 1
-        else:
-            new_score = observation
-            new_count = 1
+            if row is not None:
+                old_score, old_count = row
+                new_score = (
+                    _EMA_ALPHA * observation
+                    + (1.0 - _EMA_ALPHA) * old_score
+                )
+                new_count = old_count + 1
+            else:
+                new_score = observation
+                new_count = 1
 
-        new_score = _apply_floor(new_score, floor)
-        confidence = min(1.0, new_count / _FULL_CONFIDENCE_SAMPLES)
-        now = datetime.now(UTC).isoformat()
+            new_score = _apply_floor(new_score, floor)
+            confidence = min(1.0, new_count / _FULL_CONFIDENCE_SAMPLES)
+            now = datetime.now(UTC).isoformat()
 
-        self._conn.execute(
-            "INSERT INTO feedback_scores "
-            "(model_id, dimension_type, dimension_value, "
-            "score, confidence, sample_count, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(model_id, dimension_type, dimension_value) "
-            "DO UPDATE SET score=?, confidence=?, "
-            "sample_count=?, updated_at=?",
-            (model_id, dim_type, dim_value,
-             new_score, confidence, new_count, now,
-             new_score, confidence, new_count, now),
-        )
-        self._conn.commit()
+            self._conn.execute(
+                "INSERT INTO feedback_scores "
+                "(model_id, dimension_type, dimension_value, "
+                "score, confidence, sample_count, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(model_id, dimension_type, dimension_value) "
+                "DO UPDATE SET score=?, confidence=?, "
+                "sample_count=?, updated_at=?",
+                (model_id, dim_type, dim_value,
+                 new_score, confidence, new_count, now,
+                 new_score, confidence, new_count, now),
+            )
+            self._conn.commit()
 
     # ------------------------------------------------------------------
     # Load learned profiles

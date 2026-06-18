@@ -155,6 +155,35 @@ class FlavorProfileLoader:
         except OSError as exc:
             logger.warning("flavor_profile_stat_failed", error=str(exc))
 
+    def get_merged_profiles(
+        self,
+        feedback_profiles: dict[str, ModelFlavorProfile],
+    ) -> dict[str, ModelFlavorProfile]:
+        """Merge feedback-learned profiles on top of operator-declared profiles.
+
+        Resolution order per spec: feedback > operator-declared > neutral default.
+        Floor enforcement (IBR-FLV-03): feedback score >= 0.8 * operator_declared.
+        """
+        assert isinstance(feedback_profiles, dict), "feedback_profiles must be a dict"
+
+        merged: dict[str, ModelFlavorProfile] = {}
+
+        # Start with all operator-declared profiles
+        for model_id, profile in self._profiles.items():
+            if model_id in feedback_profiles:
+                merged[model_id] = _merge_single_profile(
+                    profile, feedback_profiles[model_id],
+                )
+            else:
+                merged[model_id] = profile
+
+        # Add feedback-only profiles (no operator declaration)
+        for model_id, fb_profile in feedback_profiles.items():
+            if model_id not in merged:
+                merged[model_id] = fb_profile
+
+        return merged
+
     def _read_yaml(self) -> dict[str, Any] | None:
         """Read and parse YAML. Returns None on failure (HAZ-019)."""
         try:
@@ -409,3 +438,63 @@ def _average_matched_confidence(
     avg = (task_fs.confidence + domain_fs.confidence + qs_fs.confidence) / 3.0
     assert 0.0 <= avg <= 1.0, f"average confidence out of bounds: {avg}"
     return avg
+
+
+# ---------------------------------------------------------------------------
+# Profile merging — feedback overlay with floor enforcement (IBR-FLV-03)
+# ---------------------------------------------------------------------------
+
+# Floor ratio: feedback cannot lower below this fraction of operator value.
+_FLOOR_RATIO: float = 0.8
+
+
+def _merge_single_profile(
+    operator: ModelFlavorProfile,
+    feedback: ModelFlavorProfile,
+) -> ModelFlavorProfile:
+    """Merge a feedback profile on top of an operator-declared profile.
+
+    Per-dimension resolution: use feedback score when available (sample_count > 0),
+    but enforce floor at 80% of operator-declared value (IBR-FLV-03).
+    """
+    assert isinstance(operator, ModelFlavorProfile), "operator must be ModelFlavorProfile"
+    assert isinstance(feedback, ModelFlavorProfile), "feedback must be ModelFlavorProfile"
+
+    return ModelFlavorProfile(
+        model_id=operator.model_id,
+        version=operator.version,
+        updated_at=feedback.updated_at,
+        task_scores=_merge_dimension_scores(operator.task_scores, feedback.task_scores),
+        domain_scores=_merge_dimension_scores(operator.domain_scores, feedback.domain_scores),
+        qs_scores=_merge_dimension_scores(operator.qs_scores, feedback.qs_scores),
+    )
+
+
+def _merge_dimension_scores(
+    operator_scores: dict[str, FlavorScore],
+    feedback_scores: dict[str, FlavorScore],
+) -> dict[str, FlavorScore]:
+    """Merge one dimension dict: feedback overlays operator with floor enforcement."""
+    assert isinstance(operator_scores, dict), "operator_scores must be a dict"
+    assert isinstance(feedback_scores, dict), "feedback_scores must be a dict"
+
+    merged: dict[str, FlavorScore] = {}
+    all_keys = set(operator_scores) | set(feedback_scores)
+
+    for key in all_keys:
+        op_fs = operator_scores.get(key, IBR_NEUTRAL_FLAVOR)
+        fb_fs = feedback_scores.get(key, IBR_NEUTRAL_FLAVOR)
+
+        if fb_fs.sample_count > 0:
+            floor = _FLOOR_RATIO * op_fs.score
+            floored_score = max(fb_fs.score, floor)
+            floored_score = max(0.0, min(1.0, floored_score))
+            merged[key] = FlavorScore(
+                score=floored_score,
+                confidence=fb_fs.confidence,
+                sample_count=fb_fs.sample_count,
+            )
+        else:
+            merged[key] = op_fs
+
+    return merged

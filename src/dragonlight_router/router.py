@@ -33,6 +33,7 @@ from dragonlight_router.core.types import (
     BackendRateLimits,
     BackendStatus,
     BackendTier,
+    ClassifiedIntent,
     DispatchOrder,
     EngineResponse,
     LatencySLO,
@@ -47,6 +48,7 @@ from dragonlight_router.health.check_loop import HealthCheckLoop
 from dragonlight_router.health.tracker import HealthTracker
 from dragonlight_router.result import Ok, Result
 from dragonlight_router.roles.matrix import RoleMatrix
+from dragonlight_router.selection.feedback import FeedbackStore
 from dragonlight_router.selection.flavor import FlavorProfileLoader
 from dragonlight_router.selection.interleave import interleave_providers
 from dragonlight_router.selection.scoring import (
@@ -314,15 +316,16 @@ class RouterEngine:
         )
 
     def _init_ibr(self) -> None:
-        """Initialize IBR subsystem: flavor profiles and classification adapter.
+        """Initialize IBR subsystem: flavor profiles, feedback store, classifier.
 
-        When IBR is disabled (the default), both are set to None and the
+        When IBR is disabled (the default), all are set to None and the
         cascade operates identically to v0.3.0 (IBR-SYS-02).
         """
         assert isinstance(self._config, RouterConfig), "_config must be RouterConfig"
         ibr_cfg = self._config.intent_classification
 
         self._flavor_loader: FlavorProfileLoader | None = None
+        self._feedback_store: FeedbackStore | None = None
         self._classification_adapter: Any = None
 
         if not ibr_cfg.enabled:
@@ -331,12 +334,16 @@ class RouterEngine:
 
         profile_path = self._resolve_flavor_profile_path()
         self._flavor_loader = FlavorProfileLoader(profile_path)
+        self._feedback_store = FeedbackStore(
+            db_path=self._config.state_dir / "flavor_feedback.db",
+        )
         self._classification_adapter = self._resolve_classification_adapter()
 
         logger.info(
             "ibr_initialized",
             flavor_profiles=len(self._flavor_loader.profiles),
             has_classifier=self._classification_adapter is not None,
+            feedback_store=True,
         )
 
     def _resolve_flavor_profile_path(self) -> Path:
@@ -835,6 +842,43 @@ class RouterEngine:
         else:
             self._health.record_error(outcome.model_id)
         self._budget.record_request(outcome.provider, outcome.tokens_used)
+
+    def record_ibr_feedback(
+        self,
+        model_id: str,
+        classified_intent: ClassifiedIntent,
+        quality_rating: int,
+    ) -> None:
+        """Record IBR feedback for a model's flavor profile.
+
+        Delegates to FeedbackStore, passing the operator-declared profile
+        (if any) so floor enforcement (IBR-FLV-03) can be applied.
+        """
+        assert isinstance(model_id, str) and model_id, (
+            "model_id must be a non-empty string"
+        )
+        assert isinstance(classified_intent, ClassifiedIntent), (
+            "classified_intent must be a ClassifiedIntent"
+        )
+        assert isinstance(quality_rating, int) and 1 <= quality_rating <= 5, (
+            "quality_rating must be int in [1, 5]"
+        )
+
+        if self._feedback_store is None:
+            logger.debug("ibr_feedback_skipped_no_store")
+            return
+
+        operator_profile = None
+        if self._flavor_loader is not None:
+            profiles = self._flavor_loader.profiles
+            operator_profile = profiles.get(model_id)
+
+        self._feedback_store.record_feedback(
+            model_id=model_id,
+            classified_intent=classified_intent,
+            quality_rating=quality_rating,
+            operator_profile=operator_profile,
+        )
 
     def health_snapshot(self) -> dict[str, Any]:
         """Return health state of all tracked models, keyed by provider then model_id."""

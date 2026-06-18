@@ -26,6 +26,8 @@ from dragonlight_router.selection.flavor import (
     _average_matched_confidence,
     _build_neutral_profile,
     _clamp_score,
+    _merge_dimension_scores,
+    _merge_single_profile,
     _parse_dimension_scores,
     compute_flavor_match,
     compute_flavor_scores,
@@ -598,3 +600,148 @@ class TestHotReload:
 
             loader.reload_if_changed()
             assert loader.profiles == {}
+
+
+# ---------------------------------------------------------------------------
+# Profile merging (feedback overlay with floor enforcement)
+# ---------------------------------------------------------------------------
+
+
+class TestProfileMerging:
+    """[IBR-FLV-03] Feedback overlay with floor enforcement."""
+
+    def test_feedback_overlays_operator_score(self):
+        """Feedback score replaces operator score when sample_count > 0."""
+        operator = _make_profile(
+            "m1", task_scores={"analysis": 0.7},
+        )
+        feedback = _make_profile("m1")
+        # Manually set feedback task_scores with sample_count > 0
+        feedback = ModelFlavorProfile(
+            model_id="m1",
+            version=1,
+            updated_at="2026-06-01",
+            task_scores={
+                **feedback.task_scores,
+                "analysis": FlavorScore(score=0.9, confidence=0.5, sample_count=25),
+            },
+            domain_scores=feedback.domain_scores,
+            qs_scores=feedback.qs_scores,
+        )
+        merged = _merge_single_profile(operator, feedback)
+        assert merged.task_scores["analysis"].score == pytest.approx(0.9, abs=1e-9)
+        assert merged.task_scores["analysis"].sample_count == 25
+
+    def test_floor_enforcement_prevents_lowering(self):
+        """[IBR-FLV-03] Feedback cannot lower below 80% of operator value."""
+        operator = _make_profile(
+            "m1", task_scores={"analysis": 0.9},
+        )
+        feedback = ModelFlavorProfile(
+            model_id="m1",
+            version=1,
+            updated_at="2026-06-01",
+            task_scores=dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_FLAVOR) | {
+                "analysis": FlavorScore(score=0.5, confidence=0.3, sample_count=15),
+            },
+            domain_scores=dict.fromkeys(IBR_DOMAINS, IBR_NEUTRAL_FLAVOR),
+            qs_scores=dict.fromkeys(IBR_QUALITY_SPEED, IBR_NEUTRAL_FLAVOR),
+        )
+        merged = _merge_single_profile(operator, feedback)
+        # Floor = 0.8 * 0.9 = 0.72, feedback = 0.5 -> floored to 0.72
+        assert merged.task_scores["analysis"].score == pytest.approx(0.72, abs=1e-9)
+
+    def test_no_feedback_preserves_operator(self):
+        """Dimensions without feedback keep operator-declared values."""
+        operator = _make_profile(
+            "m1", task_scores={"analysis": 0.85},
+        )
+        feedback = _make_profile("m1")  # all neutral, sample_count=0
+        merged = _merge_single_profile(operator, feedback)
+        assert merged.task_scores["analysis"].score == 0.85
+        assert merged.task_scores["analysis"].confidence == 1.0
+
+    def test_merge_dimension_scores_mixed(self):
+        """_merge_dimension_scores handles mix of feedback and operator."""
+        operator_scores = {
+            "analysis": FlavorScore(score=0.8, confidence=1.0, sample_count=0),
+            "creative": FlavorScore(score=0.6, confidence=1.0, sample_count=0),
+        }
+        feedback_scores = {
+            "analysis": FlavorScore(score=0.9, confidence=0.5, sample_count=25),
+            "creative": IBR_NEUTRAL_FLAVOR,  # no feedback
+        }
+        merged = _merge_dimension_scores(operator_scores, feedback_scores)
+        assert merged["analysis"].score == pytest.approx(0.9, abs=1e-9)
+        assert merged["creative"].score == 0.6  # preserved from operator
+
+    def test_get_merged_profiles_operator_plus_feedback(self):
+        """get_merged_profiles merges feedback on top of operator profiles."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "profiles.yaml"
+            data = {
+                "profiles": {
+                    "model-a": {
+                        "task_scores": {"analysis": 0.8},
+                        "domain_scores": {"code": 0.9},
+                    },
+                },
+            }
+            _write_yaml(path, data)
+            loader = FlavorProfileLoader(path)
+
+            feedback_profiles = {
+                "model-a": ModelFlavorProfile(
+                    model_id="model-a",
+                    version=1,
+                    updated_at="2026-06-01",
+                    task_scores=dict.fromkeys(
+                        IBR_TASK_TYPES, IBR_NEUTRAL_FLAVOR,
+                    ) | {
+                        "analysis": FlavorScore(
+                            score=0.95, confidence=0.6, sample_count=30,
+                        ),
+                    },
+                    domain_scores=dict.fromkeys(
+                        IBR_DOMAINS, IBR_NEUTRAL_FLAVOR,
+                    ),
+                    qs_scores=dict.fromkeys(
+                        IBR_QUALITY_SPEED, IBR_NEUTRAL_FLAVOR,
+                    ),
+                ),
+            }
+
+            merged = loader.get_merged_profiles(feedback_profiles)
+            assert "model-a" in merged
+            assert merged["model-a"].task_scores["analysis"].score == (
+                pytest.approx(0.95, abs=1e-9)
+            )
+
+    def test_get_merged_profiles_feedback_only_model(self):
+        """Models with feedback but no operator profile are included."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "profiles.yaml"
+            _write_yaml(path, {"profiles": {}})
+            loader = FlavorProfileLoader(path)
+
+            feedback_profiles = {
+                "new-model": _make_profile("new-model"),
+            }
+            merged = loader.get_merged_profiles(feedback_profiles)
+            assert "new-model" in merged
+
+    def test_get_merged_profiles_empty_feedback(self):
+        """Empty feedback dict preserves all operator profiles."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "profiles.yaml"
+            data = {
+                "profiles": {
+                    "model-a": {"task_scores": {"analysis": 0.8}},
+                },
+            }
+            _write_yaml(path, data)
+            loader = FlavorProfileLoader(path)
+
+            merged = loader.get_merged_profiles({})
+            assert "model-a" in merged
+            assert merged["model-a"].task_scores["analysis"].score == 0.8

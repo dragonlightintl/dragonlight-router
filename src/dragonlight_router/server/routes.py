@@ -19,14 +19,18 @@ from dragonlight_router.catalog import refresher as _refresher_mod
 from dragonlight_router.core.types import (
     BackendStatus,
     BackendTier,
+    ClassifiedIntent,
     DispatchFailure,
     DispatchOrder,
     EngineResponse,
+    FlavorScore,
+    ModelFlavorProfile,
     RequestOutcome,
     StreamChunk,
 )
 from dragonlight_router.result import Err, Ok
 from dragonlight_router.router import RouterEngine
+from dragonlight_router.selection.flavor import FlavorProfileLoader
 from dragonlight_router.server.metrics import MetricsCollector
 
 logger = structlog.get_logger()
@@ -63,7 +67,10 @@ _CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 # --- Admin endpoint paths requiring auth (HAZ-011) ---
 
-_ADMIN_PATHS = frozenset({"/v1/retire", "/v1/reinstate", "/v1/catalog/refresh"})
+_ADMIN_PATHS = frozenset({
+    "/v1/retire", "/v1/reinstate", "/v1/catalog/refresh",
+    # Flavor profile POST endpoints are admin-gated per-handler (path-param routes).
+})
 
 # SEC-005: In-memory tracker for failed admin auth attempts per IP.
 _ADMIN_AUTH_FAIL_WINDOW = 60  # seconds
@@ -302,8 +309,43 @@ async def select_handler(request: Request) -> JSONResponse:
     return JSONResponse({"models": models, "scores": scores})
 
 
+def _validate_quality_rating(body: dict[str, Any]) -> tuple[int | None, str | None]:
+    """Validate optional quality_rating from /v1/record body.
+
+    Returns (rating, error_message). error_message is None when valid.
+    IBR-API-04: quality_rating must be integer 1-5 when present.
+    """
+    rating = body.get("quality_rating")
+    if rating is None:
+        return None, None
+    if not isinstance(rating, int) or isinstance(rating, bool):
+        return None, "invalid quality_rating: must be an integer"
+    if rating < 1 or rating > 5:
+        return None, "invalid quality_rating: must be between 1 and 5"
+    assert 1 <= rating <= 5, f"quality_rating out of range: {rating}"
+    return rating, None
+
+
+def _build_request_outcome(
+    body: dict[str, Any], quality_rating: int | None,
+) -> RequestOutcome:
+    """Construct a RequestOutcome from a validated /v1/record body."""
+    assert isinstance(body, dict), "body must be a dict"
+    return RequestOutcome(
+        provider=body["provider"],
+        model_id=body["model_id"],
+        success=body["success"],
+        tokens_used=body.get("tokens_used", 0),
+        latency_ms=body.get("latency_ms", 0.0),
+        quality_rating=quality_rating,
+    )
+
+
 async def record_handler(request: Request) -> JSONResponse:
-    """POST /v1/record — record a request outcome."""
+    """POST /v1/record — record a request outcome.
+
+    IBR-API-04: Accepts optional quality_rating (int 1-5) for feedback loop.
+    """
     engine: RouterEngine = request.app.state.engine
 
     try:
@@ -311,27 +353,24 @@ async def record_handler(request: Request) -> JSONResponse:
     except json.JSONDecodeError:
         return _format_error_response("invalid JSON body", 400)
 
-    provider = body.get("provider")
-    model_id = body.get("model_id")
-    success = body.get("success")
-
-    if not provider or not model_id or success is None:
+    if not body.get("provider") or not body.get("model_id") or body.get("success") is None:
         return _format_error_response(
             "missing required fields: provider, model_id, success", 400,
         )
 
-    tokens_used = body.get("tokens_used", 0)
-    latency_ms = body.get("latency_ms", 0.0)
+    quality_rating, rating_error = _validate_quality_rating(body)
+    if rating_error is not None:
+        return _format_error_response(rating_error, 400)
 
-    engine.record_request(
-        RequestOutcome(
-            provider=provider,
-            model_id=model_id,
-            success=success,
-            tokens_used=tokens_used,
-            latency_ms=latency_ms,
+    outcome = _build_request_outcome(body, quality_rating)
+    engine.record_request(outcome)
+
+    if quality_rating is not None:
+        logger.info(
+            "ibr_quality_rating_recorded",
+            model_id=body["model_id"],
+            quality_rating=quality_rating,
         )
-    )
 
     return JSONResponse({"status": "ok"})
 
@@ -512,9 +551,25 @@ def _build_dispatch_order(body: dict[str, Any]) -> DispatchOrder:
     )
 
 
+def _serialize_classified_intent(intent: ClassifiedIntent) -> dict[str, object]:
+    """Convert a ClassifiedIntent to a JSON-safe dict."""
+    assert isinstance(intent, ClassifiedIntent), "intent must be ClassifiedIntent"
+    return {
+        "task_type": intent.task_type,
+        "domain": intent.domain,
+        "quality_speed": intent.quality_speed,
+        "confidence": intent.confidence,
+        "latency_ms": intent.latency_ms,
+        "from_cache": intent.from_cache,
+    }
+
+
 def _format_dispatch_response(engine_response: EngineResponse) -> JSONResponse:
-    """Serialize an EngineResponse to a JSON HTTP response."""
-    return JSONResponse({
+    """Serialize an EngineResponse to a JSON HTTP response.
+
+    IBR-API-01: IBR fields included only when ibr_active is True.
+    """
+    payload: dict[str, object] = {
         "content": engine_response.content,
         "backend_used": engine_response.backend_used,
         "backend_tier": engine_response.backend_tier.value,
@@ -524,7 +579,15 @@ def _format_dispatch_response(engine_response: EngineResponse) -> JSONResponse:
         "latency_ms": engine_response.latency_ms,
         "was_fallback": engine_response.was_fallback,
         "fallback_chain": engine_response.fallback_chain,
-    })
+    }
+    if engine_response.ibr_active:
+        payload["ibr_active"] = True
+        payload["flavor_match_score"] = engine_response.flavor_match_score
+        if engine_response.classified_intent is not None:
+            payload["classified_intent"] = _serialize_classified_intent(
+                engine_response.classified_intent,
+            )
+    return JSONResponse(payload)
 
 
 def _format_dispatch_failure(error: object) -> JSONResponse:
@@ -648,6 +711,9 @@ async def dispatch_handler(request: Request) -> JSONResponse | StreamingResponse
             latency_ms=engine_response.latency_ms,
             was_fallback=engine_response.was_fallback,
             fallback_chain=engine_response.fallback_chain,
+            classified_intent=engine_response.classified_intent,
+            flavor_match_score=engine_response.flavor_match_score,
+            ibr_active=engine_response.ibr_active,
         )
         return _format_dispatch_response(engine_response)
     return _format_dispatch_failure(dispatch_result.error)
@@ -711,6 +777,145 @@ async def reinstate_handler(request: Request) -> JSONResponse:
         return _format_error_response("backend not found", 404)
 
     return JSONResponse({"reinstated": True, "backend": backend_name})
+
+
+# --- Flavor profile endpoints (IBR-API-02, IBR-API-03) ---
+
+
+def _serialize_flavor_score(fs: FlavorScore) -> dict[str, object]:
+    """Convert a FlavorScore to a JSON-safe dict."""
+    assert isinstance(fs, FlavorScore), "fs must be a FlavorScore"
+    return {"score": fs.score, "confidence": fs.confidence, "sample_count": fs.sample_count}
+
+
+def _serialize_profile(profile: ModelFlavorProfile) -> dict[str, object]:
+    """Serialize a ModelFlavorProfile to a JSON-safe dict."""
+    assert isinstance(profile, ModelFlavorProfile), "profile must be ModelFlavorProfile"
+    return {
+        "model_id": profile.model_id,
+        "version": profile.version,
+        "updated_at": profile.updated_at,
+        "task_scores": {k: _serialize_flavor_score(v) for k, v in profile.task_scores.items()},
+        "domain_scores": {k: _serialize_flavor_score(v) for k, v in profile.domain_scores.items()},
+        "qs_scores": {k: _serialize_flavor_score(v) for k, v in profile.qs_scores.items()},
+    }
+
+
+def _get_flavor_loader(request: Request) -> FlavorProfileLoader | None:
+    """Retrieve the FlavorProfileLoader from app state, or None if absent."""
+    return getattr(request.app.state, "flavor_loader", None)
+
+
+async def flavor_profiles_list_handler(request: Request) -> JSONResponse:
+    """GET /v1/flavor-profiles -- return all loaded flavor profiles.
+
+    IBR-API-02: No authentication required.
+    """
+    loader = _get_flavor_loader(request)
+    if loader is None:
+        return JSONResponse({"profiles": {}})
+
+    profiles = loader.profiles
+    logger.info("ibr_flavor_profiles_loaded", profile_count=len(profiles))
+
+    serialized = {mid: _serialize_profile(p) for mid, p in profiles.items()}
+    assert isinstance(serialized, dict), "serialized profiles must be a dict"
+    return JSONResponse({"profiles": serialized})
+
+
+async def flavor_profile_detail_handler(request: Request) -> JSONResponse:
+    """GET /v1/flavor-profiles/{model_id} -- return a single profile.
+
+    Returns 404 if the model_id is not found. IBR-API-02: No auth required.
+    """
+    model_id = request.path_params["model_id"]
+    assert isinstance(model_id, str), "model_id path param must be a string"
+
+    loader = _get_flavor_loader(request)
+    if loader is None or model_id not in loader.profiles:
+        return _format_error_response(
+            f"flavor profile not found: {model_id}", 404,
+        )
+
+    profile = loader.profiles[model_id]
+    logger.info("ibr_flavor_profiles_loaded", model_id=model_id)
+    return JSONResponse(_serialize_profile(profile))
+
+
+def _validate_flavor_upsert_body(body: dict[str, Any]) -> str | None:
+    """Validate POST body for flavor profile upsert. Returns error or None."""
+    for key in ("task_scores", "domain_scores", "qs_scores"):
+        if key not in body:
+            return f"missing required field: {key}"
+        if not isinstance(body[key], dict):
+            return f"invalid {key}: must be a mapping"
+        for dim, value in body[key].items():
+            if not isinstance(value, (int, float)):
+                return f"invalid {key}.{dim}: must be a number"
+            if not (0.0 <= float(value) <= 1.0):
+                return f"invalid {key}.{dim}: must be between 0.0 and 1.0"
+    return None
+
+
+async def flavor_profile_upsert_handler(request: Request) -> JSONResponse:
+    """POST /v1/flavor-profiles/{model_id} -- upsert a profile at runtime.
+
+    IBR-API-03: Requires admin auth.
+    """
+    auth_error = _check_admin_auth(request)
+    if auth_error is not None:
+        return auth_error
+
+    model_id = request.path_params["model_id"]
+    assert isinstance(model_id, str), "model_id path param must be a string"
+
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return _format_error_response("invalid JSON body", 400)
+
+    validation_error = _validate_flavor_upsert_body(body)
+    if validation_error:
+        return _format_error_response(validation_error, 400)
+
+    loader = _get_flavor_loader(request)
+    if loader is None:
+        return _format_error_response("flavor profile loader not initialized", 503)
+
+    profile = _build_profile_from_body(model_id, body)
+    loader._profiles[model_id] = profile
+
+    logger.info("ibr_flavor_profile_upserted", model_id=model_id)
+    return JSONResponse(_serialize_profile(profile))
+
+
+def _build_profile_from_body(
+    model_id: str, body: dict[str, Any],
+) -> ModelFlavorProfile:
+    """Construct a ModelFlavorProfile from a validated upsert request body."""
+    from datetime import UTC, datetime
+
+    assert isinstance(model_id, str), "model_id must be a string"
+    assert isinstance(body, dict), "body must be a dict"
+
+    def _parse_scores(raw: dict[str, Any]) -> dict[str, FlavorScore]:
+        return {
+            dim: FlavorScore(
+                score=max(0.0, min(1.0, float(val))),
+                confidence=1.0,
+                sample_count=0,
+            )
+            for dim, val in raw.items()
+        }
+
+    return ModelFlavorProfile(
+        model_id=model_id,
+        version=1,
+        updated_at=datetime.now(UTC).isoformat(),
+        task_scores=_parse_scores(body["task_scores"]),
+        domain_scores=_parse_scores(body["domain_scores"]),
+        qs_scores=_parse_scores(body["qs_scores"]),
+    )
 
 
 # --- Readiness probe ---

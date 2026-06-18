@@ -4,7 +4,7 @@ Spec traceability: TM-004 (Cascade dispatch)
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -183,7 +183,8 @@ class TestRunLbrStageEmpty:
 # ---------------------------------------------------------------------------
 
 class TestRoute:
-    def test_route_returns_ok_backend_config(self, make_backend_config):
+    @pytest.mark.asyncio
+    async def test_route_returns_ok_backend_config(self, make_backend_config):
         """[TM-004 AC-4] route() returns Ok(BackendConfig) on successful cascade."""
         backend = make_backend_config(name="b1", provider="prov")
         order = _make_order()
@@ -194,15 +195,19 @@ class TestRoute:
 
         cascade_mod = "dragonlight_router.dispatch.cascade"
         with (
-            patch(f"{cascade_mod}._run_cascade", return_value=Ok([backend])),
+            patch(
+                f"{cascade_mod}._run_cascade",
+                new_callable=AsyncMock, return_value=Ok([backend]),
+            ),
             patch(f"{cascade_mod}.select_final_candidate", return_value=backend),
         ):
-            result = route(order, registry, budget_tracker, health_tracker, config)
+            result = await route(order, registry, budget_tracker, health_tracker, config)
 
         assert result.is_ok()
         assert result.value is backend
 
-    def test_route_propagates_cascade_err(self, make_backend_config):
+    @pytest.mark.asyncio
+    async def test_route_propagates_cascade_err(self, make_backend_config):
         """[TM-004 AC-4] route() propagates Err when cascade fails."""
         order = _make_order()
         registry = MagicMock(spec=BackendRegistry)
@@ -213,13 +218,18 @@ class TestRoute:
         from dragonlight_router.core.errors import BudgetExceededError
         err = BudgetExceededError("no budget")
 
-        with patch("dragonlight_router.dispatch.cascade._run_cascade", return_value=Err(err)):
-            result = route(order, registry, budget_tracker, health_tracker, config)
+        with patch(
+            "dragonlight_router.dispatch.cascade._run_cascade",
+            new_callable=AsyncMock,
+            return_value=Err(err),
+        ):
+            result = await route(order, registry, budget_tracker, health_tracker, config)
 
         assert result.is_err()
         assert result.error is err
 
-    def test_route_select_final_candidate_called_with_candidates(self, make_backend_config):
+    @pytest.mark.asyncio
+    async def test_route_select_final_candidate_called_with_candidates(self, make_backend_config):
         """[TM-004 AC-4] route() calls select_final_candidate with cascade results."""
         b1 = make_backend_config(name="b1", provider="prov1")
         b2 = make_backend_config(name="b2", provider="prov2")
@@ -231,10 +241,10 @@ class TestRoute:
 
         cascade_mod = "dragonlight_router.dispatch.cascade"
         with (
-            patch(f"{cascade_mod}._run_cascade", return_value=Ok([b1, b2])),
+            patch(f"{cascade_mod}._run_cascade", new_callable=AsyncMock, return_value=Ok([b1, b2])),
             patch(f"{cascade_mod}.select_final_candidate", return_value=b1) as mock_sel,
         ):
-            result = route(order, registry, budget_tracker, health_tracker, config)
+            result = await route(order, registry, budget_tracker, health_tracker, config)
 
         # TS-003: Assert output behavior, not just mock wiring.
         assert result.is_ok()
@@ -354,7 +364,8 @@ class TestFilterByTrustFloor:
         result = _filter_by_trust_floor([], "trusted")
         assert result == []
 
-    def test_cascade_returns_err_when_trust_floor_removes_all(self, make_backend_config):
+    @pytest.mark.asyncio
+    async def test_cascade_returns_err_when_trust_floor_removes_all(self, make_backend_config):
         """[TM-004 AC-6] _run_cascade returns Err when trust floor filters all candidates."""
         simple = make_backend_config(name="s1", tier=BackendTier.SIMPLE)
         order = _make_order(context_trust_tier="local")
@@ -364,7 +375,7 @@ class TestFilterByTrustFloor:
             "dragonlight_router.dispatch.cascade._run_mbr_stage",
             return_value=Ok([simple]),
         ):
-            result = _run_cascade(order, ctx)
+            result = await _run_cascade(order, ctx)
 
         assert result.is_err()
         from dragonlight_router.selection.mbr import MBRNoCandidatesError
@@ -500,7 +511,7 @@ class TestDispatchStream:
         cascade_mod = "dragonlight_router.dispatch.cascade"
         adapter_path = f"{cascade_mod}._adapters_mod.create_adapter"
         with (
-            patch(f"{cascade_mod}._run_cascade", return_value=Ok([scored])),
+            patch(f"{cascade_mod}._run_cascade", new_callable=AsyncMock, return_value=Ok([scored])),
             patch(adapter_path, return_value=adapter),
         ):
             chunks = []
@@ -527,7 +538,10 @@ class TestDispatchStream:
         from dragonlight_router.core.errors import BudgetExceededError
         err = BudgetExceededError("no budget")
 
-        with patch("dragonlight_router.dispatch.cascade._run_cascade", return_value=Err(err)):
+        with patch(
+            "dragonlight_router.dispatch.cascade._run_cascade",
+            new_callable=AsyncMock, return_value=Err(err),
+        ):
             chunks = []
             async for chunk in dispatch_stream(order, registry, budget_tracker, health_tracker, {}):
                 chunks.append(chunk)
@@ -563,7 +577,10 @@ class TestDispatchStream:
         cascade_mod = "dragonlight_router.dispatch.cascade"
         adapter_path = f"{cascade_mod}._adapters_mod.create_adapter"
         with (
-            patch(f"{cascade_mod}._run_cascade", return_value=Ok([sc1, sc2])),
+            patch(
+                f"{cascade_mod}._run_cascade",
+                new_callable=AsyncMock, return_value=Ok([sc1, sc2]),
+            ),
             patch(adapter_path, side_effect=_create_adapter),
         ):
             chunks = []
@@ -595,7 +612,10 @@ class TestDispatchStream:
         cascade_mod = "dragonlight_router.dispatch.cascade"
         adapter_path = f"{cascade_mod}._adapters_mod.create_adapter"
         with (
-            patch(f"{cascade_mod}._run_cascade", return_value=Ok([sc1, sc2])),
+            patch(
+                f"{cascade_mod}._run_cascade",
+                new_callable=AsyncMock, return_value=Ok([sc1, sc2]),
+            ),
             patch(adapter_path, return_value=failing_adapter),
         ):
             chunks = []

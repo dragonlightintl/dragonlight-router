@@ -47,6 +47,7 @@ from dragonlight_router.health.check_loop import HealthCheckLoop
 from dragonlight_router.health.tracker import HealthTracker
 from dragonlight_router.result import Ok, Result
 from dragonlight_router.roles.matrix import RoleMatrix
+from dragonlight_router.selection.flavor import FlavorProfileLoader
 from dragonlight_router.selection.interleave import interleave_providers
 from dragonlight_router.selection.scoring import (
     compute_composite_score,
@@ -215,6 +216,7 @@ class RouterEngine:
         self._restore_budget_state()
         self._restore_health_state()
         self._init_health_check()
+        self._init_ibr()
 
         assert isinstance(self._budget, BudgetTracker), (
             "_budget must be a BudgetTracker instance"
@@ -310,6 +312,72 @@ class RouterEngine:
             on_cycle=self._async_refresh_catalog,
             on_cycle_interval=catalog_refresh_interval,
         )
+
+    def _init_ibr(self) -> None:
+        """Initialize IBR subsystem: flavor profiles and classification adapter.
+
+        When IBR is disabled (the default), both are set to None and the
+        cascade operates identically to v0.3.0 (IBR-SYS-02).
+        """
+        assert isinstance(self._config, RouterConfig), "_config must be RouterConfig"
+        ibr_cfg = self._config.intent_classification
+
+        self._flavor_loader: FlavorProfileLoader | None = None
+        self._classification_adapter: Any = None
+
+        if not ibr_cfg.enabled:
+            logger.debug("ibr_disabled")
+            return
+
+        profile_path = self._resolve_flavor_profile_path()
+        self._flavor_loader = FlavorProfileLoader(profile_path)
+        self._classification_adapter = self._resolve_classification_adapter()
+
+        logger.info(
+            "ibr_initialized",
+            flavor_profiles=len(self._flavor_loader.profiles),
+            has_classifier=self._classification_adapter is not None,
+        )
+
+    def _resolve_flavor_profile_path(self) -> Path:
+        """Locate the model_flavor_profiles.yaml file."""
+        assert isinstance(self._config.state_dir, Path), "state_dir must be a Path"
+        candidates = [
+            Path("config/model_flavor_profiles.yaml"),
+            Path(__file__).parent.parent / "config" / "model_flavor_profiles.yaml",
+            self._config.state_dir / "model_flavor_profiles.yaml",
+        ]
+        for path in candidates:
+            if path.exists():
+                return path
+        # Return canonical path even if missing — loader handles absent files.
+        return candidates[0]
+
+    def _resolve_classification_adapter(self) -> Any:
+        """Resolve the classification backend from the role matrix.
+
+        Looks up the 'classification' role and returns the first available
+        registered backend, or None if none is found (IBR-CLS-07).
+        """
+        assert isinstance(self._matrix, RoleMatrix), "_matrix must be RoleMatrix"
+        ranked = self._matrix.get_ranked_models("classification")
+        if not ranked:
+            logger.warning("ibr_no_classification_role_in_matrix")
+            return None
+
+        for model_id, _rank in ranked:
+            backend, state = self._registry.get(model_id)
+            if backend is not None and (
+                state is None or state.status == BackendStatus.AVAILABLE
+            ):
+                logger.info(
+                    "ibr_classification_adapter_resolved",
+                    model_id=model_id,
+                )
+                return backend
+
+        logger.warning("ibr_no_available_classification_backend")
+        return None
 
     def _restore_budget_state(self) -> None:
         """HAZ-012 mitigation: Restore persisted budget state at startup.
@@ -926,12 +994,16 @@ class RouterEngine:
         assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
 
         config_dict = self._config.model_dump()
+        ibr_cfg = self._config.intent_classification
         return await cascade_dispatch(
             order=order,
             registry=self._registry,
             budget_tracker=self._budget,
             health_tracker=self._health,
             config=config_dict,
+            ibr_config=ibr_cfg if ibr_cfg.enabled else None,
+            flavor_loader=self._flavor_loader,
+            classification_adapter=self._classification_adapter,
         )
 
     async def dispatch_stream(self, order: DispatchOrder) -> AsyncIterator[StreamChunk]:
@@ -943,12 +1015,16 @@ class RouterEngine:
         assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
 
         config_dict = self._config.model_dump()
+        ibr_cfg = self._config.intent_classification
         async for chunk in cascade_dispatch_stream(
             order=order,
             registry=self._registry,
             budget_tracker=self._budget,
             health_tracker=self._health,
             config=config_dict,
+            ibr_config=ibr_cfg if ibr_cfg.enabled else None,
+            flavor_loader=self._flavor_loader,
+            classification_adapter=self._classification_adapter,
         ):
             yield chunk
 

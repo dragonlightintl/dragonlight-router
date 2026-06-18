@@ -7,6 +7,7 @@ Spec traceability:
   - TM-003: LBR rate-limit dispatch invariants
   - Interleave permutation invariants
   - TS-001: Cascade dispatch, health scoring, model selection, budget monotonicity
+  - IBR-TEST-02: IBR scoring, confidence gating, and degradation invariants
 
 Uses Hypothesis to verify that invariants hold across the entire input space,
 not just hand-picked examples. Property categories follow the taxonomy from
@@ -21,20 +22,33 @@ from hypothesis import strategies as st
 
 from dragonlight_router.budget.tracker import BudgetTracker
 from dragonlight_router.core.types import (
+    IBR_DOMAINS,
+    IBR_NEUTRAL_FLAVOR,
+    IBR_QUALITY_SPEED,
+    IBR_TASK_TYPES,
     BackendCapabilities,
     BackendConfig,
     BackendCostProfile,
     BackendRateLimits,
     BackendTier,
+    ClassifiedIntent,
     DispatchOrder,
+    FlavorScore,
+    ModelFlavorProfile,
     ModelScore,
     Ok,
     ProviderConfig,
 )
 from dragonlight_router.health.tracker import HealthTracker
+from dragonlight_router.selection.flavor import (
+    compute_flavor_match,
+    compute_flavor_scores,
+    should_apply_flavor_match,
+)
 from dragonlight_router.selection.interleave import interleave_providers
 from dragonlight_router.selection.lbr import filter_by_rate_limit
 from dragonlight_router.selection.scoring import (
+    ScoringWeightsConfig,
     compute_budget_score,
     compute_composite_score,
     compute_health_score,
@@ -942,3 +956,282 @@ class TestCascadeDispatchInvariant:
         input_names = {c.name for c in candidates}
         for r in result:
             assert r.name in input_names
+
+
+# ---------------------------------------------------------------------------
+# IBR-TEST-02: Intent Based Router property tests
+# ---------------------------------------------------------------------------
+
+# --- IBR strategies ---
+
+def _ibr_flavor_score_strategy() -> st.SearchStrategy[FlavorScore]:
+    """Strategy for generating FlavorScore instances."""
+    return st.builds(
+        FlavorScore,
+        score=st.floats(min_value=0.0, max_value=1.0),
+        confidence=st.floats(min_value=0.0, max_value=1.0),
+        sample_count=st.integers(min_value=0, max_value=1000),
+    )
+
+
+def _ibr_classified_intent_strategy() -> st.SearchStrategy[ClassifiedIntent]:
+    """Strategy for generating valid ClassifiedIntent instances."""
+    return st.builds(
+        ClassifiedIntent,
+        task_type=st.sampled_from(sorted(IBR_TASK_TYPES)),
+        domain=st.sampled_from(sorted(IBR_DOMAINS)),
+        quality_speed=st.sampled_from(sorted(IBR_QUALITY_SPEED)),
+        confidence=st.floats(min_value=0.0, max_value=1.0),
+        latency_ms=st.floats(min_value=0.0, max_value=200.0),
+        from_cache=st.booleans(),
+    )
+
+
+def _ibr_model_flavor_profile_strategy(
+    model_id: str = "test-model",
+) -> st.SearchStrategy[ModelFlavorProfile]:
+    """Strategy for generating ModelFlavorProfile with scores for all dimensions."""
+    task_scores_st = st.fixed_dictionaries(
+        {tt: _ibr_flavor_score_strategy() for tt in sorted(IBR_TASK_TYPES)},
+    )
+    domain_scores_st = st.fixed_dictionaries(
+        {d: _ibr_flavor_score_strategy() for d in sorted(IBR_DOMAINS)},
+    )
+    qs_scores_st = st.fixed_dictionaries(
+        {qs: _ibr_flavor_score_strategy() for qs in sorted(IBR_QUALITY_SPEED)},
+    )
+    return st.builds(
+        ModelFlavorProfile,
+        model_id=st.just(model_id),
+        version=st.just(1),
+        updated_at=st.just("2026-01-01T00:00:00Z"),
+        task_scores=task_scores_st,
+        domain_scores=domain_scores_st,
+        qs_scores=qs_scores_st,
+    )
+
+
+def valid_scoring_weights_with_flavor() -> st.SearchStrategy[ScoringWeightsConfig]:
+    """Strategy for generating valid ScoringWeightsConfig with flavor_match.
+
+    Generates 6 non-negative weights that sum to 1.0.
+    """
+    @st.composite
+    def _build(draw: st.DrawFn) -> ScoringWeightsConfig:
+        flavor_match = draw(st.floats(min_value=0.0, max_value=0.30))
+        remainder = 1.0 - flavor_match
+        # Distribute remainder across 5 weights proportionally
+        raw = [draw(st.floats(min_value=0.01, max_value=1.0)) for _ in range(5)]
+        total_raw = sum(raw)
+        scaled = [r / total_raw * remainder for r in raw]
+        return ScoringWeightsConfig(
+            cost=scaled[0],
+            latency=scaled[1],
+            priority=scaled[2],
+            queue=scaled[3],
+            health=scaled[4],
+            flavor_match=flavor_match,
+        )
+    return _build()
+
+
+class TestIBRFlavorMatchInvariant:
+    """Property: Invariant. Flavor match score is always in [0.0, 1.0].
+
+    Spec traceability: IBR-TEST-02 (Scoring invariant)
+    """
+
+    @given(
+        task_score=st.floats(min_value=0.0, max_value=1.0),
+        domain_score=st.floats(min_value=0.0, max_value=1.0),
+        qs_score=st.floats(min_value=0.0, max_value=1.0),
+    )
+    def test_flavor_match_always_in_unit_interval(
+        self, task_score: float, domain_score: float, qs_score: float,
+    ) -> None:
+        """[IBR-TEST-02 AC-1] compute_flavor_match always returns [0.0, 1.0]."""
+        intent = ClassifiedIntent(
+            task_type="analysis", domain="code",
+            quality_speed="balanced", confidence=0.9,
+            latency_ms=10.0, from_cache=False,
+        )
+        profile = ModelFlavorProfile(
+            model_id="test", version=1,
+            updated_at="2026-01-01T00:00:00Z",
+            task_scores=dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_FLAVOR)
+            | {"analysis": FlavorScore(score=task_score, confidence=1.0, sample_count=0)},
+            domain_scores=dict.fromkeys(IBR_DOMAINS, IBR_NEUTRAL_FLAVOR)
+            | {"code": FlavorScore(score=domain_score, confidence=1.0, sample_count=0)},
+            qs_scores=dict.fromkeys(IBR_QUALITY_SPEED, IBR_NEUTRAL_FLAVOR)
+            | {"balanced": FlavorScore(score=qs_score, confidence=1.0, sample_count=0)},
+        )
+        result = compute_flavor_match(intent, profile)
+        assert 0.0 <= result <= 1.0
+
+    @given(
+        intent=_ibr_classified_intent_strategy(),
+        profile=_ibr_model_flavor_profile_strategy(),
+    )
+    def test_flavor_match_bounded_for_arbitrary_profiles(
+        self, intent: ClassifiedIntent, profile: ModelFlavorProfile,
+    ) -> None:
+        """[IBR-TEST-02 AC-1] Flavor match is in [0.0, 1.0] for any valid intent+profile."""
+        result = compute_flavor_match(intent, profile)
+        assert 0.0 <= result <= 1.0
+
+
+class TestIBRScoringWeightsInvariant:
+    """Property: Invariant. ScoringWeightsConfig including flavor_match sums to 1.0.
+
+    Spec traceability: IBR-TEST-02 (Weight sum invariant)
+    """
+
+    @given(weights=valid_scoring_weights_with_flavor())
+    def test_scoring_weights_with_flavor_sum_to_one(
+        self, weights: ScoringWeightsConfig,
+    ) -> None:
+        """[IBR-TEST-02 AC-2] ScoringWeightsConfig always sums to 1.0 including flavor_match."""
+        total = (
+            weights.cost + weights.latency + weights.priority
+            + weights.queue + weights.health + weights.flavor_match
+        )
+        assert abs(total - 1.0) < 1e-6
+
+
+class TestIBRConfidenceGatingInvariant:
+    """Property: Invariant. Low confidence always prevents flavor match application.
+
+    Spec traceability: IBR-TEST-02 (Confidence gating invariant)
+    """
+
+    @given(confidence=st.floats(min_value=0.0, max_value=1.0))
+    def test_confidence_gating_monotonic(self, confidence: float) -> None:
+        """[IBR-TEST-02 AC-3] Higher confidence is more likely to pass gating."""
+        intent_low = ClassifiedIntent(
+            task_type="analysis", domain="code",
+            quality_speed="balanced", confidence=0.0,
+            latency_ms=10.0, from_cache=False,
+        )
+        intent_high = ClassifiedIntent(
+            task_type="analysis", domain="code",
+            quality_speed="balanced", confidence=1.0,
+            latency_ms=10.0, from_cache=False,
+        )
+        # Full-confidence profile so profile threshold doesn't gate
+        full_fs = FlavorScore(score=0.8, confidence=1.0, sample_count=10)
+        profile = ModelFlavorProfile(
+            model_id="test", version=1,
+            updated_at="2026-01-01T00:00:00Z",
+            task_scores=dict.fromkeys(IBR_TASK_TYPES, full_fs),
+            domain_scores=dict.fromkeys(IBR_DOMAINS, full_fs),
+            qs_scores=dict.fromkeys(IBR_QUALITY_SPEED, full_fs),
+        )
+
+        result_low = should_apply_flavor_match(
+            intent_low, profile, confidence_threshold=confidence,
+        )
+        result_high = should_apply_flavor_match(
+            intent_high, profile, confidence_threshold=confidence,
+        )
+
+        # If low confidence passes, high must also pass (monotonic)
+        if result_low:
+            assert result_high
+
+    @given(confidence=st.floats(min_value=0.0, max_value=0.59))
+    def test_below_default_threshold_always_gated(self, confidence: float) -> None:
+        """[IBR-TEST-02 AC-3] Confidence below 0.6 default is always gated."""
+        intent = ClassifiedIntent(
+            task_type="analysis", domain="code",
+            quality_speed="balanced", confidence=confidence,
+            latency_ms=10.0, from_cache=False,
+        )
+        full_fs = FlavorScore(score=0.8, confidence=1.0, sample_count=10)
+        profile = ModelFlavorProfile(
+            model_id="test", version=1,
+            updated_at="2026-01-01T00:00:00Z",
+            task_scores=dict.fromkeys(IBR_TASK_TYPES, full_fs),
+            domain_scores=dict.fromkeys(IBR_DOMAINS, full_fs),
+            qs_scores=dict.fromkeys(IBR_QUALITY_SPEED, full_fs),
+        )
+        assert should_apply_flavor_match(intent, profile) is False
+
+
+class TestIBRDegradationInvariant:
+    """Property: Invariant. When classification returns None, behavior is identical to IBR-disabled.
+
+    Spec traceability: IBR-TEST-02 (Degradation invariant)
+    """
+
+    @given(
+        model_ids=st.lists(
+            st.text(
+                alphabet=st.characters(whitelist_categories=("Ll", "Nd")),
+                min_size=1, max_size=10,
+            ),
+            min_size=1,
+            max_size=5,
+        ),
+    )
+    def test_ibr_degradation_invariant(self, model_ids: list[str]) -> None:
+        """[IBR-TEST-02 AC-4] None intent produces empty flavor scores (IBR inactive)."""
+        profiles = {
+            mid: ModelFlavorProfile(
+                model_id=mid, version=1,
+                updated_at="2026-01-01T00:00:00Z",
+                task_scores=dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_FLAVOR),
+                domain_scores=dict.fromkeys(IBR_DOMAINS, IBR_NEUTRAL_FLAVOR),
+                qs_scores=dict.fromkeys(IBR_QUALITY_SPEED, IBR_NEUTRAL_FLAVOR),
+            )
+            for mid in model_ids
+        }
+        # None intent → empty scores → IBR has no effect
+        scores = compute_flavor_scores(None, profiles, model_ids)
+        assert scores == {}
+
+    def test_none_intent_gating_always_false(self) -> None:
+        """[IBR-TEST-02 AC-4] should_apply_flavor_match always False for None intent."""
+        full_fs = FlavorScore(score=0.8, confidence=1.0, sample_count=10)
+        profile = ModelFlavorProfile(
+            model_id="test", version=1,
+            updated_at="2026-01-01T00:00:00Z",
+            task_scores=dict.fromkeys(IBR_TASK_TYPES, full_fs),
+            domain_scores=dict.fromkeys(IBR_DOMAINS, full_fs),
+            qs_scores=dict.fromkeys(IBR_QUALITY_SPEED, full_fs),
+        )
+        assert should_apply_flavor_match(None, profile) is False
+
+
+class TestIBRFlavorMatchMonotonicity:
+    """Property: Invariant. Higher scores produce higher flavor match, all else equal.
+
+    Spec traceability: IBR-TEST-02 (Monotonicity)
+    """
+
+    @given(
+        low_score=st.floats(min_value=0.0, max_value=0.49),
+        high_score=st.floats(min_value=0.51, max_value=1.0),
+    )
+    def test_higher_task_score_higher_match(
+        self, low_score: float, high_score: float,
+    ) -> None:
+        """[IBR-TEST-02 AC-5] Higher task_score produces higher flavor_match, all else equal."""
+        intent = ClassifiedIntent(
+            task_type="analysis", domain="code",
+            quality_speed="balanced", confidence=0.9,
+            latency_ms=10.0, from_cache=False,
+        )
+
+        def _profile(task_score: float) -> ModelFlavorProfile:
+            return ModelFlavorProfile(
+                model_id="test", version=1,
+                updated_at="2026-01-01T00:00:00Z",
+                task_scores=dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_FLAVOR)
+                | {"analysis": FlavorScore(score=task_score, confidence=1.0, sample_count=0)},
+                domain_scores=dict.fromkeys(IBR_DOMAINS, IBR_NEUTRAL_FLAVOR),
+                qs_scores=dict.fromkeys(IBR_QUALITY_SPEED, IBR_NEUTRAL_FLAVOR),
+            )
+
+        low_match = compute_flavor_match(intent, _profile(low_score))
+        high_match = compute_flavor_match(intent, _profile(high_score))
+        assert high_match > low_match

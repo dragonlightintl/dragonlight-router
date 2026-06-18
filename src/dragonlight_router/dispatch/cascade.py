@@ -1,4 +1,4 @@
-"""Cascade dispatch — MBR → CBR → LBR composition."""
+"""Cascade dispatch — MBR → IBR → CBR → LBR composition."""
 from __future__ import annotations
 
 import json
@@ -13,6 +13,7 @@ import structlog
 import dragonlight_router.adapters as _adapters_mod
 from dragonlight_router.budget.tracker import BudgetTracker
 from dragonlight_router.caching.simple import SimpleCache
+from dragonlight_router.config.schema import IntentClassificationConfig
 from dragonlight_router.core.errors import BudgetExceededError, LBRNoCapacityError
 from dragonlight_router.core.registry import BackendRegistry
 from dragonlight_router.core.types import (
@@ -23,6 +24,7 @@ from dragonlight_router.core.types import (
     DispatchFailure,
     DispatchOrder,
     EngineResponse,
+    GenerativeBackend,
     ScoredCandidate,
     StreamChunk,
 )
@@ -33,6 +35,8 @@ from dragonlight_router.selection.context_filter import (
     ProviderTrustTier,
     filter_context_for_provider,
 )
+from dragonlight_router.selection.flavor import FlavorProfileLoader
+from dragonlight_router.selection.ibr import IBRResult, run_ibr_stage
 from dragonlight_router.selection.lbr import filter_by_rate_limit, select_final_candidate
 from dragonlight_router.selection.mbr import (
     MBRNoCandidatesError,
@@ -114,6 +118,9 @@ class DispatchContext:
     budget_tracker: BudgetTracker
     health_tracker: HealthTracker
     config: dict[str, Any]
+    ibr_config: IntentClassificationConfig | None = None
+    flavor_loader: FlavorProfileLoader | None = None
+    classification_adapter: GenerativeBackend | None = None
 
 
 def _estimate_token_count(char_count: int) -> int:
@@ -216,6 +223,7 @@ def _run_cbr_stage(
     order: DispatchOrder,
     candidates: list[BackendConfig],
     ctx: DispatchContext,
+    ibr_result: IBRResult | None = None,
 ) -> Result[list[ScoredCandidate], Exception]:
     """CBR stage: filter by budget, score with cost-effectiveness, rank candidates."""
     assert isinstance(candidates, list), "candidates must be a list"
@@ -233,13 +241,63 @@ def _run_cbr_stage(
     if not cbr_candidates:
         return Err(BudgetExceededError("No candidates remain after budget filtering"))
 
-    weights = ScoringWeightsConfig()
+    weights = _resolve_cbr_weights(ibr_result, ctx)
     if cost_governor_active(daily_spend, monthly_spend, ctx.config):
         weights = cost_adjusted_weights(weights)
 
-    scored = _score_and_rank_candidates(cbr_candidates, order, weights, ctx)
+    scored = _score_and_rank_candidates(
+        cbr_candidates, order, weights, ctx, ibr_result=ibr_result,
+    )
     logger.debug("CBR scoring complete", candidate_count=len(scored))
     return Ok(scored)
+
+
+async def _run_ibr_stage(
+    order: DispatchOrder,
+    candidates: list[BackendConfig],
+    ctx: DispatchContext,
+) -> IBRResult | None:
+    """Run the IBR stage if configured. Returns None when IBR is not wired.
+
+    IBR must NEVER block or fail the cascade (IBR-SYS-03).
+    All errors are caught and degraded to inactive result.
+    """
+    if ctx.ibr_config is None or ctx.flavor_loader is None:
+        return None
+
+    try:
+        result = await run_ibr_stage(
+            order=order,
+            candidates=candidates,
+            ibr_config=ctx.ibr_config,
+            flavor_loader=ctx.flavor_loader,
+            classification_adapter=ctx.classification_adapter,
+        )
+        logger.debug("IBR stage complete", ibr_active=result.ibr_active)
+        return result
+    except Exception:
+        logger.warning("ibr_stage_cascade_error", exc_info=True)
+        return None
+
+
+def _resolve_cbr_weights(
+    ibr_result: IBRResult | None,
+    ctx: DispatchContext,
+) -> ScoringWeightsConfig:
+    """Determine CBR scoring weights based on IBR result.
+
+    When IBR is active with valid scores, uses 6-dimension weights
+    (IBR-SCORE-02).  Otherwise falls back to v0.3.0 5-dimension
+    weights (IBR-SCORE-03).
+    """
+    if ibr_result is not None and ibr_result.ibr_active:
+        ibr_cfg = ctx.ibr_config
+        weight = ibr_cfg.flavor_match_weight if ibr_cfg is not None else 0.15
+        return ScoringWeightsConfig(
+            cost=0.30, latency=0.20, priority=0.15,
+            queue=0.10, health=0.10, flavor_match=weight,
+        )
+    return ScoringWeightsConfig()
 
 
 def _score_and_rank_candidates(
@@ -247,10 +305,13 @@ def _score_and_rank_candidates(
     order: DispatchOrder,
     weights: ScoringWeightsConfig,
     ctx: DispatchContext,
+    ibr_result: IBRResult | None = None,
 ) -> list[ScoredCandidate]:
     """Score each candidate and return them sorted best-first with scores preserved."""
     assert isinstance(candidates, list), "candidates must be a list"
     assert len(candidates) > 0, "candidates must not be empty"
+
+    flavor_scores = ibr_result.flavor_scores if ibr_result is not None else {}
 
     scored_candidates: list[ScoredCandidate] = []
     for candidate in candidates:
@@ -258,6 +319,10 @@ def _score_and_rank_candidates(
             config=candidate, order=order, weights=weights,
             budget_tracker=ctx.budget_tracker, health_tracker=ctx.health_tracker,
         )
+        # Add flavor_match contribution when IBR is active
+        flavor_match = flavor_scores.get(candidate.name, 0.0)
+        score = score + flavor_match * weights.flavor_match
+        score = min(1.0, max(0.0, score))
         score = _apply_degraded_penalty(score, candidate, ctx.registry)
         scored_candidates.append(ScoredCandidate(config=candidate, score=score))
 
@@ -349,11 +414,11 @@ def _filter_by_trust_floor(
     return filtered
 
 
-def _run_cascade(
+async def _run_cascade(
     order: DispatchOrder,
     ctx: DispatchContext,
 ) -> Result[list[ScoredCandidate], Exception]:
-    """Run MBR -> trust floor -> CBR -> LBR cascade and return the full ranked candidate list.
+    """Run MBR -> trust floor -> IBR -> CBR -> LBR cascade and return the full ranked list.
 
     Unlike route(), this returns ALL surviving candidates so dispatch() can
     implement fallback across the ranked list.
@@ -380,7 +445,10 @@ def _run_cascade(
             "No candidates meet the requested context_trust_tier floor"
         ))
 
-    cbr_result = _run_cbr_stage(order, trust_filtered, ctx)
+    # IBR stage: classify intent and compute flavor scores (IBR-PIPE-01)
+    ibr_result = await _run_ibr_stage(order, trust_filtered, ctx)
+
+    cbr_result = _run_cbr_stage(order, trust_filtered, ctx, ibr_result=ibr_result)
     if isinstance(cbr_result, Err):
         return cbr_result
 
@@ -391,14 +459,18 @@ def _run_cascade(
 # Justification: Public API entry point with cascade orchestration, context construction,
 # and result handling. Extraction would fragment the dispatch contract.
 # Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
-def route(
+async def route(
     order: DispatchOrder,
     registry: BackendRegistry,
     budget_tracker: BudgetTracker,
     health_tracker: HealthTracker,
     config: dict[str, Any],
+    *,
+    ibr_config: IntentClassificationConfig | None = None,
+    flavor_loader: FlavorProfileLoader | None = None,
+    classification_adapter: GenerativeBackend | None = None,
 ) -> Result[BackendConfig, Exception]:
-    """Run the MBR -> CBR -> LBR cascade and return the selected BackendConfig.
+    """Run the MBR -> IBR -> CBR -> LBR cascade and return the selected BackendConfig.
 
     Args:
         order: The dispatch order containing capability requirements.
@@ -419,8 +491,11 @@ def route(
         budget_tracker=budget_tracker,
         health_tracker=health_tracker,
         config=config,
+        ibr_config=ibr_config,
+        flavor_loader=flavor_loader,
+        classification_adapter=classification_adapter,
     )
-    cascade_result = _run_cascade(order, ctx)
+    cascade_result = await _run_cascade(order, ctx)
     if isinstance(cascade_result, Err):
         return cascade_result
 
@@ -815,12 +890,16 @@ async def dispatch(
     budget_tracker: BudgetTracker,
     health_tracker: HealthTracker,
     config: dict[str, Any],
+    *,
+    ibr_config: IntentClassificationConfig | None = None,
+    flavor_loader: FlavorProfileLoader | None = None,
+    classification_adapter: GenerativeBackend | None = None,
 ) -> Result[EngineResponse, Exception]:
     """Execute the full dispatch pipeline with fallback and return an EngineResponse.
 
     This is the main entry point for engine-style consumers.
 
-    Checks the response cache first. On miss, runs the MBR -> CBR -> LBR
+    Checks the response cache first. On miss, runs the MBR -> IBR -> CBR -> LBR
     cascade to get a ranked candidate list, then attempts generation on
     each candidate in order until one succeeds. Successful responses are
     cached for future hits.
@@ -838,10 +917,13 @@ async def dispatch(
         budget_tracker=budget_tracker,
         health_tracker=health_tracker,
         config=config,
+        ibr_config=ibr_config,
+        flavor_loader=flavor_loader,
+        classification_adapter=classification_adapter,
     )
     logger.debug("starting dispatch pipeline")
 
-    cascade_result = _run_cascade(order, ctx)
+    cascade_result = await _run_cascade(order, ctx)
     if isinstance(cascade_result, Err):
         logger.debug("dispatch failed at cascade stage", error=str(cascade_result.error))
         return Err(cascade_result.error)
@@ -983,6 +1065,10 @@ async def dispatch_stream(
     budget_tracker: BudgetTracker,
     health_tracker: HealthTracker,
     config: dict[str, Any],
+    *,
+    ibr_config: IntentClassificationConfig | None = None,
+    flavor_loader: FlavorProfileLoader | None = None,
+    classification_adapter: GenerativeBackend | None = None,
 ) -> AsyncIterator[StreamChunk]:
     """Execute the cascade and stream tokens as they arrive from the LLM.
 
@@ -999,10 +1085,13 @@ async def dispatch_stream(
         budget_tracker=budget_tracker,
         health_tracker=health_tracker,
         config=config,
+        ibr_config=ibr_config,
+        flavor_loader=flavor_loader,
+        classification_adapter=classification_adapter,
     )
     logger.debug("starting streaming dispatch pipeline")
 
-    cascade_result = _run_cascade(order, ctx)
+    cascade_result = await _run_cascade(order, ctx)
     if isinstance(cascade_result, Err):
         yield StreamChunk(
             event_type="error",

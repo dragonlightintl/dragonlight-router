@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import signal
 import time
 import uuid
@@ -20,7 +21,9 @@ from pathlib import Path
 from typing import Any
 
 import structlog
+import yaml
 
+from dragonlight_router.adapters import create_adapter
 from dragonlight_router.benchmark.dogfood import _get_all_model_ids
 from dragonlight_router.benchmark.judge import (
     _JUDGE_SYSTEM_PROMPT,
@@ -29,6 +32,11 @@ from dragonlight_router.benchmark.judge import (
     _parse_judge_scores,
 )
 from dragonlight_router.core.types import (
+    BackendCapabilities,
+    BackendConfig,
+    BackendCostProfile,
+    BackendRateLimits,
+    BackendTier,
     GenerativeBackend,
     ModelFlavorProfile,
 )
@@ -115,18 +123,113 @@ def _extract_provider(model_id: str) -> str:
 # Adapter creation
 # ---------------------------------------------------------------------------
 
-def _create_adapter(model_id: str) -> GenerativeBackend | None:
-    """Create a fresh adapter for the given model. Returns None on failure.
+_PROVIDER_ADAPTER_KEY: dict[str, str] = {
+    "nvidia_nim": "nvidia",
+    "groq": "groq",
+    "openrouter": "openrouter",
+    "gemini": "google",
+    "cerebras": "cerebras",
+    "mistral": "mistral",
+    "anthropic": "anthropic",
+    "openai": "openai",
+}
 
-    # TODO: wire to actual adapter factory once available
-    Adapter instantiation requires building a full BackendConfig with
-    provider-specific base URLs, env keys, capabilities, cost profiles,
-    and rate limits.  This placeholder logs a warning and returns None;
-    the runner handles None adapters gracefully by skipping the model.
-    """
-    logger.warning("adapter_creation_placeholder", model_id=model_id,
-                   msg="adapter factory not yet wired -- skipping model")
-    return None
+
+def _load_provider_configs() -> dict[str, dict[str, Any]]:
+    """Load provider configs from router.yaml for adapter construction."""
+    yaml_path = _CONFIG_DIR / "router.yaml"
+    if not yaml_path.exists():
+        logger.warning("router_yaml_missing", path=str(yaml_path))
+        return {}
+    try:
+        raw = yaml.safe_load(yaml_path.read_text()) or {}
+    except (yaml.YAMLError, OSError) as exc:
+        logger.warning("router_yaml_load_failed", error=str(exc))
+        return {}
+    providers = raw.get("providers", [])
+    return {p["name"]: p for p in providers if isinstance(p, dict) and "name" in p}
+
+
+_CACHED_PROVIDERS: dict[str, dict[str, Any]] | None = None
+
+
+def _get_providers() -> dict[str, dict[str, Any]]:
+    """Lazy-load and cache provider configs."""
+    global _CACHED_PROVIDERS  # noqa: PLW0603
+    if _CACHED_PROVIDERS is None:
+        _CACHED_PROVIDERS = _load_provider_configs()
+    return _CACHED_PROVIDERS
+
+
+def _create_adapter(model_id: str) -> GenerativeBackend | None:
+    """Create a fresh adapter for the given model. Returns None on failure."""
+    assert isinstance(model_id, str) and model_id, "model_id must be non-empty"
+
+    provider_prefix = _extract_provider(model_id)
+    providers = _get_providers()
+    provider_cfg = providers.get(provider_prefix)
+
+    if provider_cfg is None:
+        logger.warning(
+            "adapter_no_provider_config",
+            model_id=model_id,
+            provider=provider_prefix,
+        )
+        return None
+
+    adapter_key = _PROVIDER_ADAPTER_KEY.get(provider_prefix)
+    if adapter_key is None:
+        logger.warning(
+            "adapter_no_adapter_key",
+            model_id=model_id,
+            provider=provider_prefix,
+        )
+        return None
+
+    env_key = provider_cfg.get("env_key")
+    if env_key and not os.environ.get(env_key):
+        logger.warning(
+            "adapter_missing_env_key",
+            model_id=model_id,
+            env_key=env_key,
+        )
+        return None
+
+    prefix = provider_cfg.get("model_prefix", f"{provider_prefix}/")
+    bare_model = model_id[len(prefix):] if model_id.startswith(prefix) else model_id
+
+    rl = provider_cfg.get("rate_limits", {})
+
+    config = BackendConfig(
+        name=model_id,
+        provider=adapter_key,
+        model=bare_model,
+        tier=BackendTier.MODERATE,
+        base_url=provider_cfg.get("base_url", ""),
+        env_key=env_key,
+        capabilities=BackendCapabilities(
+            max_context_tokens=131072,
+            supports_tool_use=True,
+            supports_streaming=True,
+            supports_json_mode=True,
+            supports_system_prompts=True,
+        ),
+        cost=BackendCostProfile(input_per_mtok=0.0, output_per_mtok=0.0),
+        rate_limits=BackendRateLimits(
+            rpm=rl.get("rpm", 30),
+            rpd=rl.get("rpd") or 999999,
+            tpm=rl.get("tpm") or 9999999,
+            daily_token_cap=rl.get("daily_token_cap") or 9999999,
+        ),
+    )
+
+    try:
+        adapter = create_adapter(config)
+        logger.info("adapter_created", model_id=model_id, adapter_key=adapter_key)
+        return adapter
+    except Exception as exc:
+        logger.warning("adapter_creation_failed", model_id=model_id, error=str(exc))
+        return None
 
 
 # ---------------------------------------------------------------------------

@@ -799,11 +799,35 @@ class TestCheckpoint:
 
 
 class TestCreateAdapter:
-    """Tests for _create_adapter (placeholder)."""
+    """Tests for _create_adapter — real adapter factory."""
 
-    def test_returns_none(self):
+    def test_unknown_provider_returns_none(self, monkeypatch):
+        """Unknown provider prefix → None."""
+        monkeypatch.setattr(
+            "dragonlight_router.discovery.runner._CACHED_PROVIDERS", {},
+        )
+        result = _create_adapter("totally_fake/some-model")
+        assert result is None
+
+    def test_missing_env_key_returns_none(self, monkeypatch):
+        """Provider exists in config but required env var is unset → None."""
+        monkeypatch.setattr(
+            "dragonlight_router.discovery.runner._CACHED_PROVIDERS",
+            {"gemini": {"name": "gemini", "env_key": "GEMINI_API_KEY_DEFINITELY_UNSET", "base_url": "https://example.com"}},
+        )
+        monkeypatch.delenv("GEMINI_API_KEY_DEFINITELY_UNSET", raising=False)
         result = _create_adapter("gemini/gemini-2.5-pro")
         assert result is None
+
+    def test_valid_provider_returns_adapter(self, monkeypatch):
+        """Known provider with env key set → non-None adapter."""
+        monkeypatch.setattr(
+            "dragonlight_router.discovery.runner._CACHED_PROVIDERS",
+            {"groq": {"name": "groq", "env_key": "GROQ_API_KEY", "base_url": "https://api.groq.com/openai/v1", "model_prefix": "groq/", "rate_limits": {}}},
+        )
+        monkeypatch.setenv("GROQ_API_KEY", "test-key-for-unit-test")
+        result = _create_adapter("groq/llama-3.3-70b-versatile")
+        assert result is not None
 
 
 class TestParseDelays:

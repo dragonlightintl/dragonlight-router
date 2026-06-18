@@ -83,3 +83,33 @@ providers:
       rpm: 10
       rpd: 200
       tpm: 100000
+
+  - name: openai
+    base_url: https://api.openai.com/v1
+    catalog_url: https://api.openai.com/v1/models
+    env_key: OPENAI_API_KEY
+    model_prefix: "openai/"
+    rate_limits:
+      rpm: 60
+      rpd: 10000
+      tpm: 200000
+
+  - name: cohere
+    base_url: https://api.cohere.com/v2
+    catalog_url: https://api.cohere.com/v2/models
+    env_key: COHERE_API_KEY
+    model_prefix: "cohere/"
+    rate_limits:
+      rpm: 20
+      rpd: 1000
+      tpm: null
+
+  - name: together
+    base_url: https://api.together.xyz/v1
+    catalog_url: https://api.together.xyz/v1/models
+    env_key: TOGETHER_API_KEY
+    model_prefix: "together/"
+    rate_limits:
+      rpm: 60
+      rpd: null
+      tpm: null

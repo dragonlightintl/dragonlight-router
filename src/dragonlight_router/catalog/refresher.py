@@ -16,6 +16,7 @@ import structlog
 from dragonlight_router.config.schema import ProviderSchema
 from dragonlight_router.core.errors import CatalogRefreshError
 from dragonlight_router.core.types import CatalogEntry
+from dragonlight_router.core.validation import validate_provider_url
 from dragonlight_router.result import Ok, Result
 
 logger = structlog.get_logger()
@@ -85,6 +86,9 @@ class CatalogRefresher:
         """Fetch model list from a single provider."""
         assert isinstance(provider, ProviderSchema), "provider must be a ProviderSchema"
         url = provider.catalog_url or f"{provider.base_url}/models"
+
+        # SEC-003: Validate URL before making HTTP request
+        validate_provider_url(url)
 
         headers = self._build_auth_headers(provider)
 

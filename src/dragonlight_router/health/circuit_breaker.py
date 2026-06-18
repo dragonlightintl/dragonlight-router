@@ -20,6 +20,8 @@ from typing import Any
 
 @unique
 class CircuitState(Enum):
+    """Circuit breaker states: CLOSED (healthy), OPEN (tripped), HALF_OPEN (probing)."""
+
     CLOSED = "closed"
     OPEN = "open"
     HALF_OPEN = "half_open"

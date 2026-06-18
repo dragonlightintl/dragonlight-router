@@ -134,6 +134,7 @@ class BudgetTracker:
     def has_capacity(self, provider_name: str) -> bool:
         """Quick check: does this provider have RPM, RPD, TPM, and daily token headroom?"""
         assert isinstance(provider_name, str), "provider_name must be a string"
+        assert provider_name, "provider_name must be non-empty"
         provider = self._providers.get(provider_name)
         if provider is None:
             return True
@@ -273,6 +274,8 @@ class BudgetTracker:
         are intentionally excluded -- they represent sub-minute state that
         becomes stale immediately on restore.
         """
+        assert isinstance(self._rpd_counts, (dict, defaultdict)), "_rpd_counts must be a dict"
+        assert isinstance(self._day_reset_at, float), "_day_reset_at must be a float"
         return {
             "rpd_counts": dict(self._rpd_counts),
             "daily_token_counts": dict(self._daily_token_counts),
@@ -287,6 +290,9 @@ class BudgetTracker:
         has passed, counters start fresh.
         """
         assert isinstance(state, dict), "state must be a dict"
+        assert "day_reset_at" not in state or isinstance(state["day_reset_at"], (int, float)), (
+            "day_reset_at must be numeric if present"
+        )
         persisted_reset = state.get("day_reset_at", 0.0)
         now = time.time()
 

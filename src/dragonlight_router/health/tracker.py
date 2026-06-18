@@ -84,6 +84,8 @@ class HealthTracker:
 
     def record_success(self, model_id: str, latency_ms: float) -> None:
         """Record a successful request — resets errors, updates latency."""
+        assert isinstance(model_id, str) and model_id, "model_id must be non-empty string"
+        assert latency_ms >= 0, f"latency_ms must be non-negative, got {latency_ms}"
         self._breakers[model_id].record_success()
         self._error_counts[model_id] = 0
 
@@ -103,6 +105,10 @@ class HealthTracker:
         HTTP 404 at inference time triggers immediate retirement (eviction
         from active catalog). All other errors follow normal circuit breaker path.
         """
+        assert isinstance(model_id, str) and model_id, "model_id must be non-empty string"
+        assert http_status is None or isinstance(http_status, int), (
+            f"http_status must be None or int, got {type(http_status)}"
+        )
         if http_status == 404:
             self._retire_model(model_id)
             return
@@ -120,6 +126,8 @@ class HealthTracker:
 
     def reinstate_model(self, model_id: str) -> None:
         """Restore a retired model to active status."""
+        assert isinstance(model_id, str) and model_id, "model_id must be non-empty string"
+        assert isinstance(self._retired, dict), "_retired must be a dict"
         if model_id not in self._retired:
             return
         del self._retired[model_id]
@@ -152,6 +160,9 @@ class HealthTracker:
         process restarts. EMA latency data is intentionally excluded as
         it is stale on restart and will rebuild from live probes.
         """
+        assert isinstance(self._retired, dict), "_retired must be a dict"
+        assert isinstance(self._error_counts, (dict, defaultdict)), "_error_counts must be a dict"
+
         breaker_states: dict[str, dict[str, Any]] = {}
         for model_id, breaker in self._breakers.items():
             breaker_states[model_id] = breaker.get_state()
@@ -202,6 +213,9 @@ class HealthTracker:
 
         Returns "healthy" if no models are tracked (no state = fresh start).
         """
+        assert isinstance(self._breakers, (dict, defaultdict)), "_breakers must be a dict"
+        assert isinstance(self._retired, dict), "_retired must be a dict"
+
         all_models = set(self._breakers.keys()) | set(self._retired.keys())
         if not all_models:
             return "healthy"

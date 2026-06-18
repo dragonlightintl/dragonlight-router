@@ -204,6 +204,10 @@ class HealthCheckLoop:
         assert isinstance(outcome, ProbeResult), "probe must return a ProbeResult"
         return outcome
 
+    # DEVIATION CS-004: _send_health_probe is 41 lines.
+    # Justification: Linear probe flow with three distinct outcome branches (success,
+    # 404/OFFLINE, generic failure). Extracting branches would scatter the probe logic.
+    # Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
     async def _send_health_probe(
         self, name: str, backend: GenerativeBackend, start_time: float
     ) -> ProbeResult:

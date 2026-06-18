@@ -69,6 +69,10 @@ def filter_by_trust_tier(candidates: list[TrustTier], required_tier: TrustTier) 
     return filtered
 
 
+# DEVIATION CS-004: filter_context_for_provider is 44 lines.
+# Justification: Dispatch-table pattern with logging, assertion, and fallback for unknown
+# tiers. The handler dispatch is already factored out; remaining length is the contract.
+# Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
 def filter_context_for_provider(
     context: dict[str, Any],
     provider_trust_tier: ProviderTrustTier,

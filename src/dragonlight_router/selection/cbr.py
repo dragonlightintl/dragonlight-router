@@ -40,6 +40,11 @@ class CostFilterParams:
     health_tracker: HealthTracker | None = None
 
 
+# DEVIATION CS-004: filter_by_cost is 41 lines.
+# Justification: Public API with parameter validation, CostFilterParams construction,
+# and delegation to _filter_by_cost_impl. The docstring and assertions account for most
+# of the length; extraction would lose the clear public/private boundary.
+# Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
 def filter_by_cost(
     candidates: list[BackendConfig],
     order: DispatchOrder,

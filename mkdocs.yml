@@ -1,0 +1,69 @@
+site_name: Dragonlight Router
+site_description: Multi-provider LLM routing engine — intelligent model selection and cascade dispatch.
+
+# repo_url: https://github.com/dragonlight-intl/dragonlight-router
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.tabs.link
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Configuration: configuration.md
+  - API Reference: api-reference.md
+  - Architecture: architecture.md
+  - Providers: providers.md
+  - Deployment: deployment.md
+  - Security: security.md
+  - Contributing: contributing.md
+  - Decisions:
+    - Result Type Pattern: adr/001-result-type-pattern.md
+    - Provider Adapter Pattern: adr/002-provider-adapter-pattern.md
+    - Cascade Dispatch Design: adr/003-cascade-dispatch-design.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.snippets
+  - toc:
+      permalink: true
+  - tables
+  - attr_list
+  - md_in_html
+
+plugins:
+  - search
+  # TODO: Add mkdocstrings for auto-generated API docs from docstrings.
+  # Requires: pip install mkdocstrings[python]
+  # - mkdocstrings:
+  #     handlers:
+  #       python:
+  #         paths: [src]

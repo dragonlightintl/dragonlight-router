@@ -19,10 +19,23 @@ from dragonlight_router.core.types import (
     DispatchOrder,
     ProviderConfig,
 )
+from dragonlight_router.server.routes import _reset_admin_auth_failures
 
 # ---------------------------------------------------------------------------
 # BackendConfig
 # ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _clear_admin_auth_rate_limiter():
+    """Reset the admin auth rate limiter between every test.
+
+    SEC-005 uses module-level mutable state that would otherwise leak
+    between tests in the same process.
+    """
+    _reset_admin_auth_failures()
+    yield
+    _reset_admin_auth_failures()
+
 
 @pytest.fixture
 def sample_backend_config() -> BackendConfig:

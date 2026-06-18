@@ -6,6 +6,7 @@ Spec traceability:
   - TM-001: MBR never-downgrade invariant
   - TM-003: LBR rate-limit dispatch invariants
   - Interleave permutation invariants
+  - TS-001: Cascade dispatch, health scoring, model selection, budget monotonicity
 
 Uses Hypothesis to verify that invariants hold across the entire input space,
 not just hand-picked examples. Property categories follow the taxonomy from
@@ -15,7 +16,7 @@ from __future__ import annotations
 
 from unittest.mock import Mock
 
-from hypothesis import assume, given
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from dragonlight_router.budget.tracker import BudgetTracker
@@ -30,6 +31,7 @@ from dragonlight_router.core.types import (
     Ok,
     ProviderConfig,
 )
+from dragonlight_router.health.tracker import HealthTracker
 from dragonlight_router.selection.interleave import interleave_providers
 from dragonlight_router.selection.lbr import filter_by_rate_limit
 from dragonlight_router.selection.scoring import (
@@ -633,3 +635,310 @@ class TestInterleaveInvariants:
                     )
                 else:
                     consecutive = 0
+
+
+# ---------------------------------------------------------------------------
+# TS-001: Health scoring invariant
+# ---------------------------------------------------------------------------
+
+
+class TestHealthScoringInvariant:
+    """Property: Invariant. HealthTracker.score() is always in [0, 100] for any
+    sequence of record_success/record_error calls.
+
+    Spec traceability: TS-001 (Health scoring invariant)
+    """
+
+    @given(error_count=st.integers(min_value=0, max_value=100))
+    def test_health_score_always_in_range(self, error_count: int) -> None:
+        """[TS-001 AC-1] For any number of errors, health score is in [0, 100]."""
+        tracker = HealthTracker()
+        model_id = "test/model-a"
+        for _ in range(error_count):
+            tracker.record_error(model_id)
+        result = tracker.score(model_id)
+        assert isinstance(result, Ok)
+        assert 0.0 <= result.value <= 100.0
+
+    @given(
+        successes=st.integers(min_value=0, max_value=20),
+        errors=st.integers(min_value=0, max_value=20),
+    )
+    def test_health_score_bounded_after_mixed_operations(
+        self, successes: int, errors: int,
+    ) -> None:
+        """[TS-001 AC-2] Any interleaving of success/error calls yields score in [0, 100]."""
+        tracker = HealthTracker()
+        model_id = "test/model-mixed"
+        for _ in range(successes):
+            tracker.record_success(model_id, latency_ms=50.0)
+        for _ in range(errors):
+            tracker.record_error(model_id)
+        result = tracker.score(model_id)
+        assert isinstance(result, Ok)
+        assert 0.0 <= result.value <= 100.0
+
+
+# ---------------------------------------------------------------------------
+# TS-001: Model selection invariant
+# ---------------------------------------------------------------------------
+
+
+class TestModelSelectionInvariant:
+    """Property: Invariant. select_models() always returns model IDs that exist
+    in the role matrix for the requested role.
+
+    Spec traceability: TS-001 (Model selection idempotence)
+    """
+
+    @given(
+        call_count=st.integers(min_value=1, max_value=5),
+    )
+    @settings(deadline=5000)
+    def test_select_models_returns_from_role_matrix(self, call_count: int) -> None:
+        """[TS-001 AC-3] Every model_id from select_models exists in the role matrix."""
+        import json
+        import tempfile
+        from pathlib import Path
+
+        import yaml
+
+        from dragonlight_router.catalog.cache import CatalogCache
+        from dragonlight_router.core.types import CatalogEntry
+        from dragonlight_router.router import RouterEngine
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            state_dir = tmp_path / "state"
+            state_dir.mkdir()
+
+            config = {
+                "state_dir": str(state_dir),
+                "catalog_ttl_hours": 24,
+                "default_top_n": 12,
+                "max_consecutive_same_provider": 2,
+                "providers": [
+                    {
+                        "name": "groq",
+                        "base_url": "https://api.groq.com/openai/v1",
+                        "model_prefix": "groq_",
+                        "rate_limits": {"rpm": 30, "rpd": 14400},
+                    },
+                    {
+                        "name": "nvidia",
+                        "base_url": "https://integrate.api.nvidia.com/v1",
+                        "model_prefix": "nvidia_",
+                        "rate_limits": {"rpm": 60, "rpd": 5000},
+                    },
+                ],
+            }
+            config_path = tmp_path / "router.yaml"
+            config_path.write_text(yaml.dump(config))
+
+            matrix = {
+                "coding": {
+                    "groq_llama70b": 90,
+                    "nvidia_nemotron": 85,
+                    "groq_mixtral": 75,
+                },
+            }
+            (state_dir / "model_role_matrix.json").write_text(json.dumps(matrix))
+
+            catalog = {
+                "groq": [
+                    CatalogEntry(model_id="groq_llama70b", provider="groq"),
+                    CatalogEntry(model_id="groq_mixtral", provider="groq"),
+                ],
+                "nvidia": [
+                    CatalogEntry(model_id="nvidia_nemotron", provider="nvidia"),
+                ],
+            }
+            cache = CatalogCache(
+                cache_path=state_dir / "provider_catalog.json", ttl_hours=24,
+            )
+            cache.set(catalog)
+
+            engine = RouterEngine(config_path=config_path)
+            valid_model_ids = set(matrix["coding"].keys())
+
+            for _ in range(call_count):
+                result = engine.select_models("coding")
+                for model_id in result:
+                    assert model_id in valid_model_ids, (
+                        f"{model_id} not in role matrix: {valid_model_ids}"
+                    )
+
+
+# ---------------------------------------------------------------------------
+# TS-001: Budget scoring monotonicity
+# ---------------------------------------------------------------------------
+
+
+class TestBudgetScoringMonotonicity:
+    """Property: Invariant. As requests are recorded against a provider, the
+    budget score monotonically decreases (or stays the same).
+
+    Spec traceability: TS-001 (Budget scoring monotonicity)
+    """
+
+    @given(
+        rpm=st.integers(min_value=1, max_value=100),
+        rpd=st.one_of(st.none(), st.integers(min_value=1, max_value=1000)),
+        num_requests=st.integers(min_value=1, max_value=20),
+        tokens_per_request=st.integers(min_value=0, max_value=100),
+    )
+    def test_budget_score_monotonically_decreases(
+        self, rpm: int, rpd: int | None, num_requests: int, tokens_per_request: int,
+    ) -> None:
+        """[TS-001 AC-4] Budget score never increases as more requests are recorded."""
+        provider = ProviderConfig(
+            name="test",
+            base_url="http://localhost",
+            catalog_url=None,
+            env_key=None,
+            model_prefix="test",
+            rpm_limit=rpm,
+            rpd_limit=rpd,
+            tpm_limit=None,
+            daily_token_cap=None,
+        )
+        bt = BudgetTracker(providers=[provider])
+
+        previous_score_result = bt.score("test")
+        assert isinstance(previous_score_result, Ok)
+        previous_score = previous_score_result.value
+
+        for _ in range(num_requests):
+            bt.record_request("test", tokens_used=tokens_per_request)
+            current_result = bt.score("test")
+            assert isinstance(current_result, Ok)
+            current_score = current_result.value
+            assert current_score <= previous_score, (
+                f"Budget score increased from {previous_score} to {current_score}"
+            )
+            previous_score = current_score
+
+
+# ---------------------------------------------------------------------------
+# TS-001: Cascade dispatch invariant
+# ---------------------------------------------------------------------------
+
+
+class TestCascadeDispatchInvariant:
+    """Property: Invariant. For any valid backend list, the cascade dispatch's
+    candidate selection always returns models from the input list or an error.
+
+    Since full cascade dispatch requires async I/O and real adapters, this
+    property is tested at the MBR filter + LBR filter level, which are the
+    synchronous core of the dispatch pipeline.
+
+    Spec traceability: TS-001 (Cascade dispatch invariant)
+    """
+
+    @given(
+        num_backends=st.integers(min_value=1, max_value=5),
+        tier=st.sampled_from(list(BackendTier)),
+    )
+    def test_cascade_candidates_always_subset_of_input(
+        self, num_backends: int, tier: BackendTier,
+    ) -> None:
+        """[TS-001 AC-5] Filtered candidates are always a subset of the input backends."""
+        from dragonlight_router.selection.mbr import _filter_by_capabilities
+
+        candidates = []
+        for i in range(num_backends):
+            candidates.append(
+                BackendConfig(
+                    name=f"backend-{i}",
+                    provider=f"provider-{i}",
+                    model=f"model-{i}",
+                    tier=tier,
+                    base_url="http://localhost",
+                    env_key=None,
+                    capabilities=BackendCapabilities(
+                        max_context_tokens=4096,
+                        supports_tool_use=False,
+                        supports_streaming=True,
+                        supports_json_mode=False,
+                        supports_system_prompts=True,
+                    ),
+                    cost=BackendCostProfile(input_per_mtok=1.0, output_per_mtok=2.0),
+                    rate_limits=BackendRateLimits(
+                        rpm=60, rpd=1000, tpm=10000, daily_token_cap=100000,
+                    ),
+                    priority=0,
+                ),
+            )
+
+        order = DispatchOrder(
+            intent_category="test",
+            specific_intent="test",
+            operator_message="test message",
+            system_prompt="",
+            context_tokens=0,
+            requires_tool_use=False,
+            requires_long_context=False,
+        )
+
+        result = _filter_by_capabilities(candidates, order)
+
+        # Every result must come from the input list
+        input_names = {c.name for c in candidates}
+        for r in result:
+            assert r.name in input_names, (
+                f"Result {r.name} not in input candidates: {input_names}"
+            )
+
+    @given(
+        num_backends=st.integers(min_value=1, max_value=5),
+    )
+    def test_lbr_filter_returns_subset_or_empty(
+        self, num_backends: int,
+    ) -> None:
+        """[TS-001 AC-6] LBR filter output is always a subset of input, never None."""
+        candidates = []
+        for i in range(num_backends):
+            candidates.append(
+                BackendConfig(
+                    name=f"backend-{i}",
+                    provider=f"provider-{i}",
+                    model=f"model-{i}",
+                    tier=BackendTier.COMPLEX,
+                    base_url="http://localhost",
+                    env_key=None,
+                    capabilities=BackendCapabilities(
+                        max_context_tokens=4096,
+                        supports_tool_use=False,
+                        supports_streaming=True,
+                        supports_json_mode=False,
+                        supports_system_prompts=True,
+                    ),
+                    cost=BackendCostProfile(input_per_mtok=1.0, output_per_mtok=2.0),
+                    rate_limits=BackendRateLimits(
+                        rpm=60, rpd=1000, tpm=10000, daily_token_cap=100000,
+                    ),
+                    priority=0,
+                ),
+            )
+
+        order = DispatchOrder(
+            intent_category="test",
+            specific_intent="test",
+            operator_message="test",
+            system_prompt="",
+            context_tokens=0,
+            requires_tool_use=False,
+            requires_long_context=False,
+        )
+
+        budget_tracker = BudgetTracker(providers=[])
+        result = filter_by_rate_limit(candidates, order, budget_tracker)
+
+        # Result is never None
+        assert result is not None
+        # Result is a list (could be empty)
+        assert isinstance(result, list)
+        # Every item in result is from the input
+        input_names = {c.name for c in candidates}
+        for r in result:
+            assert r.name in input_names

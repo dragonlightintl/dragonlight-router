@@ -102,9 +102,12 @@ class TestRunCbrStageCostGovernor:
                        return_value=[backend]):
                 result = _run_cbr_stage(order, [backend], ctx)
 
+        # TS-003: Primary assertion is output behavior, not just mock wiring.
+        assert result.is_ok()
+        assert result.value == [backend], "CBR stage must return the scored candidate list"
+        # Mock assertions verify wiring at the cost-governor integration boundary.
         mock_gov.assert_called_once()
         mock_adj.assert_called_once()
-        assert result.is_ok()
 
 
 # ---------------------------------------------------------------------------
@@ -231,8 +234,12 @@ class TestRoute:
             patch(f"{cascade_mod}._run_cascade", return_value=Ok([b1, b2])),
             patch(f"{cascade_mod}.select_final_candidate", return_value=b1) as mock_sel,
         ):
-            route(order, registry, budget_tracker, health_tracker, config)
+            result = route(order, registry, budget_tracker, health_tracker, config)
 
+        # TS-003: Assert output behavior, not just mock wiring.
+        assert result.is_ok()
+        assert result.value is b1, "route must return the selected candidate"
+        # Mock assertion verifies the correct candidates were passed to selection.
         mock_sel.assert_called_once_with([b1, b2])
 
 
@@ -458,9 +465,18 @@ class TestTryStreamingDispatch:
 
         adapter_path = "dragonlight_router.dispatch.cascade._adapters_mod.create_adapter"
         with patch(adapter_path, return_value=adapter):
-            async for _ in _try_streaming_dispatch(backend, {"task": "hi"}, order, ctx, []):
-                pass
+            chunks = []
+            async for chunk in _try_streaming_dispatch(backend, {"task": "hi"}, order, ctx, []):
+                chunks.append(chunk)
 
+        # TS-003: Assert output behavior — stream must produce token + metadata chunks.
+        token_chunks = [c for c in chunks if c.event_type == "token"]
+        metadata_chunks = [c for c in chunks if c.event_type == "metadata"]
+        assert len(token_chunks) == 1
+        assert token_chunks[0].content == "response"
+        assert len(metadata_chunks) == 1
+        assert metadata_chunks[0].backend_used == "b1"
+        # Mock assertions verify wiring at the tracker integration boundary.
         health_tracker.record_success.assert_called_once()
         budget_tracker.record_request.assert_called_once()
 

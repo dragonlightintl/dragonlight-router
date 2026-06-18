@@ -281,14 +281,25 @@ class TestRateLimitMiddlewareDispatch:
 
 
 class TestCORSConfig:
-    def test_default_cors_config(self, monkeypatch):
-        """Default CORS config allows all origins."""
+    def test_default_cors_config_disabled(self, monkeypatch):
+        """Default CORS config returns None (CORS disabled, no origins)."""
         monkeypatch.delenv("DRAGONLIGHT_CORS_ORIGINS", raising=False)
         monkeypatch.delenv("DRAGONLIGHT_CORS_METHODS", raising=False)
         monkeypatch.delenv("DRAGONLIGHT_CORS_HEADERS", raising=False)
+        monkeypatch.delenv("DRAGONLIGHT_CORS_CREDENTIALS", raising=False)
         config = get_cors_config()
+        assert config is None
+
+    def test_wildcard_cors_config(self, monkeypatch):
+        """Explicit wildcard origin returns full CORS config."""
+        monkeypatch.setenv("DRAGONLIGHT_CORS_ORIGINS", "*")
+        monkeypatch.delenv("DRAGONLIGHT_CORS_METHODS", raising=False)
+        monkeypatch.delenv("DRAGONLIGHT_CORS_HEADERS", raising=False)
+        monkeypatch.delenv("DRAGONLIGHT_CORS_CREDENTIALS", raising=False)
+        config = get_cors_config()
+        assert config is not None
         assert config["allow_origins"] == ["*"]
-        assert config["allow_credentials"] is True
+        assert config["allow_credentials"] is False
         assert "GET" in config["allow_methods"]
         assert "POST" in config["allow_methods"]
         assert "OPTIONS" in config["allow_methods"]
@@ -299,23 +310,29 @@ class TestCORSConfig:
         monkeypatch.setenv("DRAGONLIGHT_CORS_ORIGINS", "https://app.example.com,https://admin.example.com")
         monkeypatch.delenv("DRAGONLIGHT_CORS_METHODS", raising=False)
         monkeypatch.delenv("DRAGONLIGHT_CORS_HEADERS", raising=False)
+        monkeypatch.delenv("DRAGONLIGHT_CORS_CREDENTIALS", raising=False)
         config = get_cors_config()
+        assert config is not None
         assert config["allow_origins"] == ["https://app.example.com", "https://admin.example.com"]
 
     def test_custom_cors_methods(self, monkeypatch):
         """Custom methods are parsed from comma-separated env var."""
         monkeypatch.setenv("DRAGONLIGHT_CORS_METHODS", "GET,POST,PUT,DELETE")
-        monkeypatch.delenv("DRAGONLIGHT_CORS_ORIGINS", raising=False)
+        monkeypatch.setenv("DRAGONLIGHT_CORS_ORIGINS", "*")
         monkeypatch.delenv("DRAGONLIGHT_CORS_HEADERS", raising=False)
+        monkeypatch.delenv("DRAGONLIGHT_CORS_CREDENTIALS", raising=False)
         config = get_cors_config()
+        assert config is not None
         assert config["allow_methods"] == ["GET", "POST", "PUT", "DELETE"]
 
     def test_custom_cors_headers(self, monkeypatch):
         """Custom headers are parsed from comma-separated env var."""
         monkeypatch.setenv("DRAGONLIGHT_CORS_HEADERS", "Content-Type,Authorization,X-Request-ID")
-        monkeypatch.delenv("DRAGONLIGHT_CORS_ORIGINS", raising=False)
+        monkeypatch.setenv("DRAGONLIGHT_CORS_ORIGINS", "*")
         monkeypatch.delenv("DRAGONLIGHT_CORS_METHODS", raising=False)
+        monkeypatch.delenv("DRAGONLIGHT_CORS_CREDENTIALS", raising=False)
         config = get_cors_config()
+        assert config is not None
         assert config["allow_headers"] == ["Content-Type", "Authorization", "X-Request-ID"]
 
     def test_cors_preflight_request(self, tmp_path):

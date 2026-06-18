@@ -69,7 +69,10 @@ def filter_by_trust_tier(candidates: list[TrustTier], required_tier: TrustTier) 
     return filtered
 
 
-def filter_context_for_provider(context: dict[str, Any], provider_trust_tier: ProviderTrustTier) -> dict[str, Any]:
+def filter_context_for_provider(
+    context: dict[str, Any],
+    provider_trust_tier: ProviderTrustTier,
+) -> dict[str, Any]:
     """Filter context based on provider trust tier.
 
     Args:
@@ -80,7 +83,9 @@ def filter_context_for_provider(context: dict[str, Any], provider_trust_tier: Pr
         Filtered context dictionary.
     """
     assert isinstance(context, dict), "context must be a dict"
-    assert isinstance(provider_trust_tier, ProviderTrustTier), "provider_trust_tier must be ProviderTrustTier"
+    assert isinstance(provider_trust_tier, ProviderTrustTier), (
+        "provider_trust_tier must be ProviderTrustTier"
+    )
 
     logger.debug(
         "filtering context for provider",
@@ -99,7 +104,10 @@ def filter_context_for_provider(context: dict[str, Any], provider_trust_tier: Pr
 
     handler = dispatch.get(provider_trust_tier)
     if handler is None:
-        logger.warning("unknown provider trust tier, returning empty context", tier=provider_trust_tier)
+        logger.warning(
+            "unknown provider trust tier, returning empty context",
+            tier=provider_trust_tier,
+        )
         return {}
 
     result = handler(filtered_context)
@@ -116,9 +124,14 @@ def _filter_trusted(context: dict[str, Any]) -> dict[str, Any]:
 def _filter_semi_trusted(context: dict[str, Any]) -> dict[str, Any]:
     """SEMI_TRUSTED: remove behavioral rules, redact persona names, limit history."""
     assert isinstance(context, dict), "context must be a dict"
-    assert "task" not in context or isinstance(context.get("task"), str), "task must be a string if present"
+    assert "task" not in context or isinstance(
+        context.get("task"), str,
+    ), "task must be a string if present"
 
-    logger.debug("semi-trusted provider: removing behavioral rules, replacing persona names, limiting history")
+    logger.debug(
+        "semi-trusted provider: removing behavioral rules,"
+        " replacing persona names, limiting history",
+    )
 
     context = _redact_system_fields(context)
     context = _limit_history(context, max_turns=3)
@@ -135,10 +148,13 @@ def _filter_semi_trusted(context: dict[str, Any]) -> dict[str, Any]:
 def _redact_system_fields(context: dict[str, Any]) -> dict[str, Any]:
     """Remove behavioral rules and redact persona names from system context."""
     assert isinstance(context, dict), "context must be a dict"
-    assert "system" not in context or isinstance(context.get("system"), dict), "system must be a dict if present"
+    assert "system" not in context or isinstance(
+        context.get("system"), dict,
+    ), "system must be a dict if present"
 
     system = context.get("system", {})
-    system = {k: v for k, v in system.items() if k not in ("behavioral_rules", "behavioral\\s*rules")}
+    excluded = ("behavioral_rules", "behavioral\\s*rules")
+    system = {k: v for k, v in system.items() if k not in excluded}
     system = _redact_persona_fields(system)
     context["system"] = system
     return context

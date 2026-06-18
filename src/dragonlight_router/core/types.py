@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from enum import Enum, unique
-from typing import Generic, NoReturn, Protocol, TypeVar, Union, runtime_checkable
+from typing import Generic, NoReturn, Protocol, TypeVar, runtime_checkable
 
 T = TypeVar('T')
 E = TypeVar('E')
@@ -55,7 +55,7 @@ class Err(Generic[E]):
         """Return the contained error."""
         return self.error
 
-Result = Union[Ok[T], Err[E]]
+Result = Ok[T] | Err[E]
 @unique
 class BackendTier(Enum):
     """Capability tiers — abstract, not provider-specific."""

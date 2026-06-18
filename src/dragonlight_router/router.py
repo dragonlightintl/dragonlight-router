@@ -17,7 +17,7 @@ from typing import Any
 
 import structlog
 
-from dragonlight_router.adapters import create_adapter, _PROVIDER_MAP
+from dragonlight_router.adapters import _PROVIDER_MAP, create_adapter
 from dragonlight_router.budget.persistence import load_budget_state, save_budget_state
 from dragonlight_router.budget.tracker import BudgetTracker
 from dragonlight_router.catalog.cache import CatalogCache
@@ -27,22 +27,23 @@ from dragonlight_router.config.schema import RouterConfig
 from dragonlight_router.core.registry import BackendRegistry
 from dragonlight_router.core.types import (
     BackendCapabilities,
-    BackendCostProfile,
     BackendConfig,
+    BackendCostProfile,
     BackendRateLimits,
     BackendTier,
-    ModelScore,
-    ProviderConfig,
-    RequestOutcome,
     DispatchOrder,
     EngineResponse,
     LatencySLO,
+    ModelScore,
+    ProviderConfig,
+    RequestOutcome,
     StreamChunk,
 )
-from dragonlight_router.dispatch.cascade import dispatch as cascade_dispatch, dispatch_stream as cascade_dispatch_stream, route
-from dragonlight_router.health.tracker import HealthTracker
+from dragonlight_router.dispatch.cascade import dispatch as cascade_dispatch
+from dragonlight_router.dispatch.cascade import dispatch_stream as cascade_dispatch_stream
 from dragonlight_router.health.check_loop import HealthCheckLoop
-from dragonlight_router.result import Ok, Err, Result
+from dragonlight_router.health.tracker import HealthTracker
+from dragonlight_router.result import Ok, Result
 from dragonlight_router.roles.matrix import RoleMatrix
 from dragonlight_router.selection.interleave import interleave_providers
 from dragonlight_router.selection.scoring import (
@@ -80,8 +81,12 @@ class RouterEngine:
         "together": "together",
     }
 
-    def __init__(self, config_path: Path | None = None, **overrides: Any) -> None:
-        assert config_path is None or isinstance(config_path, Path), "config_path must be a Path or None"
+    def __init__(
+        self, config_path: Path | None = None, **overrides: Any,
+    ) -> None:
+        assert config_path is None or isinstance(config_path, Path), (
+            "config_path must be a Path or None"
+        )
 
         self._config = self._load_config(config_path, overrides)
         self._config.state_dir.mkdir(parents=True, exist_ok=True)
@@ -92,9 +97,15 @@ class RouterEngine:
         self._restore_health_state()
         self._init_health_check()
 
-        assert isinstance(self._budget, BudgetTracker), "_budget must be a BudgetTracker instance"
-        assert isinstance(self._health, HealthTracker), "_health must be a HealthTracker instance"
-        assert isinstance(self._config, RouterConfig), "_config must be a RouterConfig instance"
+        assert isinstance(self._budget, BudgetTracker), (
+            "_budget must be a BudgetTracker instance"
+        )
+        assert isinstance(self._health, HealthTracker), (
+            "_health must be a HealthTracker instance"
+        )
+        assert isinstance(self._config, RouterConfig), (
+            "_config must be a RouterConfig instance"
+        )
 
     @staticmethod
     def _load_config(config_path: Path | None, overrides: dict[str, Any]) -> RouterConfig:
@@ -244,7 +255,10 @@ class RouterEngine:
                     dst=str(state_matrix),
                 )
                 return
-        logger.warning("model_role_matrix_not_found_in_config", candidates=[str(c) for c in candidates])
+        logger.warning(
+            "model_role_matrix_not_found_in_config",
+            candidates=[str(c) for c in candidates],
+        )
 
     @staticmethod
     def _normalize_base_url(base_url: str, adapter_key: str) -> str:
@@ -296,7 +310,8 @@ class RouterEngine:
         if "versatile" in lower:
             return BackendTier.SIMPLE
         # Frontier / reasoning / large specialist models → COMPLEX
-        if any(kw in lower for kw in ("70b", "405b", "pro", "v4", "kimi", "qwen3.5", "deepseek-r1")):
+        complex_kws = ("70b", "405b", "pro", "v4", "kimi", "qwen3.5", "deepseek-r1")
+        if any(kw in lower for kw in complex_kws):
             return BackendTier.COMPLEX
         # Code-specialist or mid-size instruct models → MODERATE
         if any(kw in lower for kw in ("codestral", "coder", "instruct")):
@@ -313,16 +328,13 @@ class RouterEngine:
         """
         # Collect all unique model IDs across all roles
         all_model_ids: set[str] = set()
-        for role, entries in self._matrix._matrix.items():
+        for _role, entries in self._matrix._matrix.items():
             for model_id in entries:
                 all_model_ids.add(model_id)
 
         if not all_model_ids:
             logger.warning("role_matrix_empty_no_backends_registered")
             return
-
-        # Build provider config lookup keyed by name
-        provider_map = {p.name: p for p in self._config.providers}
 
         registered = 0
         skipped = 0
@@ -390,9 +402,21 @@ class RouterEngine:
                 cost=BackendCostProfile(input_per_mtok=0.0, output_per_mtok=0.0),
                 rate_limits=BackendRateLimits(
                     rpm=rate_limits.rpm,
-                    rpd=rate_limits.rpd if rate_limits.rpd is not None else 999999,
-                    tpm=rate_limits.tpm if rate_limits.tpm is not None else 9999999,
-                    daily_token_cap=rate_limits.daily_token_cap if rate_limits.daily_token_cap is not None else 9999999,
+                    rpd=(
+                        rate_limits.rpd
+                        if rate_limits.rpd is not None
+                        else 999999
+                    ),
+                    tpm=(
+                        rate_limits.tpm
+                        if rate_limits.tpm is not None
+                        else 9999999
+                    ),
+                    daily_token_cap=(
+                        rate_limits.daily_token_cap
+                        if rate_limits.daily_token_cap is not None
+                        else 9999999
+                    ),
                 ),
             )
 
@@ -433,9 +457,15 @@ class RouterEngine:
         top_n: int = 12,
         exclude_providers: frozenset[str] | None = None,
     ) -> list[str]:
-        assert isinstance(role, str) and len(role) > 0, "role must be a non-empty string"
-        assert isinstance(top_n, int) and top_n >= 0, "top_n must be a non-negative integer"
-        assert exclude_providers is None or isinstance(exclude_providers, frozenset), "exclude_providers must be a frozenset or None"
+        assert isinstance(role, str) and len(role) > 0, (
+            "role must be a non-empty string"
+        )
+        assert isinstance(top_n, int) and top_n >= 0, (
+            "top_n must be a non-negative integer"
+        )
+        assert exclude_providers is None or isinstance(
+            exclude_providers, frozenset,
+        ), "exclude_providers must be a frozenset or None"
         """Return ranked model IDs for a role. Factory's primary entry point."""
         self._matrix.reload_if_changed()
 
@@ -573,12 +603,24 @@ class RouterEngine:
         return [m.model_id for m in interleaved[:top_n]]
 
     def record_request(self, outcome: RequestOutcome) -> None:
-        assert isinstance(outcome, RequestOutcome), "outcome must be a RequestOutcome"
-        assert isinstance(outcome.provider, str) and len(outcome.provider) > 0, "outcome.provider must be a non-empty string"
-        assert isinstance(outcome.model_id, str) and len(outcome.model_id) > 0, "outcome.model_id must be a non-empty string"
-        assert isinstance(outcome.success, bool), "outcome.success must be a boolean"
-        assert isinstance(outcome.tokens_used, int) and outcome.tokens_used >= 0, "outcome.tokens_used must be a non-negative integer"
-        assert isinstance(outcome.latency_ms, float) and outcome.latency_ms >= 0.0, "outcome.latency_ms must be a non-negative float"
+        assert isinstance(outcome, RequestOutcome), (
+            "outcome must be a RequestOutcome"
+        )
+        assert isinstance(outcome.provider, str) and len(outcome.provider) > 0, (
+            "outcome.provider must be a non-empty string"
+        )
+        assert isinstance(outcome.model_id, str) and len(outcome.model_id) > 0, (
+            "outcome.model_id must be a non-empty string"
+        )
+        assert isinstance(outcome.success, bool), (
+            "outcome.success must be a boolean"
+        )
+        assert isinstance(outcome.tokens_used, int) and outcome.tokens_used >= 0, (
+            "outcome.tokens_used must be a non-negative integer"
+        )
+        assert isinstance(outcome.latency_ms, float) and outcome.latency_ms >= 0.0, (
+            "outcome.latency_ms must be a non-negative float"
+        )
         """Record request outcome for budget/health tracking."""
         if outcome.success:
             self._health.record_success(outcome.model_id, outcome.latency_ms)
@@ -588,11 +630,16 @@ class RouterEngine:
 
     def health_snapshot(self) -> dict[str, Any]:
         """Return health state of all tracked models, keyed by provider then model_id."""
-        assert isinstance(self._registry, BackendRegistry), "_registry must be a BackendRegistry instance"
+        assert isinstance(self._registry, BackendRegistry), (
+            "_registry must be a BackendRegistry instance"
+        )
         # Build a provider → {model_id → {score, ...}} snapshot from HealthTracker
         snapshot: dict[str, Any] = {}
         # Collect all model_ids that HealthTracker knows about (error counts + latency)
-        tracked_models = set(self._health._error_counts.keys()) | set(self._health._avg_latency.keys())
+        tracked_models = (
+            set(self._health._error_counts.keys())
+            | set(self._health._avg_latency.keys())
+        )
         for model_id in tracked_models:
             # Resolve provider via prefix matching
             provider = self._resolve_provider(model_id) or "unknown"
@@ -621,7 +668,9 @@ class RouterEngine:
 
         assert isinstance(snapshot, dict), "budget_snapshot must return a dict"
         for provider_name in snapshot:
-            assert isinstance(snapshot[provider_name], dict), f"budget snapshot for {provider_name} must be a dict"
+            assert isinstance(snapshot[provider_name], dict), (
+                f"budget snapshot for {provider_name} must be a dict"
+            )
         return snapshot
     def _refresh_catalog(self) -> None:
         """Trigger catalog refresh — works in both sync and async contexts.
@@ -637,8 +686,12 @@ class RouterEngine:
         Approved by: architect. Mitigations: exception is logged, never silenced.
         Scope: _refresh_catalog / _async_refresh_catalog only.
         """
-        assert isinstance(self._config, RouterConfig), "_config must be a RouterConfig instance"
-        assert isinstance(self._refresher, CatalogRefresher), "_refresher must be a CatalogRefresher instance"
+        assert isinstance(self._config, RouterConfig), (
+            "_config must be a RouterConfig instance"
+        )
+        assert isinstance(self._refresher, CatalogRefresher), (
+            "_refresher must be a CatalogRefresher instance"
+        )
 
         try:
             loop = asyncio.get_running_loop()

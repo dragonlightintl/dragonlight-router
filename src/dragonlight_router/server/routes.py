@@ -34,7 +34,10 @@ logger = structlog.get_logger()
 _MAX_STRING_LENGTH = 100_000
 _MAX_RESPONSE_LENGTH = 500_000
 _SELECT_MAX_TOP_N = 500
-_DISPATCH_REQUIRED_FIELDS = ("intent_category", "specific_intent", "operator_message", "context_tokens")
+_DISPATCH_REQUIRED_FIELDS = (
+    "intent_category", "specific_intent",
+    "operator_message", "context_tokens",
+)
 
 # HAZ-007: Allowed intent_category values — rejects unknown values to prevent
 # adversarial intent injection affecting routing decisions.
@@ -617,14 +620,13 @@ async def ready_handler(request: Request) -> JSONResponse:
 
     # Check catalog has been populated at least once
     catalog_result = engine._catalog.get()
-    if isinstance(catalog_result, Err):
-        # Catalog might be stale but still readable — check if the file exists
-        # and has data at all (separate from TTL staleness).
-        if not engine._catalog._path.exists():
-            return JSONResponse(
-                {"ready": False, "reason": "Catalog has not been refreshed yet"},
-                status_code=503,
-            )
+    # Catalog might be stale but still readable — check if the file exists
+    # and has data at all (separate from TTL staleness).
+    if isinstance(catalog_result, Err) and not engine._catalog._path.exists():
+        return JSONResponse(
+            {"ready": False, "reason": "Catalog has not been refreshed yet"},
+            status_code=503,
+        )
 
     return JSONResponse({"ready": True})
 
@@ -655,7 +657,10 @@ def _build_openapi_schema() -> dict[str, Any]:
         "openapi": "3.0.3",
         "info": {
             "title": "Dragonlight Router API",
-            "description": "Multi-provider intelligent LLM routing — model selection + cascade dispatch.",
+            "description": (
+                "Multi-provider intelligent LLM routing"
+                " — model selection + cascade dispatch."
+            ),
             "version": "0.2.6",
         },
         "paths": {
@@ -671,8 +676,16 @@ def _build_openapi_schema() -> dict[str, Any]:
                                     "type": "object",
                                     "required": ["role"],
                                     "properties": {
-                                        "role": {"type": "string", "description": "Role to select models for."},
-                                        "top_n": {"type": "integer", "default": 12, "minimum": 1, "maximum": 500},
+                                        "role": {
+                                            "type": "string",
+                                            "description": "Role to select models for.",
+                                        },
+                                        "top_n": {
+                                            "type": "integer",
+                                            "default": 12,
+                                            "minimum": 1,
+                                            "maximum": 500,
+                                        },
                                         "exclude_providers": {
                                             "type": "array",
                                             "items": {"type": "string"},
@@ -691,8 +704,14 @@ def _build_openapi_schema() -> dict[str, Any]:
                                     "schema": {
                                         "type": "object",
                                         "properties": {
-                                            "models": {"type": "array", "items": {"type": "string"}},
-                                            "scores": {"type": "array", "items": {"type": "object"}},
+                                            "models": {
+                                                "type": "array",
+                                                "items": {"type": "string"},
+                                            },
+                                            "scores": {
+                                                "type": "array",
+                                                "items": {"type": "object"},
+                                            },
                                         },
                                     },
                                 },
@@ -712,7 +731,10 @@ def _build_openapi_schema() -> dict[str, Any]:
                             "application/json": {
                                 "schema": {
                                     "type": "object",
-                                    "required": ["intent_category", "specific_intent", "operator_message", "context_tokens"],
+                                    "required": [
+                                        "intent_category", "specific_intent",
+                                        "operator_message", "context_tokens",
+                                    ],
                                     "properties": {
                                         "intent_category": {"type": "string"},
                                         "specific_intent": {"type": "string"},
@@ -720,7 +742,9 @@ def _build_openapi_schema() -> dict[str, Any]:
                                         "context_tokens": {"type": "integer", "minimum": 0},
                                         "system_prompt": {"type": "string"},
                                         "requires_tool_use": {"type": "boolean", "default": False},
-                                        "requires_long_context": {"type": "boolean", "default": False},
+                                        "requires_long_context": {
+                                            "type": "boolean", "default": False,
+                                        },
                                         "persona": {"type": "string"},
                                         "stream": {"type": "boolean", "default": False},
                                         "fallback_policy": {
@@ -737,7 +761,10 @@ def _build_openapi_schema() -> dict[str, Any]:
                         "200": {
                             "description": "Dispatch result (JSON or SSE stream).",
                             "headers": {
-                                "X-Request-ID": {"schema": {"type": "string"}, "description": "Request correlation ID."},
+                                "X-Request-ID": {
+                                    "schema": {"type": "string"},
+                                    "description": "Request correlation ID.",
+                                },
                             },
                             "content": {
                                 "application/json": {
@@ -752,7 +779,10 @@ def _build_openapi_schema() -> dict[str, Any]:
                                             "estimated_cost_usd": {"type": "number"},
                                             "latency_ms": {"type": "number"},
                                             "was_fallback": {"type": "boolean"},
-                                            "fallback_chain": {"type": "array", "items": {"type": "string"}},
+                                            "fallback_chain": {
+                                                "type": "array",
+                                                "items": {"type": "string"},
+                                            },
                                         },
                                     },
                                 },
@@ -797,13 +827,19 @@ def _build_openapi_schema() -> dict[str, Any]:
                     "operationId": "healthCheck",
                     "responses": {
                         "200": {
-                            "description": "Always returns 200 with status, budget, and health data.",
+                            "description": (
+                                "Always returns 200 with status,"
+                                " budget, and health data."
+                            ),
                             "content": {
                                 "application/json": {
                                     "schema": {
                                         "type": "object",
                                         "properties": {
-                                            "status": {"type": "string", "enum": ["healthy", "degraded", "unavailable"]},
+                                            "status": {
+                                                "type": "string",
+                                                "enum": ["healthy", "degraded", "unavailable"],
+                                            },
                                             "budget": {"type": "object"},
                                             "health": {"type": "object"},
                                         },
@@ -862,7 +898,10 @@ def _build_openapi_schema() -> dict[str, Any]:
                                         "type": "object",
                                         "properties": {
                                             "stale": {"type": "boolean"},
-                                            "providers": {"type": "array", "items": {"type": "string"}},
+                                            "providers": {
+                                                "type": "array",
+                                                "items": {"type": "string"},
+                                            },
                                             "model_count": {"type": "integer"},
                                         },
                                     },

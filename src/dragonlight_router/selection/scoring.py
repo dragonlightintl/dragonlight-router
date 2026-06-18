@@ -381,9 +381,14 @@ def cost_adjusted_weights(base_weights: ScoringWeightsConfig) -> ScoringWeightsC
 
     Shifts to: cost=0.70, latency=0.10, priority=0.10, queue=0.05, health=0.05
     """
-    assert isinstance(base_weights, ScoringWeightsConfig), "base_weights must be ScoringWeightsConfig"
-    assert abs(sum([base_weights.cost, base_weights.latency, base_weights.priority,
-                    base_weights.queue, base_weights.health]) - 1.0) < 1e-9, "base weights must sum to 1.0"
+    assert isinstance(base_weights, ScoringWeightsConfig), (
+        "base_weights must be ScoringWeightsConfig"
+    )
+    total = sum([
+        base_weights.cost, base_weights.latency, base_weights.priority,
+        base_weights.queue, base_weights.health,
+    ])
+    assert abs(total - 1.0) < 1e-9, "base weights must sum to 1.0"
 
     return ScoringWeightsConfig(
         cost=0.70,

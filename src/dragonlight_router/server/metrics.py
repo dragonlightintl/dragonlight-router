@@ -6,9 +6,7 @@ dependencies required — all data held in memory.
 """
 from __future__ import annotations
 
-import os
 import resource
-import statistics
 import threading
 import time
 from dataclasses import dataclass, field

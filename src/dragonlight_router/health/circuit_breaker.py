@@ -104,7 +104,9 @@ class CircuitBreaker:
         self._error_timestamps.clear()
         # Postcondition assertions
         assert self._state == CircuitState.CLOSED, "state must be CLOSED after record_success"
-        assert len(self._error_timestamps) == 0, "error_timestamps must be empty after record_success"
+        assert len(self._error_timestamps) == 0, (
+            "error_timestamps must be empty after record_success"
+        )
 
     def record_error(self) -> None:
         """Record a failed request — may trip the circuit.

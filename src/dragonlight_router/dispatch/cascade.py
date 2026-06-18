@@ -12,21 +12,31 @@ import dragonlight_router.adapters as _adapters_mod
 from dragonlight_router.budget.tracker import BudgetTracker
 from dragonlight_router.core.errors import BudgetExceededError, LBRNoCapacityError
 from dragonlight_router.core.registry import BackendRegistry
-from dragonlight_router.core.types import BackendConfig, BackendStatus, BackendTier, DispatchFailure, DispatchOrder, EngineResponse, StreamChunk
+from dragonlight_router.core.types import (
+    BackendConfig,
+    BackendStatus,
+    BackendTier,
+    DispatchFailure,
+    DispatchOrder,
+    EngineResponse,
+    StreamChunk,
+)
 from dragonlight_router.health.tracker import HealthTracker
 from dragonlight_router.result import Err, Ok, Result
 from dragonlight_router.selection.cbr import filter_by_cost, score_candidate
-from dragonlight_router.selection.context_filter import ProviderTrustTier, filter_context_for_provider
+from dragonlight_router.selection.context_filter import (
+    ProviderTrustTier,
+    filter_context_for_provider,
+)
 from dragonlight_router.selection.lbr import filter_by_rate_limit, select_final_candidate
 from dragonlight_router.selection.mbr import (
-    estimate_complexity,
-    filter_by_capabilities,
     MBRNoCandidatesError,
+    filter_by_capabilities,
 )
 from dragonlight_router.selection.scoring import (
     ScoringWeightsConfig,
-    cost_governor_active,
     cost_adjusted_weights,
+    cost_governor_active,
 )
 
 logger = structlog.get_logger(__name__)
@@ -549,9 +559,15 @@ async def _handle_fallback_chain(
     last_error: RuntimeError | ValueError | ConnectionError | OSError | TypeError | None = None
 
     for backend_config in eligible:
-        logger.debug("attempting generation", backend=backend_config.name, attempt=len(fallback_chain) + 1)
+        logger.debug(
+            "attempting generation",
+            backend=backend_config.name,
+            attempt=len(fallback_chain) + 1,
+        )
         try:
-            result = await _try_adapter_dispatch(backend_config, base_context, order, ctx, fallback_chain)
+            result = await _try_adapter_dispatch(
+                backend_config, base_context, order, ctx, fallback_chain,
+            )
         except (RuntimeError, ValueError, ConnectionError, OSError, TypeError) as exc:
             last_error = exc
             fallback_chain.append(backend_config.name)

@@ -178,25 +178,27 @@ class GoogleBackend(GenerativeBackend):
         self, url: str, headers: dict[str, str], body: dict[str, Any],
     ) -> AsyncIterator[str]:
         """Execute the streaming request and yield text chunks."""
-        async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
-            async with client.stream("POST", url, json=body, headers=headers) as response:
-                if response.status_code != 200:
-                    error_body = await response.aread()
-                    self._status = BackendStatus.ERROR
-                    logger.error(
-                        "google_api_error",
-                        status=response.status_code,
-                        body=error_body[:500],
-                    )
-                    yield f"[Google] API error {response.status_code}"
-                    return
+        async with (
+            httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client,
+            client.stream("POST", url, json=body, headers=headers) as response,
+        ):
+            if response.status_code != 200:
+                error_body = await response.aread()
+                self._status = BackendStatus.ERROR
+                logger.error(
+                    "google_api_error",
+                    status=response.status_code,
+                    body=error_body[:500],
+                )
+                yield f"[Google] API error {response.status_code}"
+                return
 
-                async for line in response.aiter_lines():
-                    text = self._parse_sse_line(line.strip())
-                    if text == "__DONE__":
-                        break
-                    if text is not None:
-                        yield text
+            async for line in response.aiter_lines():
+                text = self._parse_sse_line(line.strip())
+                if text == "__DONE__":
+                    break
+                if text is not None:
+                    yield text
 
     def _parse_sse_line(self, line: str) -> str | None:
         """Parse a Gemini SSE line, returning text, __DONE__, or None."""

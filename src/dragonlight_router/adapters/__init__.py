@@ -50,7 +50,9 @@ _PROVIDER_MAP: dict[str, type[GenerativeBackend]] = {
 def create_adapter(config: BackendConfig) -> GenerativeBackend:
     """Instantiate the correct adapter for a given BackendConfig."""
     assert isinstance(config, BackendConfig), f"config must be BackendConfig, got {type(config)}"
-    assert isinstance(config.provider, str) and config.provider, "config.provider must be a non-empty string"
+    assert isinstance(config.provider, str) and config.provider, (
+        "config.provider must be a non-empty string"
+    )
 
     cls = _PROVIDER_MAP.get(config.provider)
     if cls is None:

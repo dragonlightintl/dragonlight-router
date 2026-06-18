@@ -5,18 +5,18 @@ Filters model candidates based on cost-effectiveness and budget constraints.
 from __future__ import annotations
 
 import statistics
-import structlog
 from dataclasses import dataclass
 from typing import Any
 
+import structlog
+
 from dragonlight_router.budget.tracker import BudgetTracker
-from dragonlight_router.core.types import BackendConfig, BackendCostProfile, DispatchOrder
+from dragonlight_router.core.types import BackendConfig, DispatchOrder
 from dragonlight_router.health.tracker import HealthTracker
-from dragonlight_router.result import Err, Ok, Result
 from dragonlight_router.selection.scoring import (
     ScoringWeightsConfig,
-    cost_governor_active,
     cost_adjusted_weights,
+    cost_governor_active,
     score_candidate,
 )
 
@@ -69,7 +69,9 @@ def filter_by_cost(
         isinstance(c, BackendConfig) for c in candidates
     ), "all candidates must be BackendConfig instances"
     assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
-    assert isinstance(budget_tracker, BudgetTracker), "budget_tracker must be BudgetTracker instance"
+    assert isinstance(budget_tracker, BudgetTracker), (
+        "budget_tracker must be BudgetTracker instance"
+    )
 
     params = CostFilterParams(
         daily_spend=daily_spend,
@@ -221,7 +223,7 @@ def filter_by_cost_efficiency(
     assert isinstance(order, DispatchOrder), "order must be a DispatchOrder"
 
     if not candidates or not budget_scores:
-        return [] if not candidates else candidates
+        return candidates if candidates else []
 
     efficiencies, candidate_efficiencies = _compute_efficiencies(candidates, budget_scores)
 
@@ -251,7 +253,9 @@ def _compute_efficiencies(
         efficiencies.append(eff)
         candidate_efficiencies.append((eff, candidate))
 
-    assert len(candidate_efficiencies) == len(candidates), "must have efficiency entry for each candidate"
+    assert len(candidate_efficiencies) == len(candidates), (
+        "must have efficiency entry for each candidate"
+    )
     return efficiencies, candidate_efficiencies
 
 
@@ -304,11 +308,18 @@ def filter_by_absolute_cost(
 ) -> list[BackendConfig]:
     """Filter candidates that exceed an absolute cost threshold."""
     assert isinstance(candidates, list), "candidates must be a list"
-    assert all(isinstance(c, BackendConfig) for c in candidates), "all candidates must be BackendConfig instances"
-    assert isinstance(max_cost_per_mtok, (int, float)) and max_cost_per_mtok >= 0, \
+    assert all(
+        isinstance(c, BackendConfig) for c in candidates
+    ), "all candidates must be BackendConfig instances"
+    assert isinstance(max_cost_per_mtok, (int, float)) and max_cost_per_mtok >= 0, (
         "max_cost_per_mtok must be a non-negative number"
+    )
 
-    logger.debug("filtering by absolute cost", candidate_count=len(candidates), max_cost_per_mtok=max_cost_per_mtok)
+    logger.debug(
+        "filtering by absolute cost",
+        candidate_count=len(candidates),
+        max_cost_per_mtok=max_cost_per_mtok,
+    )
 
     filtered: list[BackendConfig] = []
     for candidate in candidates:
@@ -316,6 +327,10 @@ def filter_by_absolute_cost(
         if avg_cost <= max_cost_per_mtok:
             filtered.append(candidate)
 
-    logger.debug("absolute cost filtering complete", original_count=len(candidates), filtered_count=len(filtered))
+    logger.debug(
+        "absolute cost filtering complete",
+        original_count=len(candidates),
+        filtered_count=len(filtered),
+    )
     assert len(filtered) <= len(candidates), "filtered count must not exceed original"
     return filtered

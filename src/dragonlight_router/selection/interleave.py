@@ -24,8 +24,12 @@ def interleave_providers(
     returns as-is (can't interleave).
     """
     assert isinstance(scored_models, list), "scored_models must be a list"
-    assert all(isinstance(m, ModelScore) for m in scored_models), "all elements must be ModelScore instances"
-    assert isinstance(max_consecutive, int) and max_consecutive >= 0, "max_consecutive must be a non-negative integer"
+    assert all(
+        isinstance(m, ModelScore) for m in scored_models
+    ), "all elements must be ModelScore instances"
+    assert isinstance(max_consecutive, int) and max_consecutive >= 0, (
+        "max_consecutive must be a non-negative integer"
+    )
 
     if len(scored_models) <= 1:
         return list(scored_models)
@@ -40,7 +44,9 @@ def interleave_providers(
     result = _build_interleaved(scored_models, max_consecutive)
 
     assert len(result) == len(scored_models), "interleaved result must have same length as input"
-    assert all(isinstance(m, ModelScore) for m in result), "all elements in result must be ModelScore instances"
+    assert all(
+        isinstance(m, ModelScore) for m in result
+    ), "all elements in result must be ModelScore instances"
     _verify_consecutive_constraint(result, providers, max_consecutive)
 
     return result
@@ -57,7 +63,7 @@ def _is_constraint_satisfiable(
     counts = Counter(m.provider for m in scored_models)
     n = len(scored_models)
 
-    for provider, count in counts.items():
+    for _provider, count in counts.items():
         others = n - count
         # Provider p can appear at most max_consecutive times for each "gap"
         # created by other items, plus one leading run.
@@ -146,7 +152,9 @@ def _can_place(result: list[ModelScore], provider: str, max_consecutive: int) ->
     """Check if adding this provider would exceed max_consecutive."""
     assert isinstance(result, list), "result must be a list"
     assert isinstance(provider, str), "provider must be a string"
-    assert isinstance(max_consecutive, int) and max_consecutive >= 0, "max_consecutive must be a non-negative integer"
+    assert isinstance(max_consecutive, int) and max_consecutive >= 0, (
+        "max_consecutive must be a non-negative integer"
+    )
 
     if not result:
         return True

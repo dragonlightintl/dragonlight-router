@@ -7,7 +7,12 @@ from typing import Any
 import structlog
 
 from dragonlight_router.core.state import BackendState
-from dragonlight_router.core.types import GenerativeBackend, BackendTier, BackendConfig, BackendStatus
+from dragonlight_router.core.types import (
+    BackendConfig,
+    BackendStatus,
+    BackendTier,
+    GenerativeBackend,
+)
 
 logger = structlog.get_logger()
 
@@ -71,7 +76,7 @@ class BackendRegistry:
             List of BackendConfig objects for backends in the specified tier.
         """
         result = []
-        for name, backend, state in self.all_backends():
+        for _name, backend, _state in self.all_backends():
             if backend.config.tier == tier:
                 result.append(backend.config)
         return result

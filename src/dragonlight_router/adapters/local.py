@@ -104,25 +104,27 @@ class LocalBackend(GenerativeBackend):
         self, url: str, body: dict[str, Any], headers: dict[str, str],
     ) -> AsyncIterator[str]:
         """Handle SSE streaming from the OpenAI-compatible endpoint."""
-        async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
-            async with client.stream("POST", url, json=body, headers=headers) as response:
-                if response.status_code != 200:
-                    error_body = await response.aread()
-                    self._status = BackendStatus.ERROR
-                    logger.error(
-                        "ollama_api_error",
-                        status=response.status_code,
-                        body=error_body[:500],
-                    )
-                    yield f"[Local] API error {response.status_code}"
-                    return
+        async with (
+            httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client,
+            client.stream("POST", url, json=body, headers=headers) as response,
+        ):
+            if response.status_code != 200:
+                error_body = await response.aread()
+                self._status = BackendStatus.ERROR
+                logger.error(
+                    "ollama_api_error",
+                    status=response.status_code,
+                    body=error_body[:500],
+                )
+                yield f"[Local] API error {response.status_code}"
+                return
 
-                async for line in response.aiter_lines():
-                    text = self._parse_sse_line(line.strip())
-                    if text == "__DONE__":
-                        break
-                    if text is not None:
-                        yield text
+            async for line in response.aiter_lines():
+                text = self._parse_sse_line(line.strip())
+                if text == "__DONE__":
+                    break
+                if text is not None:
+                    yield text
 
     def _parse_sse_line(self, line: str) -> str | None:
         """Parse a single SSE line, returning content, __DONE__, or None."""

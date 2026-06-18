@@ -6,9 +6,9 @@ they reach any sink.
 """
 from __future__ import annotations
 
-import os
 import re
-from typing import Any, MutableMapping, Mapping
+from collections.abc import Mapping, MutableMapping
+from typing import Any
 
 import structlog
 

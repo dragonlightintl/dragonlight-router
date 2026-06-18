@@ -7,9 +7,9 @@ type and E is the error type.
 
 from __future__ import annotations
 
-from typing import NoReturn, TypeVar, Union
+from typing import TypeVar
 
-from dragonlight_router.core.types import Ok, Err, Result
+from dragonlight_router.core.types import Err, Ok, Result
 
 __all__ = ["Ok", "Err", "Result", "ok", "err", "is_ok", "is_err", "unwrap", "unwrap_err"]
 
@@ -54,7 +54,7 @@ def unwrap(result: Result[T, E]) -> T:
     assert result is not None, "result must not be None"
     if result.is_ok():
         value = result.unwrap()
-        # We cannot assert much about T without knowing it, but we can check it's not None if T is known? Skip.
+        # Cannot assert much about T without knowing it — skip.
         return value
     else:
         raise AssertionError("Called unwrap on Err value")

@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import os
 
+import httpx
+
 from dragonlight_router.adapters._openai_compat import OpenAICompatibleBackend
 from dragonlight_router.core.types import (
     BackendConfig,
     BackendStatus,
 )
-
-import httpx
 
 
 class OpenRouterBackend(OpenAICompatibleBackend):

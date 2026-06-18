@@ -15,7 +15,7 @@ from typing import Any
 import structlog
 
 from dragonlight_router.core.errors import ProviderNotFoundError
-from dragonlight_router.core.types import Err, Ok, ProviderConfig, Result
+from dragonlight_router.core.types import Ok, ProviderConfig, Result
 
 logger = structlog.get_logger()
 
@@ -104,7 +104,9 @@ class BudgetTracker:
     def record_request(self, provider_name: str, tokens_used: int = 0) -> None:
         """Record that a request was dispatched."""
         assert isinstance(provider_name, str), "provider_name must be a string"
-        assert isinstance(tokens_used, int) and tokens_used >= 0, f"tokens_used must be a non-negative integer, got {tokens_used}"
+        assert isinstance(tokens_used, int) and tokens_used >= 0, (
+            f"tokens_used must be a non-negative integer, got {tokens_used}"
+        )
         now = time.time()
         self._rpm_windows[provider_name].append(now)
         self._rpd_counts[provider_name] += 1
@@ -139,11 +141,17 @@ class BudgetTracker:
             return False
         if provider.rpd_limit is not None and self._rpd_remaining(provider_name) <= 0:
             return False
-        if provider.tpm_limit is not None and provider.tpm_limit > 0 and self._tpm_remaining(provider_name) <= 0:
+        if (
+            provider.tpm_limit is not None
+            and provider.tpm_limit > 0
+            and self._tpm_remaining(provider_name) <= 0
+        ):
             return False
-        if provider.daily_token_cap is not None and provider.daily_token_cap > 0 and self._daily_token_remaining(provider_name) <= 0:
-            return False
-        return True
+        return not (
+            provider.daily_token_cap is not None
+            and provider.daily_token_cap > 0
+            and self._daily_token_remaining(provider_name) <= 0
+        )
 
     def daily_spend_usd(self, provider_name: str, avg_cost_per_token: float = 0.0) -> float:
         """Estimated daily spend for a provider in USD.
@@ -211,7 +219,9 @@ class BudgetTracker:
             self._rpd_counts.clear()
             self._daily_token_counts.clear()
             self._day_reset_at = self._next_day_boundary()
-        assert self._day_reset_at > now, f"Day reset time must be in the future, got {self._day_reset_at}"
+        assert self._day_reset_at > now, (
+            f"Day reset time must be in the future, got {self._day_reset_at}"
+        )
 
     @staticmethod
     def _next_day_boundary() -> float:

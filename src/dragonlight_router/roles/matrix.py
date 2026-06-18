@@ -36,7 +36,9 @@ class RoleMatrix:
         role_data = self._matrix.get(role, {})
         ranked = [(model_id, rank) for model_id, rank in role_data.items()]
         ranked.sort(key=lambda x: x[1], reverse=True)
-        assert all(isinstance(r, tuple) and len(r) == 2 for r in ranked), "ranked items must be 2-tuples"
+        assert all(
+            isinstance(r, tuple) and len(r) == 2 for r in ranked
+        ), "ranked items must be 2-tuples"
         return ranked
 
     def get_rank(self, model_id: str, role: str) -> int:
@@ -62,7 +64,8 @@ class RoleMatrix:
         """Load matrix from JSON file.
 
         Supports two formats:
-        1. Full schema: {"version": 1, "default_rank": 20, "roles": {"coding": [{"model_id": "x", "rank": 90}]}}
+        1. Full schema: {"version": 1, "default_rank": 20,
+           "roles": {"coding": [{"model_id": "x", "rank": 90}]}}
         2. Flat dict: {"coding": {"model_id": rank, ...}}
         """
         if not self._path.exists():

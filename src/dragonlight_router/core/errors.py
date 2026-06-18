@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+
 @dataclass(frozen=True)
 class MBRNoCandidatesError(Exception):
     """Raised when the MBR stage finds no candidates meeting the capability tier."""

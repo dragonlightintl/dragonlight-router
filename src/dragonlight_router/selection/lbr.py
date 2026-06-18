@@ -7,8 +7,12 @@ from __future__ import annotations
 import structlog
 
 from dragonlight_router.budget.tracker import BudgetTracker
-from dragonlight_router.core.types import BackendConfig, BackendRateLimits, BackendTier, DispatchOrder
-from dragonlight_router.result import Err, Ok, Result
+from dragonlight_router.core.types import (
+    BackendConfig,
+    BackendTier,
+    DispatchOrder,
+)
+from dragonlight_router.result import Ok
 
 logger = structlog.get_logger(__name__)
 
@@ -53,9 +57,15 @@ def filter_by_rate_limit(
     score is >= the median. LOCAL tier backends bypass both filters.
     """
     assert isinstance(candidates, list), "candidates must be a list"
-    assert all(isinstance(c, BackendConfig) for c in candidates), "all candidates must be BackendConfig instances"
-    assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
-    assert isinstance(budget_tracker, BudgetTracker), "budget_tracker must be BudgetTracker instance"
+    assert all(
+        isinstance(c, BackendConfig) for c in candidates
+    ), "all candidates must be BackendConfig instances"
+    assert isinstance(order, DispatchOrder), (
+        "order must be DispatchOrder instance"
+    )
+    assert isinstance(budget_tracker, BudgetTracker), (
+        "budget_tracker must be BudgetTracker instance"
+    )
 
     _log_rate_limit_entry(candidates, order)
 
@@ -74,7 +84,11 @@ def filter_by_rate_limit(
     logger.debug("rate-limit score median computed", median=median, provider_scores=provider_scores)
 
     filtered = _apply_median_threshold(capacity_filtered, provider_scores, median)
-    logger.debug("rate-limit filtering complete", original_count=len(candidates), filtered_count=len(filtered))
+    logger.debug(
+        "rate-limit filtering complete",
+        original_count=len(candidates),
+        filtered_count=len(filtered),
+    )
 
     assert len(filtered) <= len(candidates), "filtered count must not exceed original"
     return filtered
@@ -168,7 +182,9 @@ def select_final_candidate(candidates: list[BackendConfig]) -> BackendConfig:
         ValueError: If candidates list is empty.
     """
     assert isinstance(candidates, list), "candidates must be a list"
-    assert all(isinstance(c, BackendConfig) for c in candidates), "all candidates must be BackendConfig"
+    assert all(
+        isinstance(c, BackendConfig) for c in candidates
+    ), "all candidates must be BackendConfig"
 
     if not candidates:
         raise ValueError("Cannot select from empty candidate list")

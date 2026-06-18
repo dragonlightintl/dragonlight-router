@@ -28,7 +28,10 @@ __all__ = [
 ]
 
 # Canonical tier ordering — index position defines rank (0 = lowest).
-TIER_ORDER: tuple[BackendTier, ...] = (BackendTier.LOCAL, BackendTier.SIMPLE, BackendTier.MODERATE, BackendTier.COMPLEX)
+TIER_ORDER: tuple[BackendTier, ...] = (
+    BackendTier.LOCAL, BackendTier.SIMPLE,
+    BackendTier.MODERATE, BackendTier.COMPLEX,
+)
 _TIER_RANK = {tier: idx for idx, tier in enumerate(TIER_ORDER)}
 
 # HAZ-013 mitigation: Intent categories that require higher-tier backends.
@@ -184,13 +187,19 @@ def _filter_healthy(
     for candidate in candidates:
         if candidate.tier == BackendTier.LOCAL:
             healthy.append(candidate)
-            logger.debug("local backend passthrough", backend_name=candidate.name, tier=tier.value)
+            logger.debug(
+                "local backend passthrough",
+                backend_name=candidate.name,
+                tier=tier.value,
+            )
             continue
 
         if _is_backend_healthy(registry, candidate, tier):
             healthy.append(candidate)
 
-    assert all(isinstance(c, BackendConfig) for c in healthy), "all healthy candidates must be BackendConfig"
+    assert all(
+        isinstance(c, BackendConfig) for c in healthy
+    ), "all healthy candidates must be BackendConfig"
     return healthy
 
 
@@ -224,7 +233,10 @@ def _enforce_no_downgrade(
     candidates: list[BackendConfig],
     requested_tier: BackendTier,
 ) -> None:
-    """AC4 postcondition: MBR NEVER downgrades. Every candidate must be at the requested tier or above."""
+    """AC4 postcondition: MBR NEVER downgrades.
+
+    Every candidate must be at the requested tier or above.
+    """
     assert len(candidates) > 0, "cannot enforce downgrade check on empty list"
     assert requested_tier in _TIER_RANK, "requested_tier must be a known tier"
 
@@ -308,8 +320,12 @@ def _filter_by_capabilities(
 ) -> list[BackendConfig]:
     """Filter candidates based on capability requirements from the dispatch order."""
     assert isinstance(candidates, list), "candidates must be a list"
-    assert all(isinstance(c, BackendConfig) for c in candidates), "all candidates must be BackendConfig instances"
-    assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
+    assert all(
+        isinstance(c, BackendConfig) for c in candidates
+    ), "all candidates must be BackendConfig instances"
+    assert isinstance(order, DispatchOrder), (
+        "order must be DispatchOrder instance"
+    )
 
     _log_capability_filter_details(len(candidates), order)
 
@@ -356,7 +372,4 @@ def _meets_requirements(caps: BackendCapabilities, order: DispatchOrder) -> bool
     if order.requires_tool_use and not caps.supports_tool_use:
         return False
 
-    if bool(order.system_prompt) and not caps.supports_system_prompts:
-        return False
-
-    return True
+    return not (bool(order.system_prompt) and not caps.supports_system_prompts)

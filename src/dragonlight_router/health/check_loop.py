@@ -87,9 +87,7 @@ class HealthCheckLoop:
         self._breakers: dict[str, CircuitBreaker] = {
             name: CircuitBreaker() for name in backends
         }
-        self._slo_violation_counts: dict[str, int] = {
-            name: 0 for name in backends
-        }
+        self._slo_violation_counts: dict[str, int] = dict.fromkeys(backends, 0)
         # HAZ-008: on-cycle callback for periodic tasks (e.g., catalog refresh)
         self._on_cycle = on_cycle
         self._on_cycle_interval = on_cycle_interval
@@ -220,7 +218,12 @@ class HealthCheckLoop:
 
         is_404 = backend.status == BackendStatus.OFFLINE
         if is_404:
-            logger.warning("health_check_failed_404", backend=name, status=404, latency_ms=round(latency_ms, 2))
+            logger.warning(
+                "health_check_failed_404",
+                backend=name,
+                status=404,
+                latency_ms=round(latency_ms, 2),
+            )
             return ProbeResult(
                 success=False,
                 latency_ms=latency_ms,
@@ -229,7 +232,12 @@ class HealthCheckLoop:
             )
 
         error = Exception("Health check returned non-success response")
-        logger.warning("health_check_failed", backend=name, error=str(error), latency_ms=round(latency_ms, 2))
+        logger.warning(
+            "health_check_failed",
+            backend=name,
+            error=str(error),
+            latency_ms=round(latency_ms, 2),
+        )
         return ProbeResult(success=False, latency_ms=latency_ms, error=error)
 
     def _make_failure_result(
@@ -237,7 +245,12 @@ class HealthCheckLoop:
     ) -> ProbeResult:
         """Create a failure ProbeResult from an exception."""
         latency_ms = (time.time() - start_time) * 1000
-        logger.warning("health_check_failed", backend=name, error=str(exc), latency_ms=round(latency_ms, 2))
+        logger.warning(
+            "health_check_failed",
+            backend=name,
+            error=str(exc),
+            latency_ms=round(latency_ms, 2),
+        )
         return ProbeResult(success=False, latency_ms=latency_ms, error=exc)
 
     def _update_breaker_and_errors(

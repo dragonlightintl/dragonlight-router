@@ -89,7 +89,9 @@ class SemanticCache:
         ngrams: set[str] = set()
         for i in range(len(normalized) - self._ngram_size + 1):
             ngrams.add(normalized[i : i + self._ngram_size])
-        assert all(len(ng) == self._ngram_size for ng in ngrams), "all n-grams must have correct size"
+        assert all(
+            len(ng) == self._ngram_size for ng in ngrams
+        ), "all n-grams must have correct size"
         return ngrams
 
     @staticmethod

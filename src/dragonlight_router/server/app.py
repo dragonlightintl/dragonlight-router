@@ -150,3 +150,7 @@ def main() -> None:
         port=port,
         timeout_graceful_shutdown=graceful_timeout,
     )
+
+
+if __name__ == "__main__":
+    main()

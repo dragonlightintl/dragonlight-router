@@ -30,7 +30,8 @@ security: ## Run bandit security scanner
 	$(PYTHON) -m bandit -r src/dragonlight_router/ -s B101,B603
 
 run: ## Start the router server locally
-	DRAGONLIGHT_HOST=$(HOST) DRAGONLIGHT_PORT=$(PORT) \
+	DRAGONLIGHT_ROUTER_CONFIG=./config/router.yaml \
+		DRAGONLIGHT_HOST=$(HOST) DRAGONLIGHT_PORT=$(PORT) \
 		$(PYTHON) -m dragonlight_router.server.app
 
 docker-build: ## Build the Docker image

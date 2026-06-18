@@ -52,6 +52,10 @@
       {"model_id": "gemini/gemini-2.5-flash", "rank": 72},
       {"model_id": "groq/llama-3.3-70b-versatile", "rank": 70},
       {"model_id": "openrouter/qwen/qwen3-coder:free", "rank": 55}
+    ],
+    "classification": [
+      {"model_id": "groq/llama-3.3-70b-versatile", "rank": 80},
+      {"model_id": "gemini/gemini-2.5-flash", "rank": 75}
     ]
   }
 }

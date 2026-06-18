@@ -1,0 +1,177 @@
+# Model Flavor Profiles — operator-declared strength profiles for IBR scoring.
+#
+# Each model maps task_scores, domain_scores, and qs_scores as
+# dimension_name: float pairs (0.0-1.0).  Unlisted dimensions inherit
+# the neutral default (0.5, confidence=0.0, sample_count=0).
+#
+# See IBR spec v0.1.0 section 3.1 for schema details.
+# Loaded at boot, reloaded on file change.
+
+version: 1
+
+profiles:
+
+  # --- Groq (speed-optimized inference) ---
+
+  "groq/llama-3.3-70b-versatile":
+    task_scores:
+      generation: 0.70
+      analysis: 0.80
+      refactoring: 0.60
+      summarization: 0.75
+      creative: 0.55
+      reasoning: 0.70
+      lookup: 0.80
+      translation: 0.65
+    domain_scores:
+      code: 0.70
+      technical: 0.80
+      general: 0.75
+      business: 0.65
+    qs_scores:
+      speed: 0.95
+      balanced: 0.70
+      quality: 0.45
+
+  "groq/deepseek-r1-distill-llama-70b":
+    task_scores:
+      generation: 0.60
+      analysis: 0.85
+      refactoring: 0.70
+      reasoning: 0.90
+      summarization: 0.65
+    domain_scores:
+      code: 0.80
+      technical: 0.85
+      general: 0.60
+    qs_scores:
+      speed: 0.80
+      balanced: 0.75
+      quality: 0.65
+
+  # --- Gemini ---
+
+  "gemini/gemini-2.5-pro":
+    task_scores:
+      generation: 0.85
+      analysis: 0.90
+      refactoring: 0.80
+      summarization: 0.85
+      creative: 0.75
+      reasoning: 0.90
+      lookup: 0.70
+      translation: 0.80
+    domain_scores:
+      code: 0.85
+      technical: 0.90
+      legal: 0.70
+      business: 0.80
+      creative_writing: 0.75
+      general: 0.85
+    qs_scores:
+      speed: 0.40
+      balanced: 0.75
+      quality: 0.95
+
+  "gemini/gemini-2.5-flash":
+    task_scores:
+      generation: 0.70
+      analysis: 0.75
+      refactoring: 0.65
+      summarization: 0.80
+      creative: 0.60
+      reasoning: 0.65
+      lookup: 0.85
+      translation: 0.70
+    domain_scores:
+      code: 0.70
+      technical: 0.75
+      general: 0.80
+      business: 0.65
+    qs_scores:
+      speed: 0.90
+      balanced: 0.80
+      quality: 0.50
+
+  # --- NVIDIA NIM ---
+
+  "nvidia_nim/moonshotai/kimi-k2.6":
+    task_scores:
+      generation: 0.85
+      analysis: 0.80
+      refactoring: 0.85
+      summarization: 0.70
+      creative: 0.65
+      reasoning: 0.80
+      lookup: 0.60
+      translation: 0.60
+    domain_scores:
+      code: 0.90
+      technical: 0.85
+      general: 0.65
+    qs_scores:
+      speed: 0.55
+      balanced: 0.80
+      quality: 0.85
+
+  "nvidia_nim/deepseek-ai/deepseek-v4-pro":
+    task_scores:
+      generation: 0.80
+      analysis: 0.90
+      refactoring: 0.85
+      summarization: 0.80
+      creative: 0.65
+      reasoning: 0.95
+      lookup: 0.65
+      translation: 0.70
+    domain_scores:
+      code: 0.90
+      technical: 0.90
+      legal: 0.65
+      business: 0.70
+      general: 0.75
+    qs_scores:
+      speed: 0.45
+      balanced: 0.75
+      quality: 0.90
+
+  "nvidia_nim/qwen/qwen3.5-397b-a17b":
+    task_scores:
+      generation: 0.80
+      analysis: 0.90
+      refactoring: 0.75
+      summarization: 0.85
+      creative: 0.70
+      reasoning: 0.95
+      lookup: 0.70
+      translation: 0.75
+    domain_scores:
+      code: 0.85
+      technical: 0.90
+      legal: 0.70
+      business: 0.75
+      creative_writing: 0.65
+      general: 0.80
+    qs_scores:
+      speed: 0.35
+      balanced: 0.70
+      quality: 0.95
+
+  # --- OpenRouter (free tier) ---
+
+  "openrouter/qwen/qwen3-coder:free":
+    task_scores:
+      generation: 0.75
+      analysis: 0.65
+      refactoring: 0.80
+      summarization: 0.55
+      reasoning: 0.60
+      lookup: 0.60
+    domain_scores:
+      code: 0.85
+      technical: 0.70
+      general: 0.55
+    qs_scores:
+      speed: 0.60
+      balanced: 0.65
+      quality: 0.55

@@ -158,6 +158,82 @@ class DispatchOrder:
     #   "same_tier": only fall back to candidates at the same BackendTier
     fallback_policy: str = "allow"
 
+# ---------------------------------------------------------------------------
+# IBR (Intent Based Router) types — frozen dataclasses for intent
+# classification and model flavor profiling.  See IBR spec v0.1.0.
+# ---------------------------------------------------------------------------
+
+# Validation constants — canonical allowed values for ClassifiedIntent fields.
+IBR_TASK_TYPES: frozenset[str] = frozenset({
+    "generation", "analysis", "refactoring", "summarization",
+    "creative", "reasoning", "lookup", "translation",
+})
+IBR_DOMAINS: frozenset[str] = frozenset({
+    "code", "technical", "legal", "business", "creative_writing", "general",
+})
+IBR_QUALITY_SPEED: frozenset[str] = frozenset({"quality", "balanced", "speed"})
+
+
+@dataclass(frozen=True)
+class ClassifiedIntent:
+    """Output of IBR intent classification.
+
+    Represents three orthogonal dimensions of a request: what it needs done
+    (task_type), the subject matter (domain), and the latency-quality
+    tradeoff preference (quality_speed).
+    """
+    task_type: str         # One of IBR_TASK_TYPES
+    domain: str            # One of IBR_DOMAINS
+    quality_speed: str     # One of IBR_QUALITY_SPEED
+    confidence: float      # 0.0-1.0 classifier self-reported confidence
+    latency_ms: float      # Wall-clock time for classification
+    from_cache: bool       # Whether this was a cache hit
+
+
+@dataclass(frozen=True)
+class FlavorScore:
+    """Single-dimension score within a model flavor profile.
+
+    score is the model's relative strength on this dimension (0.0-1.0).
+    confidence indicates how much data backs the score (0.0-1.0).
+    sample_count is the number of observations behind the score.
+    """
+    score: float           # 0.0-1.0 relative strength
+    confidence: float      # 0.0-1.0 how much data backs this score
+    sample_count: int      # Number of observations behind this score
+
+
+# Neutral default for missing flavor dimensions.
+IBR_NEUTRAL_FLAVOR: FlavorScore = FlavorScore(score=0.5, confidence=0.0, sample_count=0)
+
+
+@dataclass(frozen=True)
+class ModelFlavorProfile:
+    """Full flavor profile for a single model.
+
+    Maps a model_id to its relative strengths across IBR intent dimensions.
+    Missing dimensions default to IBR_NEUTRAL_FLAVOR.
+    """
+    model_id: str
+    version: int                         # Profile schema version (for migration)
+    updated_at: str                      # ISO-8601 timestamp of last update
+    task_scores: dict[str, FlavorScore]  # task_type -> FlavorScore
+    domain_scores: dict[str, FlavorScore]  # domain -> FlavorScore
+    qs_scores: dict[str, FlavorScore]    # quality_speed -> FlavorScore
+
+
+@dataclass(frozen=True)
+class IBRScoringContext:
+    """Context passed from IBR into CBR scoring.
+
+    Carries the classification result, loaded flavor profiles, and the
+    effective flavor_match weight so CBR can incorporate the signal.
+    """
+    classified_intent: ClassifiedIntent | None
+    flavor_profiles: dict[str, ModelFlavorProfile]
+    flavor_match_weight: float
+
+
 @dataclass(frozen=True)
 class EngineResponse:
     """Immutable response from cascade router to server."""
@@ -170,6 +246,9 @@ class EngineResponse:
     latency_ms: float
     was_fallback: bool
     fallback_chain: list[str]
+    classified_intent: ClassifiedIntent | None = None
+    flavor_match_score: float | None = None
+    ibr_active: bool = False
 
 @dataclass(frozen=True)
 class DispatchFailure:
@@ -242,6 +321,9 @@ class StreamChunk:
     was_fallback: bool = False
     fallback_chain: list[str] | None = None
     error_message: str = ""
+    classified_intent_json: str = ""
+    flavor_match_score: float | None = None
+    ibr_active: bool = False
 
 @dataclass(frozen=True)
 class RequestOutcome:
@@ -251,6 +333,7 @@ class RequestOutcome:
     success: bool
     tokens_used: int = 0
     latency_ms: float = 0.0
+    quality_rating: int | None = None
 
 @runtime_checkable
 class GenerativeBackend(Protocol):

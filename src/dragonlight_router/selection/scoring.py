@@ -122,16 +122,25 @@ assert abs(sum([
 
 @dataclass(frozen=True)
 class ScoringWeightsConfig:
-    """Configuration object for scoring weights."""
+    """Configuration object for scoring weights.
+
+    When IBR is active, flavor_match carries a non-zero weight and the
+    other weights are adjusted so the total remains 1.0.  When IBR is
+    disabled (flavor_match=0.0), behavior is identical to v0.3.0.
+    """
     cost: float = 0.35
     latency: float = 0.25
     priority: float = 0.20
     queue: float = 0.10
     health: float = 0.10
+    flavor_match: float = 0.0
 
     def __post_init__(self) -> None:
         """Validate that weights sum to 1.0."""
-        total = self.cost + self.latency + self.priority + self.queue + self.health
+        total = (
+            self.cost + self.latency + self.priority
+            + self.queue + self.health + self.flavor_match
+        )
         assert abs(total - 1.0) < 1e-9, f"Weights must sum to 1.0, got {total}"
 
 
@@ -397,21 +406,33 @@ def cost_governor_active(
 def cost_adjusted_weights(base_weights: ScoringWeightsConfig) -> ScoringWeightsConfig:
     """Adjust weights when cost governor is active.
 
-    Shifts to: cost=0.70, latency=0.10, priority=0.10, queue=0.05, health=0.05
+    Without IBR: cost=0.70, latency=0.10, priority=0.10, queue=0.05, health=0.05
+    With IBR:    cost=0.65, latency=0.10, priority=0.10, queue=0.05, health=0.05,
+                 flavor_match=0.05  (IBR-SCORE-05)
     """
     assert isinstance(base_weights, ScoringWeightsConfig), (
         "base_weights must be ScoringWeightsConfig"
     )
     total = sum([
         base_weights.cost, base_weights.latency, base_weights.priority,
-        base_weights.queue, base_weights.health,
+        base_weights.queue, base_weights.health, base_weights.flavor_match,
     ])
     assert abs(total - 1.0) < 1e-9, "base weights must sum to 1.0"
 
+    if base_weights.flavor_match > 0.0:
+        # IBR active: cost governor reduces flavor_match to 0.05 (IBR-SCORE-05)
+        return ScoringWeightsConfig(
+            cost=0.65,
+            latency=0.10,
+            priority=0.10,
+            queue=0.05,
+            health=0.05,
+            flavor_match=0.05,
+        )
     return ScoringWeightsConfig(
         cost=0.70,
         latency=0.10,
         priority=0.10,
         queue=0.05,
-        health=0.05
+        health=0.05,
     )

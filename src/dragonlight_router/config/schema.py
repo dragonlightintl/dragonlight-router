@@ -34,6 +34,26 @@ class ProviderSchema(BaseModel):
     rate_limits: RateLimitSchema
 
 
+class IntentClassificationConfig(BaseModel):
+    """IBR intent classification configuration.
+
+    Controls the Intent Based Router (IBR) subsystem.  When disabled
+    (the default), the pipeline behaves identically to v0.3.0.
+    See IBR spec v0.1.0 section 6.1 for field semantics.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    enabled: bool = False
+    timeout_ms: int = 100
+    cache_ttl_s: int = 300
+    cache_max_entries: int = 5000
+    confidence_threshold: float = 0.6
+    profile_confidence_threshold: float = 0.3
+    flavor_match_weight: float = 0.15
+    flavor_match_weight_governor: float = 0.05
+
+
 class RouterConfig(BaseModel):
     """Top-level router configuration."""
 
@@ -49,3 +69,7 @@ class RouterConfig(BaseModel):
     # When set, admin endpoints require Authorization: Bearer <token>.
     # When empty/None, admin endpoints are open (backward compatible).
     admin_api_key: str | None = None
+    # IBR: Intent classification subsystem (opt-in, disabled by default).
+    intent_classification: IntentClassificationConfig = Field(
+        default_factory=IntentClassificationConfig,
+    )

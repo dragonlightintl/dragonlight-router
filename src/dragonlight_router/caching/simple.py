@@ -44,6 +44,10 @@ class SimpleCache:
         self._conn = get_connection(db_path)
         init_simple_cache_schema(self._conn)
 
+    def close(self) -> None:
+        """Close the underlying SQLite connection."""
+        self._conn.close()
+
     def get(self, key: str) -> str | None:
         """Retrieve a cached response by key. Returns None if missing or expired."""
         assert isinstance(key, str), "key must be a string"

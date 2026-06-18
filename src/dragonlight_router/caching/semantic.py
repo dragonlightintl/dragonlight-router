@@ -34,6 +34,10 @@ class SemanticCache:
         self._conn = get_connection(db_path)
         init_semantic_cache_schema(self._conn)
 
+    def close(self) -> None:
+        """Close the underlying SQLite connection."""
+        self._conn.close()
+
     def get_similar(self, text: str) -> str | None:
         """Find the most similar cached entry above threshold.
 

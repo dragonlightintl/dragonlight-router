@@ -82,6 +82,7 @@ def _make_mock_backend(config: BackendConfig, *, fail: bool = False) -> MagicMoc
     if fail:
         async def _failing_generate(messages, *, max_tokens=4096, temperature=0.7, stream=True):
             raise RuntimeError(f"Adapter {config.name} failed: simulated network error")
+            yield  # pragma: no cover — makes this an async generator for async-for compat
         backend.generate = _failing_generate
     else:
         async def _fake_generate(messages, *, max_tokens=4096, temperature=0.7, stream=True):

@@ -48,12 +48,14 @@ class TestSimpleCache:
         """[TM-020 AC-2] Cache miss returns None."""
         cache = SimpleCache(db_path=tmp_path / "cache.db")
         assert cache.get("nonexistent") is None
+        cache.close()
 
     def test_put_and_get(self, tmp_path: Path):
         """[TM-020 AC-2] Put then get returns the cached value."""
         cache = SimpleCache(db_path=tmp_path / "cache.db")
         cache.put("key1", "response value")
         assert cache.get("key1") == "response value"
+        cache.close()
 
     def test_overwrite_existing(self, tmp_path: Path):
         """[TM-020 AC-2] Overwriting an existing key replaces the value."""
@@ -61,6 +63,7 @@ class TestSimpleCache:
         cache.put("key1", "old")
         cache.put("key1", "new")
         assert cache.get("key1") == "new"
+        cache.close()
 
     def test_max_entries_eviction(self, tmp_path: Path):
         """[TM-020 AC-3] Cache evicts oldest entries when max_entries is exceeded."""
@@ -71,6 +74,7 @@ class TestSimpleCache:
         cache.put("d", "4")  # Should evict oldest
         # At least "d" should exist
         assert cache.get("d") == "4"
+        cache.close()
         # Total entries should not exceed max_entries
         conn = sqlite3.connect(str(tmp_path / "cache.db"))
         count = conn.execute("SELECT COUNT(*) FROM simple_cache").fetchone()[0]
@@ -85,6 +89,7 @@ class TestSimpleCache:
         time.sleep(0.01)
         # TTL of 0 means immediately expired
         assert cache.get("key1") is None
+        cache.close()
 
 
 class TestSemanticCache:
@@ -92,6 +97,7 @@ class TestSemanticCache:
         """[TM-020 AC-4] Semantic cache miss returns None."""
         cache = SemanticCache(db_path=tmp_path / "cache.db")
         assert cache.get_similar("hello world") is None
+        cache.close()
 
     def test_exact_match(self, tmp_path: Path):
         """[TM-020 AC-4] Exact query match returns cached response."""
@@ -99,6 +105,7 @@ class TestSemanticCache:
         cache.put("explain quicksort in python", "Here is quicksort...")
         result = cache.get_similar("explain quicksort in python")
         assert result == "Here is quicksort..."
+        cache.close()
 
     def test_similar_match(self, tmp_path: Path):
         """[TM-020 AC-4] Similar query above threshold returns cached response."""
@@ -110,6 +117,7 @@ class TestSemanticCache:
         # But exact should always match
         result2 = cache.get_similar("explain quicksort algorithm in python")
         assert result2 == "Here is quicksort..."
+        cache.close()
 
     def test_dissimilar_no_match(self, tmp_path: Path):
         """[TM-020 AC-4] Dissimilar query below threshold returns None."""
@@ -117,6 +125,7 @@ class TestSemanticCache:
         cache.put("explain quicksort in python", "Here is quicksort...")
         result = cache.get_similar("what is the weather today")
         assert result is None
+        cache.close()
 
     def test_multiple_entries(self, tmp_path: Path):
         """[TM-020 AC-4] Multiple entries are independently retrievable."""
@@ -125,6 +134,7 @@ class TestSemanticCache:
         cache.put("goodbye world", "farewell response")
         assert cache.get_similar("hello world") == "greeting response"
         assert cache.get_similar("goodbye world") == "farewell response"
+        cache.close()
 
     def test_empty_string_returns_none(self, tmp_path: Path):
         """[TM-020 AC-4] Empty string query returns None (line 45: empty ngrams branch)."""
@@ -132,6 +142,7 @@ class TestSemanticCache:
         cache.put("some text", "response")
         result = cache.get_similar("")
         assert result is None
+        cache.close()
 
     def test_very_short_text_ngram_fallback(self, tmp_path: Path):
         """[TM-020 AC-4] Text shorter than ngram_size uses single-token fallback (line 87)."""
@@ -139,6 +150,7 @@ class TestSemanticCache:
         cache.put("ab", "short response")
         result = cache.get_similar("ab")
         assert result == "short response"
+        cache.close()
 
     def test_jaccard_empty_sets_returns_zero(self, tmp_path: Path):
         """[TM-020 AC-5] Jaccard of empty sets returns 0.0 (line 99)."""
@@ -153,7 +165,7 @@ class TestSemanticCache:
         cache.put("first entry text", "response1")
         cache.put("second entry text", "response2")
         cache.put("third entry text", "response3")
-        import sqlite3
+        cache.close()
         conn = sqlite3.connect(str(tmp_path / "cache.db"))
         count = conn.execute("SELECT COUNT(*) FROM semantic_cache").fetchone()[0]
         conn.close()

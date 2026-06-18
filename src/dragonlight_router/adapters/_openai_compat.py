@@ -9,8 +9,10 @@ defaults, auth header format, endpoint path construction).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import random
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -44,6 +46,12 @@ class OpenAICompatibleBackend(GenerativeBackend):
     _default_base_url: str = "https://api.openai.com"
     _completions_path: str = "/v1/chat/completions"
     _models_path: str = "/v1/models"
+
+    # Retry configuration — exponential backoff with jitter before circuit breaker.
+    _max_retries: int = 3
+    _base_delay_s: float = 0.5
+    _max_delay_s: float = 8.0
+    _jitter_factor: float = 0.5
 
     def __init__(
         self,
@@ -102,6 +110,28 @@ class OpenAICompatibleBackend(GenerativeBackend):
             "stream": stream,
         }
 
+    @staticmethod
+    def _is_retryable_status(status_code: int) -> bool:
+        """Determine if an HTTP status code warrants a retry.
+
+        Retries on: 429 (rate limited), 500, 502, 503, 504 (server errors).
+        Does NOT retry on 4xx client errors (except 429).
+        """
+        assert isinstance(status_code, int), "status_code must be an int"
+        return status_code == 429 or status_code >= 500
+
+    def _compute_backoff_delay(self, attempt: int) -> float:
+        """Compute exponential backoff delay with jitter for a given attempt.
+
+        Uses full jitter: uniform random in [0, min(base * 2^attempt, max_delay)].
+        """
+        assert attempt >= 0, "attempt must be non-negative"
+        exp_delay = min(self._base_delay_s * (2 ** attempt), self._max_delay_s)
+        jitter = random.uniform(0, self._jitter_factor * exp_delay)
+        delay: float = exp_delay + jitter
+        assert delay >= 0, "computed delay must be non-negative"
+        return delay
+
     async def generate(
         self,
         messages: list[dict[str, str]],
@@ -110,7 +140,12 @@ class OpenAICompatibleBackend(GenerativeBackend):
         temperature: float = 0.7,
         stream: bool = True,
     ) -> AsyncIterator[str]:
-        """Generate text using an OpenAI-compatible chat completions API."""
+        """Generate text using an OpenAI-compatible chat completions API.
+
+        Implements retry with exponential backoff + jitter for transient
+        errors (5xx, 429, connection failures, timeouts) before propagating
+        the error to the health tracker / circuit breaker.
+        """
         assert isinstance(messages, list), "messages must be a list"
         assert len(messages) > 0, "messages must not be empty"
 
@@ -128,11 +163,15 @@ class OpenAICompatibleBackend(GenerativeBackend):
             messages, max_tokens=max_tokens, temperature=temperature, stream=stream,
         )
 
-        async with self._make_client(timeout=30.0) as client:
+        last_exc: Exception | None = None
+        for attempt in range(self._max_retries):
             try:
-                async with client.stream(
-                    "POST", url, headers=headers, json=payload, timeout=60.0,
-                ) as response:
+                async with (
+                    self._make_client(timeout=30.0) as client,
+                    client.stream(
+                        "POST", url, headers=headers, json=payload, timeout=60.0,
+                    ) as response,
+                ):
                     response.raise_for_status()
                     if stream:
                         async for chunk in self._parse_sse_stream(response):
@@ -142,17 +181,51 @@ class OpenAICompatibleBackend(GenerativeBackend):
                         if content:
                             assert isinstance(content, str), "response content must be a string"
                             yield content
+                return  # Success — exit retry loop
             except httpx.HTTPStatusError as e:
-                self._status = BackendStatus.ERROR
-                raise RuntimeError(f"{self._provider_name} API error: {e}") from e
+                last_exc = e
+                if not self._is_retryable_status(e.response.status_code):
+                    # Non-retryable client error — fail immediately
+                    self._status = BackendStatus.ERROR
+                    raise RuntimeError(f"{self._provider_name} API error: {e}") from e
+                if attempt < self._max_retries - 1:
+                    delay = self._compute_backoff_delay(attempt)
+                    logger.warning(
+                        "retrying_after_http_error",
+                        provider=self._provider_name,
+                        status_code=e.response.status_code,
+                        attempt=attempt + 1,
+                        max_retries=self._max_retries,
+                        delay_s=round(delay, 3),
+                    )
+                    await asyncio.sleep(delay)
+                    continue
             except (httpx.ConnectError, httpx.TimeoutException) as e:
-                self._status = BackendStatus.ERROR
-                raise RuntimeError(f"{self._provider_name} connection failed: {e}") from e
+                last_exc = e
+                if attempt < self._max_retries - 1:
+                    delay = self._compute_backoff_delay(attempt)
+                    logger.warning(
+                        "retrying_after_connection_error",
+                        provider=self._provider_name,
+                        error_type=type(e).__name__,
+                        attempt=attempt + 1,
+                        max_retries=self._max_retries,
+                        delay_s=round(delay, 3),
+                    )
+                    await asyncio.sleep(delay)
+                    continue
             except RuntimeError:
                 raise
             except (json.JSONDecodeError, KeyError, ValueError) as e:
+                # Parse errors are not retryable — the response is malformed
                 self._status = BackendStatus.ERROR
                 raise RuntimeError(f"{self._provider_name} request failed: {e}") from e
+
+        # All retries exhausted — propagate the last error
+        self._status = BackendStatus.ERROR
+        if isinstance(last_exc, httpx.HTTPStatusError):
+            raise RuntimeError(f"{self._provider_name} API error: {last_exc}") from last_exc
+        raise RuntimeError(f"{self._provider_name} connection failed: {last_exc}") from last_exc
 
     async def _parse_sse_stream(self, response: httpx.Response) -> AsyncIterator[str]:
         """Parse SSE stream from response and yield content chunks."""

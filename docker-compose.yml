@@ -16,6 +16,14 @@ services:
       - router-state:/app/state
       - ./config:/app/config:ro
     restart: unless-stopped
+    # --- SEC-008: Container security hardening ---
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/v1/health')"]
       interval: 30s

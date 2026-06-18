@@ -16,6 +16,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Verify dependency hashes
+        if: hashFiles('requirements-hashed.txt') != ''
+        run: pip install --require-hashes -r requirements-hashed.txt
       - name: Install dependencies
         run: pip install -e ".[all,dev]"
       - name: Lint

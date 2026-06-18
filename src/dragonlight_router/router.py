@@ -83,6 +83,123 @@ class RouterEngine:
         "together": "together",
     }
 
+    # Per-model cost profiles (USD per million tokens).
+    # Keyed by model_id (with provider prefix) for exact match,
+    # falling back to provider-level defaults.
+    # Sources: provider pricing pages as of 2025-06.
+    _MODEL_COSTS: dict[str, BackendCostProfile] = {
+        # NVIDIA NIM — free-tier API pricing
+        "nvidia_nim/moonshotai/kimi-k2.6": BackendCostProfile(
+            input_per_mtok=0.0, output_per_mtok=0.0,
+        ),
+        "nvidia_nim/deepseek-ai/deepseek-v4-pro": BackendCostProfile(
+            input_per_mtok=0.0, output_per_mtok=0.0,
+        ),
+        "nvidia_nim/mistralai/codestral-22b-instruct-v0.1": BackendCostProfile(
+            input_per_mtok=0.0, output_per_mtok=0.0,
+        ),
+        "nvidia_nim/qwen/qwen3.5-397b-a17b": BackendCostProfile(
+            input_per_mtok=0.0, output_per_mtok=0.0,
+        ),
+        # Groq — free-tier for most models
+        "groq/llama-3.3-70b-versatile": BackendCostProfile(
+            input_per_mtok=0.59, output_per_mtok=0.79,
+        ),
+        "groq/deepseek-r1-distill-llama-70b": BackendCostProfile(
+            input_per_mtok=0.59, output_per_mtok=0.79,
+        ),
+        # Gemini
+        "gemini/gemini-2.5-pro": BackendCostProfile(
+            input_per_mtok=1.25, output_per_mtok=10.00,
+        ),
+        "gemini/gemini-2.5-flash": BackendCostProfile(
+            input_per_mtok=0.15, output_per_mtok=0.60,
+        ),
+        # OpenRouter — free tier models
+        "openrouter/qwen/qwen3-coder:free": BackendCostProfile(
+            input_per_mtok=0.0, output_per_mtok=0.0,
+        ),
+        "openrouter/poolside/laguna-m.1:free": BackendCostProfile(
+            input_per_mtok=0.0, output_per_mtok=0.0,
+        ),
+        # Cerebras
+        "cerebras/llama-3.3-70b": BackendCostProfile(
+            input_per_mtok=0.60, output_per_mtok=0.60,
+        ),
+        # Mistral
+        "mistral/codestral-latest": BackendCostProfile(
+            input_per_mtok=0.30, output_per_mtok=0.90,
+        ),
+        "mistral/mistral-large-latest": BackendCostProfile(
+            input_per_mtok=2.00, output_per_mtok=6.00,
+        ),
+        # Anthropic
+        "anthropic/claude-sonnet-4-20250514": BackendCostProfile(
+            input_per_mtok=3.00, output_per_mtok=15.00,
+        ),
+        "anthropic/claude-haiku-3-5-20241022": BackendCostProfile(
+            input_per_mtok=0.80, output_per_mtok=4.00,
+        ),
+        # OpenAI
+        "openai/gpt-4o": BackendCostProfile(
+            input_per_mtok=2.50, output_per_mtok=10.00,
+        ),
+        "openai/gpt-4o-mini": BackendCostProfile(
+            input_per_mtok=0.15, output_per_mtok=0.60,
+        ),
+        # Cohere
+        "cohere/command-r-plus": BackendCostProfile(
+            input_per_mtok=2.50, output_per_mtok=10.00,
+        ),
+        "cohere/command-r": BackendCostProfile(
+            input_per_mtok=0.15, output_per_mtok=0.60,
+        ),
+        # Together
+        "together/meta-llama/Llama-3.3-70B-Instruct-Turbo": BackendCostProfile(
+            input_per_mtok=0.88, output_per_mtok=0.88,
+        ),
+    }
+
+    # Provider-level default costs for models not in _MODEL_COSTS.
+    _PROVIDER_DEFAULT_COSTS: dict[str, BackendCostProfile] = {
+        "nvidia_nim": BackendCostProfile(input_per_mtok=0.0, output_per_mtok=0.0),
+        "groq": BackendCostProfile(input_per_mtok=0.59, output_per_mtok=0.79),
+        "gemini": BackendCostProfile(input_per_mtok=0.15, output_per_mtok=0.60),
+        "openrouter": BackendCostProfile(input_per_mtok=0.0, output_per_mtok=0.0),
+        "cerebras": BackendCostProfile(input_per_mtok=0.60, output_per_mtok=0.60),
+        "mistral": BackendCostProfile(input_per_mtok=0.30, output_per_mtok=0.90),
+        "ollama": BackendCostProfile(input_per_mtok=0.0, output_per_mtok=0.0),
+        "anthropic": BackendCostProfile(input_per_mtok=3.00, output_per_mtok=15.00),
+        "openai": BackendCostProfile(input_per_mtok=2.50, output_per_mtok=10.00),
+        "cohere": BackendCostProfile(input_per_mtok=0.15, output_per_mtok=0.60),
+        "together": BackendCostProfile(input_per_mtok=0.88, output_per_mtok=0.88),
+    }
+
+    @classmethod
+    def _resolve_cost_profile(cls, model_id: str, provider_name: str) -> BackendCostProfile:
+        """Resolve cost profile for a model: exact match first, then provider default.
+
+        Args:
+            model_id: Full model ID with provider prefix.
+            provider_name: Config provider name (e.g. "nvidia_nim", "groq").
+
+        Returns:
+            BackendCostProfile with real $/Mtok values.
+        """
+        assert isinstance(model_id, str), "model_id must be a string"
+        assert isinstance(provider_name, str), "provider_name must be a string"
+
+        # Exact model match first
+        if model_id in cls._MODEL_COSTS:
+            return cls._MODEL_COSTS[model_id]
+
+        # Provider-level default fallback
+        if provider_name in cls._PROVIDER_DEFAULT_COSTS:
+            return cls._PROVIDER_DEFAULT_COSTS[provider_name]
+
+        # Ultimate fallback — zero cost (free tier assumption)
+        return BackendCostProfile(input_per_mtok=0.0, output_per_mtok=0.0)
+
     def __init__(
         self, config_path: Path | None = None, **overrides: Any,
     ) -> None:
@@ -387,6 +504,7 @@ class RouterEngine:
             normalized_base_url = self._normalize_base_url(matched_provider.base_url, adapter_key)
 
             rate_limits = matched_provider.rate_limits
+            cost_profile = self._resolve_cost_profile(model_id, matched_provider.name)
             backend_config = BackendConfig(
                 name=model_id,
                 provider=adapter_key,
@@ -401,7 +519,7 @@ class RouterEngine:
                     supports_json_mode=True,
                     supports_system_prompts=True,
                 ),
-                cost=BackendCostProfile(input_per_mtok=0.0, output_per_mtok=0.0),
+                cost=cost_profile,
                 rate_limits=BackendRateLimits(
                     rpm=rate_limits.rpm,
                     rpd=(

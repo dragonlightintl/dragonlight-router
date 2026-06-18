@@ -321,13 +321,31 @@ def _extract_raw_scores(
     )
 
 
+def _normalize_cost_score(cost_score: float) -> float:
+    """Normalize cost-efficiency score to [0.0, 1.0].
+
+    The raw cost score is on a 0-100 scale where higher = cheaper/better.
+    This is a direct score, not a rank position, so we simply divide by 100.
+
+    Args:
+        cost_score: Cost-efficiency score (0-100, higher = cheaper)
+
+    Returns:
+        Normalized score in [0.0, 1.0]
+    """
+    assert 0.0 <= cost_score <= 100.0, f"cost_score must be 0-100, got {cost_score}"
+    normalized = cost_score / 100.0
+    assert 0.0 <= normalized <= 1.0, f"Normalized cost score out of bounds: {normalized}"
+    return normalized
+
+
 def _normalize_all_dimensions(raw: _RawScores) -> _NormalizedScores:
     """Normalize all raw scores to [0.0, 1.0]."""
     assert isinstance(raw, _RawScores), "raw must be _RawScores"
     assert raw.budget >= 0, "budget score must be non-negative"
 
     return _NormalizedScores(
-        rank=normalize_rank(int(raw.rank)) if raw.rank >= 1 else 0.5,
+        rank=_normalize_cost_score(raw.rank),
         budget=normalize_budget_score(raw.budget),
         latency=normalize_latency_score(raw.latency),
         priority=normalize_priority_score(int(raw.priority)),

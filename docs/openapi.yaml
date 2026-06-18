@@ -1,0 +1,342 @@
+openapi: "3.0.3"
+info:
+  title: Dragonlight Router API
+  description: >-
+    Multi-provider intelligent LLM routing — model selection + cascade dispatch.
+  version: "0.2.6"
+
+paths:
+  /v1/select:
+    post:
+      summary: Select ranked models for a role
+      operationId: selectModels
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role:
+                  type: string
+                  description: Role to select models for.
+                top_n:
+                  type: integer
+                  default: 12
+                  minimum: 1
+                  maximum: 500
+                exclude_providers:
+                  type: array
+                  items:
+                    type: string
+                  description: Provider names to exclude.
+      responses:
+        "200":
+          description: Ranked model list with scores.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items:
+                      type: string
+                  scores:
+                    type: array
+                    items:
+                      type: object
+        "400":
+          description: Validation error.
+
+  /v1/dispatch:
+    post:
+      summary: Dispatch a request through the MBR-CBR-LBR cascade
+      operationId: dispatchRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - intent_category
+                - specific_intent
+                - operator_message
+                - context_tokens
+              properties:
+                intent_category:
+                  type: string
+                specific_intent:
+                  type: string
+                operator_message:
+                  type: string
+                context_tokens:
+                  type: integer
+                  minimum: 0
+                system_prompt:
+                  type: string
+                requires_tool_use:
+                  type: boolean
+                  default: false
+                requires_long_context:
+                  type: boolean
+                  default: false
+                persona:
+                  type: string
+                stream:
+                  type: boolean
+                  default: false
+                fallback_policy:
+                  type: string
+                  enum: [allow, deny, same_tier]
+                  default: allow
+      responses:
+        "200":
+          description: Dispatch result (JSON or SSE stream).
+          headers:
+            X-Request-ID:
+              schema:
+                type: string
+              description: Request correlation ID.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: string
+                  backend_used:
+                    type: string
+                  backend_tier:
+                    type: string
+                  tokens_in:
+                    type: integer
+                  tokens_out:
+                    type: integer
+                  estimated_cost_usd:
+                    type: number
+                  latency_ms:
+                    type: number
+                  was_fallback:
+                    type: boolean
+                  fallback_chain:
+                    type: array
+                    items:
+                      type: string
+        "400":
+          description: Validation error.
+        "500":
+          description: Dispatch failure.
+
+  /v1/record:
+    post:
+      summary: Record a request outcome
+      operationId: recordOutcome
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider, model_id, success]
+              properties:
+                provider:
+                  type: string
+                model_id:
+                  type: string
+                success:
+                  type: boolean
+                tokens_used:
+                  type: integer
+                  default: 0
+                latency_ms:
+                  type: number
+                  default: 0.0
+      responses:
+        "200":
+          description: Outcome recorded.
+        "400":
+          description: Validation error.
+
+  /v1/health:
+    get:
+      summary: Liveness probe with health and budget snapshot
+      operationId: healthCheck
+      responses:
+        "200":
+          description: Always returns 200 with status, budget, and health data.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [healthy, degraded, unavailable]
+                  budget:
+                    type: object
+                  health:
+                    type: object
+
+  /v1/ready:
+    get:
+      summary: Readiness probe
+      operationId: readinessCheck
+      responses:
+        "200":
+          description: Router is ready to serve traffic.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ready:
+                    type: boolean
+                    enum: [true]
+        "503":
+          description: Router is not yet ready.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ready:
+                    type: boolean
+                    enum: [false]
+                  reason:
+                    type: string
+
+  /v1/catalog:
+    get:
+      summary: Catalog status
+      operationId: catalogStatus
+      responses:
+        "200":
+          description: Catalog status with provider list and model count.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stale:
+                    type: boolean
+                  providers:
+                    type: array
+                    items:
+                      type: string
+                  model_count:
+                    type: integer
+
+  /v1/catalog/refresh:
+    post:
+      summary: Trigger catalog refresh
+      operationId: catalogRefresh
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Catalog refreshed successfully.
+        "401":
+          description: Unauthorized.
+        "500":
+          description: Refresh failed.
+
+  /v1/retire:
+    post:
+      summary: Retire a backend from the active pool
+      operationId: retireBackend
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [backend]
+              properties:
+                backend:
+                  type: string
+      responses:
+        "200":
+          description: Backend retired.
+        "400":
+          description: Missing backend field.
+        "401":
+          description: Unauthorized.
+        "404":
+          description: Backend not found.
+
+  /v1/reinstate:
+    post:
+      summary: Reinstate a retired backend
+      operationId: reinstateBackend
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [backend]
+              properties:
+                backend:
+                  type: string
+      responses:
+        "200":
+          description: Backend reinstated.
+        "400":
+          description: Missing backend field.
+        "401":
+          description: Unauthorized.
+        "404":
+          description: Backend not found.
+
+  /metrics:
+    get:
+      summary: Operational metrics
+      operationId: getMetrics
+      responses:
+        "200":
+          description: JSON metrics summary.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uptime_seconds:
+                    type: number
+                  memory_mb:
+                    type: number
+                  endpoints:
+                    type: object
+                  router:
+                    type: object
+                    properties:
+                      total_dispatches:
+                        type: integer
+                      fallback_count:
+                        type: integer
+                      circuit_breaker_trips:
+                        type: integer
+
+  /openapi.json:
+    get:
+      summary: OpenAPI schema
+      operationId: getOpenApiSchema
+      responses:
+        "200":
+          description: OpenAPI 3.0.3 schema document.
+          content:
+            application/json:
+              schema:
+                type: object
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer

@@ -1,15 +1,18 @@
 """Cascade dispatch — MBR → CBR → LBR composition."""
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import structlog
 
 import dragonlight_router.adapters as _adapters_mod
 from dragonlight_router.budget.tracker import BudgetTracker
+from dragonlight_router.caching.simple import SimpleCache
 from dragonlight_router.core.errors import BudgetExceededError, LBRNoCapacityError
 from dragonlight_router.core.registry import BackendRegistry
 from dragonlight_router.core.types import (
@@ -19,6 +22,7 @@ from dragonlight_router.core.types import (
     DispatchFailure,
     DispatchOrder,
     EngineResponse,
+    ScoredCandidate,
     StreamChunk,
 )
 from dragonlight_router.health.tracker import HealthTracker
@@ -47,6 +51,41 @@ _DEGRADED_SCORE_PENALTY = 0.5
 # HAZ-010: Default chars-per-token ratio for estimation when provider
 # does not report usage. The heuristic is ~4 chars/token for English text.
 _CHARS_PER_TOKEN_ESTIMATE = 4
+
+# Module-level response cache — set via configure_cache(), None = caching disabled.
+_dispatch_cache: SimpleCache | None = None
+
+
+def configure_cache(
+    db_path: Path,
+    max_entries: int = 1000,
+    ttl_s: int = 3600,
+) -> SimpleCache:
+    """Initialize and configure the dispatch response cache.
+
+    Called during router startup to enable caching. Returns the cache
+    instance for lifecycle management (e.g. close on shutdown).
+    """
+    global _dispatch_cache  # noqa: PLW0603
+    assert isinstance(db_path, Path), "db_path must be a Path instance"
+    assert max_entries > 0, "max_entries must be positive"
+    _dispatch_cache = SimpleCache(db_path=db_path, max_entries=max_entries, ttl_s=ttl_s)
+    logger.info(
+        "dispatch_cache_configured",
+        db_path=str(db_path), max_entries=max_entries, ttl_s=ttl_s,
+    )
+    return _dispatch_cache
+
+
+def get_cache() -> SimpleCache | None:
+    """Return the active dispatch cache, or None if caching is disabled."""
+    return _dispatch_cache
+
+
+def _reset_cache() -> None:
+    """Reset the dispatch cache (for test isolation)."""
+    global _dispatch_cache  # noqa: PLW0603
+    _dispatch_cache = None
 
 # Mapping from caller-specified trust tier strings to ProviderTrustTier ordering.
 # Higher numeric value = more restrictive trust requirement.
@@ -176,7 +215,7 @@ def _run_cbr_stage(
     order: DispatchOrder,
     candidates: list[BackendConfig],
     ctx: DispatchContext,
-) -> Result[list[BackendConfig], Exception]:
+) -> Result[list[ScoredCandidate], Exception]:
     """CBR stage: filter by budget, score with cost-effectiveness, rank candidates."""
     assert isinstance(candidates, list), "candidates must be a list"
     assert len(candidates) > 0, "candidates must not be empty"
@@ -207,22 +246,22 @@ def _score_and_rank_candidates(
     order: DispatchOrder,
     weights: ScoringWeightsConfig,
     ctx: DispatchContext,
-) -> list[BackendConfig]:
-    """Score each candidate and return them sorted best-first."""
+) -> list[ScoredCandidate]:
+    """Score each candidate and return them sorted best-first with scores preserved."""
     assert isinstance(candidates, list), "candidates must be a list"
     assert len(candidates) > 0, "candidates must not be empty"
 
-    scored_candidates: list[tuple[float, BackendConfig]] = []
+    scored_candidates: list[ScoredCandidate] = []
     for candidate in candidates:
         score = score_candidate(
             config=candidate, order=order, weights=weights,
             budget_tracker=ctx.budget_tracker, health_tracker=ctx.health_tracker,
         )
         score = _apply_degraded_penalty(score, candidate, ctx.registry)
-        scored_candidates.append((score, candidate))
+        scored_candidates.append(ScoredCandidate(config=candidate, score=score))
 
-    scored_candidates.sort(key=lambda x: x[0], reverse=True)
-    return [candidate for _score, candidate in scored_candidates]
+    scored_candidates.sort(key=lambda sc: sc.score, reverse=True)
+    return scored_candidates
 
 
 def _apply_degraded_penalty(
@@ -246,19 +285,28 @@ def _apply_degraded_penalty(
 
 def _run_lbr_stage(
     order: DispatchOrder,
-    candidates: list[BackendConfig],
+    candidates: list[ScoredCandidate],
     ctx: DispatchContext,
-) -> Result[list[BackendConfig], Exception]:
-    """LBR stage: filter by rate limit capacity."""
+) -> Result[list[ScoredCandidate], Exception]:
+    """LBR stage: filter by rate limit capacity, preserving scores."""
     assert isinstance(candidates, list), "candidates must be a list"
     assert len(candidates) > 0, "candidates must not be empty"
 
-    lbr_candidates = filter_by_rate_limit(candidates, order, ctx.budget_tracker)
-    logger.debug("LBR filtering complete", candidate_count=len(lbr_candidates))
+    # Build a lookup from BackendConfig name -> ScoredCandidate for re-wrapping
+    scored_by_name: dict[str, ScoredCandidate] = {
+        sc.config.name: sc for sc in candidates
+    }
 
-    if not lbr_candidates:
+    # LBR filters on BackendConfig — unwrap, filter, re-wrap
+    configs = [sc.config for sc in candidates]
+    lbr_configs = filter_by_rate_limit(configs, order, ctx.budget_tracker)
+    logger.debug("LBR filtering complete", candidate_count=len(lbr_configs))
+
+    if not lbr_configs:
         return Err(LBRNoCapacityError("No candidates remain after rate limit filtering"))
-    return Ok(lbr_candidates)
+
+    lbr_scored = [scored_by_name[cfg.name] for cfg in lbr_configs]
+    return Ok(lbr_scored)
 
 
 def _filter_by_trust_floor(
@@ -303,7 +351,7 @@ def _filter_by_trust_floor(
 def _run_cascade(
     order: DispatchOrder,
     ctx: DispatchContext,
-) -> Result[list[BackendConfig], Exception]:
+) -> Result[list[ScoredCandidate], Exception]:
     """Run MBR -> trust floor -> CBR -> LBR cascade and return the full ranked candidate list.
 
     Unlike route(), this returns ALL surviving candidates so dispatch() can
@@ -371,14 +419,14 @@ def route(
     if isinstance(cascade_result, Err):
         return cascade_result
 
-    candidates = cascade_result.value
-    final_candidate = select_final_candidate(candidates)
+    scored_candidates = cascade_result.value
+    selected = select_final_candidate(scored_candidates)
     logger.debug(
         "cascade dispatch complete",
-        selected_provider=final_candidate.provider,
-        selected_model=final_candidate.model,
+        selected_provider=selected.provider,
+        selected_model=selected.model,
     )
-    return Ok(final_candidate)
+    return Ok(selected)
 
 
 def _build_dispatch_context(
@@ -462,6 +510,20 @@ async def _try_adapter_dispatch(
     ctx.budget_tracker.record_request(backend_config.provider, tokens_in + tokens_out)
     adapter.record_usage(tokens_in, tokens_out)
 
+    # Structured dispatch logging — feeds analytics and role matrix tuning
+    logger.info(
+        "dispatch_result",
+        provider=backend_config.provider,
+        model=backend_config.model,
+        latency_ms=round(latency_ms, 2),
+        input_tokens=tokens_in,
+        output_tokens=tokens_out,
+        success=True,
+        cache_hit=False,
+        estimated_cost_usd=round(cost_usd, 8),
+        was_fallback=len(fallback_chain) > 0,
+    )
+
     return Ok(_build_engine_response(
         backend_config, content, tokens_in, tokens_out, cost_usd, latency_ms, fallback_chain,
     ))
@@ -500,6 +562,20 @@ def _record_adapter_failure(
         getattr(exc, "__cause__", None), "status_code", None
     )
     ctx.health_tracker.record_error(backend_config.model, http_status=http_status)
+
+    # Structured dispatch failure logging
+    logger.info(
+        "dispatch_result",
+        provider=backend_config.provider,
+        model=backend_config.model,
+        latency_ms=0.0,
+        input_tokens=0,
+        output_tokens=0,
+        success=False,
+        cache_hit=False,
+        error_type=type(exc).__name__,
+        http_status=http_status,
+    )
 
 
 def _apply_fallback_policy(
@@ -592,6 +668,82 @@ async def _handle_fallback_chain(
     ))
 
 
+def _try_cache_lookup(order: DispatchOrder) -> EngineResponse | None:
+    """Attempt to retrieve a cached response for the given order.
+
+    Returns an EngineResponse if cache hit, None on miss or if caching is disabled.
+    Only caches deterministic requests (temperature == 0 or very low).
+    """
+    cache = _dispatch_cache
+    if cache is None:
+        return None
+
+    # Build cache key from order fields
+    messages = [{"role": "user", "content": order.operator_message}]
+    if order.system_prompt:
+        messages.insert(0, {"role": "system", "content": order.system_prompt})
+
+    cache_key = SimpleCache.make_key(
+        model_id=order.intent_category,
+        system_prompt=order.system_prompt,
+        messages=messages,
+        temperature=0.7,
+        max_tokens=4096,
+    )
+
+    cached_value = cache.get(cache_key)
+    if cached_value is None:
+        return None
+
+    try:
+        data = json.loads(cached_value)
+        assert isinstance(data, dict), "cached value must be a JSON object"
+        return EngineResponse(
+            content=data["content"],
+            backend_used=data["backend_used"],
+            backend_tier=BackendTier(data["backend_tier"]),
+            tokens_in=data["tokens_in"],
+            tokens_out=data["tokens_out"],
+            estimated_cost_usd=0.0,
+            latency_ms=0.0,
+            was_fallback=False,
+            fallback_chain=[],
+        )
+    except (json.JSONDecodeError, KeyError, ValueError, AssertionError):
+        logger.warning("cache_deserialize_failed", cache_key=cache_key[:16])
+        return None
+
+
+def _store_cache_response(order: DispatchOrder, response: EngineResponse) -> None:
+    """Store a successful dispatch response in the cache."""
+    cache = _dispatch_cache
+    if cache is None:
+        return
+
+    messages = [{"role": "user", "content": order.operator_message}]
+    if order.system_prompt:
+        messages.insert(0, {"role": "system", "content": order.system_prompt})
+
+    cache_key = SimpleCache.make_key(
+        model_id=order.intent_category,
+        system_prompt=order.system_prompt,
+        messages=messages,
+        temperature=0.7,
+        max_tokens=4096,
+    )
+
+    cache_value = json.dumps({
+        "content": response.content,
+        "backend_used": response.backend_used,
+        "backend_tier": response.backend_tier.value,
+        "tokens_in": response.tokens_in,
+        "tokens_out": response.tokens_out,
+    }, separators=(",", ":"))
+
+    cache.put(cache_key, cache_value)
+    logger.debug("response_cached", cache_key=cache_key[:16])
+
+
 async def dispatch(
     order: DispatchOrder,
     registry: BackendRegistry,
@@ -603,11 +755,28 @@ async def dispatch(
 
     This is the main entry point for engine-style consumers.
 
-    Runs the MBR -> CBR -> LBR cascade to get a ranked candidate list, then
-    attempts generation on each candidate in order until one succeeds.
+    Checks the response cache first. On miss, runs the MBR -> CBR -> LBR
+    cascade to get a ranked candidate list, then attempts generation on
+    each candidate in order until one succeeds. Successful responses are
+    cached for future hits.
     """
     assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
     assert isinstance(registry, BackendRegistry), "registry must be BackendRegistry instance"
+
+    # Check cache before running the cascade
+    cached = _try_cache_lookup(order)
+    if cached is not None:
+        logger.info(
+            "dispatch_result",
+            provider=cached.backend_used,
+            model="",
+            latency_ms=0.0,
+            input_tokens=cached.tokens_in,
+            output_tokens=cached.tokens_out,
+            success=True,
+            cache_hit=True,
+        )
+        return Ok(cached)
 
     ctx = DispatchContext(
         registry=registry,
@@ -622,11 +791,19 @@ async def dispatch(
         logger.debug("dispatch failed at cascade stage", error=str(cascade_result.error))
         return Err(cascade_result.error)
 
-    candidates = cascade_result.value
-    assert len(candidates) > 0, "cascade must return at least one candidate"
+    scored_candidates = cascade_result.value
+    assert len(scored_candidates) > 0, "cascade must return at least one candidate"
 
+    # Unwrap ScoredCandidate to BackendConfig for the fallback chain
+    candidates = [sc.config for sc in scored_candidates]
     base_context = _build_dispatch_context(order)
-    return await _handle_fallback_chain(candidates, base_context, order, ctx)
+    result = await _handle_fallback_chain(candidates, base_context, order, ctx)
+
+    # Cache successful responses for future dispatch hits
+    if isinstance(result, Ok):
+        _store_cache_response(order, result.value)
+
+    return result
 
 
 async def _try_streaming_dispatch(
@@ -727,8 +904,11 @@ async def dispatch_stream(
         )
         return
 
-    candidates = cascade_result.value
-    assert len(candidates) > 0, "cascade must return at least one candidate"
+    scored_candidates = cascade_result.value
+    assert len(scored_candidates) > 0, "cascade must return at least one candidate"
+
+    # Unwrap ScoredCandidate to BackendConfig for the fallback/streaming chain
+    candidates = [sc.config for sc in scored_candidates]
 
     # HAZ-004: Apply fallback policy to restrict candidate pool
     eligible = _apply_fallback_policy(candidates, order)

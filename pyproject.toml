@@ -52,6 +52,9 @@ Issues = "https://github.com/dragonlightintl/dragonlight-router/issues"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "--cov=dragonlight_router --cov-report=term-missing --cov-fail-under=80"
+markers = [
+    "live: marks tests that hit real provider APIs (deselect with '-m \"not live\"')",
+]
 
 [tool.mypy]
 strict = true

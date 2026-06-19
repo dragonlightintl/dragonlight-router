@@ -5,6 +5,7 @@ require valid bearer token authentication when admin_api_key is configured.
 
 Spec traceability: HAZ-011 (Unauthenticated Admin Endpoints)
 """
+
 from __future__ import annotations
 
 import json
@@ -12,6 +13,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
 import yaml
 from starlette.testclient import TestClient
 
@@ -24,6 +26,8 @@ from dragonlight_router.core.types import (
     BackendTier,
 )
 from dragonlight_router.server.app import create_app
+
+pytestmark = pytest.mark.unit
 
 
 def _setup_test_env_with_admin_key(tmp_path: Path, admin_key: str | None = None) -> Path:
@@ -240,10 +244,7 @@ class TestAdminAuthCatalogRefresh:
         )
 
         client = TestClient(app)
-        refresher_path = (
-            "dragonlight_router.server.routes"
-            "._refresher_mod.CatalogRefresher"
-        )
+        refresher_path = "dragonlight_router.server.routes._refresher_mod.CatalogRefresher"
         with patch(refresher_path, return_value=mock_refresher):
             response = client.post("/v1/catalog/refresh")
         assert response.status_code == 200
@@ -273,10 +274,7 @@ class TestAdminAuthCatalogRefresh:
         )
 
         client = TestClient(app)
-        refresher_path = (
-            "dragonlight_router.server.routes"
-            "._refresher_mod.CatalogRefresher"
-        )
+        refresher_path = "dragonlight_router.server.routes._refresher_mod.CatalogRefresher"
         with patch(refresher_path, return_value=mock_refresher):
             response = client.post(
                 "/v1/catalog/refresh",

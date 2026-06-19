@@ -3,6 +3,7 @@
 Spec traceability: IBR spec v0.1.0 section 9.
 AC numbers: IBR-DATA-01 through IBR-DATA-03.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -23,6 +24,9 @@ from dragonlight_router.core.types import (
 )
 from dragonlight_router.selection.scoring import ScoringWeightsConfig
 
+pytestmark = pytest.mark.unit
+
+
 # ---------------------------------------------------------------------------
 # ClassifiedIntent
 # ---------------------------------------------------------------------------
@@ -34,9 +38,12 @@ class TestClassifiedIntent:
     def test_frozen(self):
         """[IBR-DATA-01] ClassifiedIntent is immutable (frozen)."""
         intent = ClassifiedIntent(
-            task_type="analysis", domain="code",
-            quality_speed="balanced", confidence=0.9,
-            latency_ms=15.0, from_cache=False,
+            task_type="analysis",
+            domain="code",
+            quality_speed="balanced",
+            confidence=0.9,
+            latency_ms=15.0,
+            from_cache=False,
         )
         with pytest.raises(dataclasses.FrozenInstanceError):
             intent.task_type = "creative"  # type: ignore[misc]
@@ -44,9 +51,12 @@ class TestClassifiedIntent:
     def test_all_fields_present(self):
         """[IBR-DATA-01] ClassifiedIntent has all 6 required fields."""
         intent = ClassifiedIntent(
-            task_type="generation", domain="technical",
-            quality_speed="quality", confidence=0.75,
-            latency_ms=42.0, from_cache=True,
+            task_type="generation",
+            domain="technical",
+            quality_speed="quality",
+            confidence=0.75,
+            latency_ms=42.0,
+            from_cache=True,
         )
         assert intent.task_type == "generation"
         assert intent.domain == "technical"
@@ -58,8 +68,14 @@ class TestClassifiedIntent:
     def test_validation_constants_task_types(self):
         """[IBR-DATA-01] IBR_TASK_TYPES has exactly 8 values."""
         expected = {
-            "generation", "analysis", "refactoring", "summarization",
-            "creative", "reasoning", "lookup", "translation",
+            "generation",
+            "analysis",
+            "refactoring",
+            "summarization",
+            "creative",
+            "reasoning",
+            "lookup",
+            "translation",
         }
         assert expected == IBR_TASK_TYPES
         assert len(IBR_TASK_TYPES) == 8
@@ -122,9 +138,12 @@ class TestModelFlavorProfile:
     def test_frozen(self):
         """[IBR-DATA-01] ModelFlavorProfile is immutable."""
         profile = ModelFlavorProfile(
-            model_id="test", version=1,
+            model_id="test",
+            version=1,
             updated_at="2026-01-01T00:00:00Z",
-            task_scores={}, domain_scores={}, qs_scores={},
+            task_scores={},
+            domain_scores={},
+            qs_scores={},
         )
         with pytest.raises(dataclasses.FrozenInstanceError):
             profile.model_id = "other"  # type: ignore[misc]
@@ -133,7 +152,8 @@ class TestModelFlavorProfile:
         """[IBR-DATA-01] ModelFlavorProfile can be constructed with partial score dicts."""
         fs = FlavorScore(score=0.9, confidence=1.0, sample_count=0)
         profile = ModelFlavorProfile(
-            model_id="partial-test", version=1,
+            model_id="partial-test",
+            version=1,
             updated_at="2026-01-01T00:00:00Z",
             task_scores={"analysis": fs},
             domain_scores={},
@@ -151,7 +171,8 @@ class TestModelFlavorProfile:
         domain_scores = dict.fromkeys(IBR_DOMAINS, fs)
         qs_scores = dict.fromkeys(IBR_QUALITY_SPEED, fs)
         profile = ModelFlavorProfile(
-            model_id="full", version=2,
+            model_id="full",
+            version=2,
             updated_at="2026-06-18T00:00:00Z",
             task_scores=task_scores,
             domain_scores=domain_scores,
@@ -192,9 +213,12 @@ class TestIBRScoringContext:
     def test_with_classified_intent(self):
         """[IBR-DATA-01] IBRScoringContext stores a ClassifiedIntent."""
         intent = ClassifiedIntent(
-            task_type="analysis", domain="code",
-            quality_speed="balanced", confidence=0.9,
-            latency_ms=15.0, from_cache=False,
+            task_type="analysis",
+            domain="code",
+            quality_speed="balanced",
+            confidence=0.9,
+            latency_ms=15.0,
+            from_cache=False,
         )
         ctx = IBRScoringContext(
             classified_intent=intent,
@@ -217,20 +241,32 @@ class TestScoringWeightsConfigIBR:
         config = ScoringWeightsConfig()
         assert config.flavor_match == 0.0
         total = (
-            config.cost + config.latency + config.priority
-            + config.queue + config.health + config.flavor_match
+            config.cost
+            + config.latency
+            + config.priority
+            + config.queue
+            + config.health
+            + config.flavor_match
         )
         assert abs(total - 1.0) < 1e-9
 
     def test_flavor_match_0_15_with_adjusted_weights(self):
         """[IBR-DATA-03] flavor_match=0.15 sums to 1.0."""
         config = ScoringWeightsConfig(
-            cost=0.30, latency=0.20, priority=0.15,
-            queue=0.10, health=0.10, flavor_match=0.15,
+            cost=0.30,
+            latency=0.20,
+            priority=0.15,
+            queue=0.10,
+            health=0.10,
+            flavor_match=0.15,
         )
         total = (
-            config.cost + config.latency + config.priority
-            + config.queue + config.health + config.flavor_match
+            config.cost
+            + config.latency
+            + config.priority
+            + config.queue
+            + config.health
+            + config.flavor_match
         )
         assert abs(total - 1.0) < 1e-9
 
@@ -238,19 +274,31 @@ class TestScoringWeightsConfigIBR:
         """[IBR-DATA-03] Weights that do not sum to 1.0 raise AssertionError."""
         with pytest.raises(AssertionError, match="Weights must sum to 1.0"):
             ScoringWeightsConfig(
-                cost=0.35, latency=0.25, priority=0.20,
-                queue=0.10, health=0.10, flavor_match=0.15,
+                cost=0.35,
+                latency=0.25,
+                priority=0.20,
+                queue=0.10,
+                health=0.10,
+                flavor_match=0.15,
             )
 
     def test_flavor_match_0_05_cost_governor(self):
         """[IBR-SCORE-05] Cost governor weights sum to 1.0."""
         config = ScoringWeightsConfig(
-            cost=0.65, latency=0.10, priority=0.10,
-            queue=0.05, health=0.05, flavor_match=0.05,
+            cost=0.65,
+            latency=0.10,
+            priority=0.10,
+            queue=0.05,
+            health=0.05,
+            flavor_match=0.05,
         )
         total = (
-            config.cost + config.latency + config.priority
-            + config.queue + config.health + config.flavor_match
+            config.cost
+            + config.latency
+            + config.priority
+            + config.queue
+            + config.health
+            + config.flavor_match
         )
         assert abs(total - 1.0) < 1e-9
 
@@ -266,9 +314,15 @@ class TestEngineResponseIBRFields:
     def test_default_ibr_fields(self):
         """[IBR-DATA-02] EngineResponse IBR fields default to None/False."""
         resp = EngineResponse(
-            content="hello", backend_used="test", backend_tier=BackendTier.COMPLEX,
-            tokens_in=10, tokens_out=5, estimated_cost_usd=0.001,
-            latency_ms=50.0, was_fallback=False, fallback_chain=[],
+            content="hello",
+            backend_used="test",
+            backend_tier=BackendTier.COMPLEX,
+            tokens_in=10,
+            tokens_out=5,
+            estimated_cost_usd=0.001,
+            latency_ms=50.0,
+            was_fallback=False,
+            fallback_chain=[],
         )
         assert resp.classified_intent is None
         assert resp.flavor_match_score is None
@@ -277,14 +331,23 @@ class TestEngineResponseIBRFields:
     def test_can_set_ibr_fields(self):
         """[IBR-DATA-02] EngineResponse can be constructed with IBR fields populated."""
         intent = ClassifiedIntent(
-            task_type="analysis", domain="code",
-            quality_speed="balanced", confidence=0.9,
-            latency_ms=15.0, from_cache=False,
+            task_type="analysis",
+            domain="code",
+            quality_speed="balanced",
+            confidence=0.9,
+            latency_ms=15.0,
+            from_cache=False,
         )
         resp = EngineResponse(
-            content="hello", backend_used="test", backend_tier=BackendTier.COMPLEX,
-            tokens_in=10, tokens_out=5, estimated_cost_usd=0.001,
-            latency_ms=50.0, was_fallback=False, fallback_chain=[],
+            content="hello",
+            backend_used="test",
+            backend_tier=BackendTier.COMPLEX,
+            tokens_in=10,
+            tokens_out=5,
+            estimated_cost_usd=0.001,
+            latency_ms=50.0,
+            was_fallback=False,
+            fallback_chain=[],
             classified_intent=intent,
             flavor_match_score=0.82,
             ibr_active=True,
@@ -296,9 +359,15 @@ class TestEngineResponseIBRFields:
     def test_ibr_fields_frozen(self):
         """[IBR-DATA-01] EngineResponse IBR fields are frozen."""
         resp = EngineResponse(
-            content="hello", backend_used="test", backend_tier=BackendTier.COMPLEX,
-            tokens_in=10, tokens_out=5, estimated_cost_usd=0.001,
-            latency_ms=50.0, was_fallback=False, fallback_chain=[],
+            content="hello",
+            backend_used="test",
+            backend_tier=BackendTier.COMPLEX,
+            tokens_in=10,
+            tokens_out=5,
+            estimated_cost_usd=0.001,
+            latency_ms=50.0,
+            was_fallback=False,
+            fallback_chain=[],
             ibr_active=True,
         )
         with pytest.raises(dataclasses.FrozenInstanceError):

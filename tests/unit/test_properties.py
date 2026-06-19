@@ -13,10 +13,12 @@ Uses Hypothesis to verify that invariants hold across the entire input space,
 not just hand-picked examples. Property categories follow the taxonomy from
 dragonlight-property-based-testing-strategy.md.
 """
+
 from __future__ import annotations
 
 from unittest.mock import Mock
 
+import pytest
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
@@ -53,6 +55,9 @@ from dragonlight_router.selection.scoring import (
     compute_composite_score,
     compute_health_score,
 )
+
+pytestmark = [pytest.mark.unit, pytest.mark.property]
+
 
 # ---------------------------------------------------------------------------
 # Strategies
@@ -244,7 +249,9 @@ class TestScoringInvariants:
     def test_health_score_circuit_open_always_zero(self, error_count, last_success_age):
         """[TM-007 AC-4] Property: Circuit open always yields zero health score."""
         result = compute_health_score(
-            error_count, circuit_open=True, last_success_age_s=last_success_age,
+            error_count,
+            circuit_open=True,
+            last_success_age_s=last_success_age,
         )
         assert result == 0.0
 
@@ -269,7 +276,13 @@ class TestBudgetTrackerInvariants:
         tokens_per_request=st.integers(min_value=0, max_value=100),
     )
     def test_score_always_bounded(
-        self, rpm, rpd, tpm, daily_token_cap, num_requests, tokens_per_request,
+        self,
+        rpm,
+        rpd,
+        tpm,
+        daily_token_cap,
+        num_requests,
+        tokens_per_request,
     ):
         """[TM-012 AC-2] Property: score() always returns value in [0.0, 100.0]."""
         provider = ProviderConfig(
@@ -386,7 +399,10 @@ class TestMBRNeverDowngradeInvariant:
         requires_long_context=st.booleans(),
     )
     def test_estimate_complexity_never_downgrades_with_more_requirements(
-        self, context_tokens, requires_tool_use, requires_long_context,
+        self,
+        context_tokens,
+        requires_tool_use,
+        requires_long_context,
     ):
         """[TM-001 AC-4] Property: Adding requirements never lowers the estimated tier."""
         from dragonlight_router.selection.mbr import _TIER_RANK, estimate_complexity
@@ -482,7 +498,10 @@ class TestLBRInvariants:
                     ),
                     cost=BackendCostProfile(input_per_mtok=1.0, output_per_mtok=2.0),
                     rate_limits=BackendRateLimits(
-                        rpm=60, rpd=1000, tpm=10000, daily_token_cap=100000,
+                        rpm=60,
+                        rpd=1000,
+                        tpm=10000,
+                        daily_token_cap=100000,
                     ),
                     priority=0,
                 )
@@ -550,7 +569,10 @@ class TestLBRInvariants:
                     ),
                     cost=BackendCostProfile(input_per_mtok=10.0, output_per_mtok=20.0),
                     rate_limits=BackendRateLimits(
-                        rpm=60, rpd=1000, tpm=10000, daily_token_cap=100000,
+                        rpm=60,
+                        rpd=1000,
+                        tpm=10000,
+                        daily_token_cap=100000,
                     ),
                     priority=0,
                 )
@@ -617,7 +639,9 @@ class TestInterleaveInvariants:
         max_consecutive=st.integers(min_value=1, max_value=5),
     )
     def test_no_more_than_max_consecutive_same_provider(
-        self, scored, max_consecutive,
+        self,
+        scored,
+        max_consecutive,
     ):
         """[TM-010 AC-1] Property: No more than max_consecutive same-provider in a row."""
         # Skip if only one provider (can't interleave)
@@ -628,6 +652,7 @@ class TestInterleaveInvariants:
         # count C, we need at least ceil(C / max_consecutive) - 1 items
         # from other providers to space them out.
         from collections import Counter
+
         counts = Counter(m.provider for m in scored)
         total = len(scored)
         for _prov, count in counts.items():
@@ -679,7 +704,9 @@ class TestHealthScoringInvariant:
         errors=st.integers(min_value=0, max_value=20),
     )
     def test_health_score_bounded_after_mixed_operations(
-        self, successes: int, errors: int,
+        self,
+        successes: int,
+        errors: int,
     ) -> None:
         """[TS-001 AC-2] Any interleaving of success/error calls yields score in [0, 100]."""
         tracker = HealthTracker()
@@ -768,7 +795,8 @@ class TestModelSelectionInvariant:
                 ],
             }
             cache = CatalogCache(
-                cache_path=state_dir / "provider_catalog.json", ttl_hours=24,
+                cache_path=state_dir / "provider_catalog.json",
+                ttl_hours=24,
             )
             cache.set(catalog)
 
@@ -802,7 +830,11 @@ class TestBudgetScoringMonotonicity:
         tokens_per_request=st.integers(min_value=0, max_value=100),
     )
     def test_budget_score_monotonically_decreases(
-        self, rpm: int, rpd: int | None, num_requests: int, tokens_per_request: int,
+        self,
+        rpm: int,
+        rpd: int | None,
+        num_requests: int,
+        tokens_per_request: int,
     ) -> None:
         """[TS-001 AC-4] Budget score never increases as more requests are recorded."""
         provider = ProviderConfig(
@@ -854,7 +886,9 @@ class TestCascadeDispatchInvariant:
         tier=st.sampled_from(list(BackendTier)),
     )
     def test_cascade_candidates_always_subset_of_input(
-        self, num_backends: int, tier: BackendTier,
+        self,
+        num_backends: int,
+        tier: BackendTier,
     ) -> None:
         """[TS-001 AC-5] Filtered candidates are always a subset of the input backends."""
         from dragonlight_router.selection.mbr import _filter_by_capabilities
@@ -878,7 +912,10 @@ class TestCascadeDispatchInvariant:
                     ),
                     cost=BackendCostProfile(input_per_mtok=1.0, output_per_mtok=2.0),
                     rate_limits=BackendRateLimits(
-                        rpm=60, rpd=1000, tpm=10000, daily_token_cap=100000,
+                        rpm=60,
+                        rpd=1000,
+                        tpm=10000,
+                        daily_token_cap=100000,
                     ),
                     priority=0,
                 ),
@@ -899,15 +936,14 @@ class TestCascadeDispatchInvariant:
         # Every result must come from the input list
         input_names = {c.name for c in candidates}
         for r in result:
-            assert r.name in input_names, (
-                f"Result {r.name} not in input candidates: {input_names}"
-            )
+            assert r.name in input_names, f"Result {r.name} not in input candidates: {input_names}"
 
     @given(
         num_backends=st.integers(min_value=1, max_value=5),
     )
     def test_lbr_filter_returns_subset_or_empty(
-        self, num_backends: int,
+        self,
+        num_backends: int,
     ) -> None:
         """[TS-001 AC-6] LBR filter output is always a subset of input, never None."""
         candidates = []
@@ -929,7 +965,10 @@ class TestCascadeDispatchInvariant:
                     ),
                     cost=BackendCostProfile(input_per_mtok=1.0, output_per_mtok=2.0),
                     rate_limits=BackendRateLimits(
-                        rpm=60, rpd=1000, tpm=10000, daily_token_cap=100000,
+                        rpm=60,
+                        rpd=1000,
+                        tpm=10000,
+                        daily_token_cap=100000,
                     ),
                     priority=0,
                 ),
@@ -963,6 +1002,7 @@ class TestCascadeDispatchInvariant:
 # ---------------------------------------------------------------------------
 
 # --- IBR strategies ---
+
 
 def _ibr_flavor_score_strategy() -> st.SearchStrategy[FlavorScore]:
     """Strategy for generating FlavorScore instances."""
@@ -1016,6 +1056,7 @@ def valid_scoring_weights_with_flavor() -> st.SearchStrategy[ScoringWeightsConfi
 
     Generates 6 non-negative weights that sum to 1.0.
     """
+
     @st.composite
     def _build(draw: st.DrawFn) -> ScoringWeightsConfig:
         flavor_match = draw(st.floats(min_value=0.0, max_value=0.30))
@@ -1032,6 +1073,7 @@ def valid_scoring_weights_with_flavor() -> st.SearchStrategy[ScoringWeightsConfi
             health=scaled[4],
             flavor_match=flavor_match,
         )
+
     return _build()
 
 
@@ -1047,16 +1089,23 @@ class TestIBRFlavorMatchInvariant:
         qs_score=st.floats(min_value=0.0, max_value=1.0),
     )
     def test_flavor_match_always_in_unit_interval(
-        self, task_score: float, domain_score: float, qs_score: float,
+        self,
+        task_score: float,
+        domain_score: float,
+        qs_score: float,
     ) -> None:
         """[IBR-TEST-02 AC-1] compute_flavor_match always returns [0.0, 1.0]."""
         intent = ClassifiedIntent(
-            task_type="analysis", domain="code",
-            quality_speed="balanced", confidence=0.9,
-            latency_ms=10.0, from_cache=False,
+            task_type="analysis",
+            domain="code",
+            quality_speed="balanced",
+            confidence=0.9,
+            latency_ms=10.0,
+            from_cache=False,
         )
         profile = ModelFlavorProfile(
-            model_id="test", version=1,
+            model_id="test",
+            version=1,
             updated_at="2026-01-01T00:00:00Z",
             task_scores=dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_FLAVOR)
             | {"analysis": FlavorScore(score=task_score, confidence=1.0, sample_count=0)},
@@ -1073,7 +1122,9 @@ class TestIBRFlavorMatchInvariant:
         profile=_ibr_model_flavor_profile_strategy(),
     )
     def test_flavor_match_bounded_for_arbitrary_profiles(
-        self, intent: ClassifiedIntent, profile: ModelFlavorProfile,
+        self,
+        intent: ClassifiedIntent,
+        profile: ModelFlavorProfile,
     ) -> None:
         """[IBR-TEST-02 AC-1] Flavor match is in [0.0, 1.0] for any valid intent+profile."""
         result = compute_flavor_match(intent, profile)
@@ -1088,12 +1139,17 @@ class TestIBRScoringWeightsInvariant:
 
     @given(weights=valid_scoring_weights_with_flavor())
     def test_scoring_weights_with_flavor_sum_to_one(
-        self, weights: ScoringWeightsConfig,
+        self,
+        weights: ScoringWeightsConfig,
     ) -> None:
         """[IBR-TEST-02 AC-2] ScoringWeightsConfig always sums to 1.0 including flavor_match."""
         total = (
-            weights.cost + weights.latency + weights.priority
-            + weights.queue + weights.health + weights.flavor_match
+            weights.cost
+            + weights.latency
+            + weights.priority
+            + weights.queue
+            + weights.health
+            + weights.flavor_match
         )
         assert abs(total - 1.0) < 1e-6
 
@@ -1108,19 +1164,26 @@ class TestIBRConfidenceGatingInvariant:
     def test_confidence_gating_monotonic(self, confidence: float) -> None:
         """[IBR-TEST-02 AC-3] Higher confidence is more likely to pass gating."""
         intent_low = ClassifiedIntent(
-            task_type="analysis", domain="code",
-            quality_speed="balanced", confidence=0.0,
-            latency_ms=10.0, from_cache=False,
+            task_type="analysis",
+            domain="code",
+            quality_speed="balanced",
+            confidence=0.0,
+            latency_ms=10.0,
+            from_cache=False,
         )
         intent_high = ClassifiedIntent(
-            task_type="analysis", domain="code",
-            quality_speed="balanced", confidence=1.0,
-            latency_ms=10.0, from_cache=False,
+            task_type="analysis",
+            domain="code",
+            quality_speed="balanced",
+            confidence=1.0,
+            latency_ms=10.0,
+            from_cache=False,
         )
         # Full-confidence profile so profile threshold doesn't gate
         full_fs = FlavorScore(score=0.8, confidence=1.0, sample_count=10)
         profile = ModelFlavorProfile(
-            model_id="test", version=1,
+            model_id="test",
+            version=1,
             updated_at="2026-01-01T00:00:00Z",
             task_scores=dict.fromkeys(IBR_TASK_TYPES, full_fs),
             domain_scores=dict.fromkeys(IBR_DOMAINS, full_fs),
@@ -1128,10 +1191,14 @@ class TestIBRConfidenceGatingInvariant:
         )
 
         result_low = should_apply_flavor_match(
-            intent_low, profile, confidence_threshold=confidence,
+            intent_low,
+            profile,
+            confidence_threshold=confidence,
         )
         result_high = should_apply_flavor_match(
-            intent_high, profile, confidence_threshold=confidence,
+            intent_high,
+            profile,
+            confidence_threshold=confidence,
         )
 
         # If low confidence passes, high must also pass (monotonic)
@@ -1142,13 +1209,17 @@ class TestIBRConfidenceGatingInvariant:
     def test_below_default_threshold_always_gated(self, confidence: float) -> None:
         """[IBR-TEST-02 AC-3] Confidence below 0.6 default is always gated."""
         intent = ClassifiedIntent(
-            task_type="analysis", domain="code",
-            quality_speed="balanced", confidence=confidence,
-            latency_ms=10.0, from_cache=False,
+            task_type="analysis",
+            domain="code",
+            quality_speed="balanced",
+            confidence=confidence,
+            latency_ms=10.0,
+            from_cache=False,
         )
         full_fs = FlavorScore(score=0.8, confidence=1.0, sample_count=10)
         profile = ModelFlavorProfile(
-            model_id="test", version=1,
+            model_id="test",
+            version=1,
             updated_at="2026-01-01T00:00:00Z",
             task_scores=dict.fromkeys(IBR_TASK_TYPES, full_fs),
             domain_scores=dict.fromkeys(IBR_DOMAINS, full_fs),
@@ -1167,7 +1238,8 @@ class TestIBRDegradationInvariant:
         model_ids=st.lists(
             st.text(
                 alphabet=st.characters(whitelist_categories=("Ll", "Nd")),
-                min_size=1, max_size=10,
+                min_size=1,
+                max_size=10,
             ),
             min_size=1,
             max_size=5,
@@ -1177,7 +1249,8 @@ class TestIBRDegradationInvariant:
         """[IBR-TEST-02 AC-4] None intent produces empty flavor scores (IBR inactive)."""
         profiles = {
             mid: ModelFlavorProfile(
-                model_id=mid, version=1,
+                model_id=mid,
+                version=1,
                 updated_at="2026-01-01T00:00:00Z",
                 task_scores=dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_FLAVOR),
                 domain_scores=dict.fromkeys(IBR_DOMAINS, IBR_NEUTRAL_FLAVOR),
@@ -1193,7 +1266,8 @@ class TestIBRDegradationInvariant:
         """[IBR-TEST-02 AC-4] should_apply_flavor_match always False for None intent."""
         full_fs = FlavorScore(score=0.8, confidence=1.0, sample_count=10)
         profile = ModelFlavorProfile(
-            model_id="test", version=1,
+            model_id="test",
+            version=1,
             updated_at="2026-01-01T00:00:00Z",
             task_scores=dict.fromkeys(IBR_TASK_TYPES, full_fs),
             domain_scores=dict.fromkeys(IBR_DOMAINS, full_fs),
@@ -1213,18 +1287,24 @@ class TestIBRFlavorMatchMonotonicity:
         high_score=st.floats(min_value=0.51, max_value=1.0),
     )
     def test_higher_task_score_higher_match(
-        self, low_score: float, high_score: float,
+        self,
+        low_score: float,
+        high_score: float,
     ) -> None:
         """[IBR-TEST-02 AC-5] Higher task_score produces higher flavor_match, all else equal."""
         intent = ClassifiedIntent(
-            task_type="analysis", domain="code",
-            quality_speed="balanced", confidence=0.9,
-            latency_ms=10.0, from_cache=False,
+            task_type="analysis",
+            domain="code",
+            quality_speed="balanced",
+            confidence=0.9,
+            latency_ms=10.0,
+            from_cache=False,
         )
 
         def _profile(task_score: float) -> ModelFlavorProfile:
             return ModelFlavorProfile(
-                model_id="test", version=1,
+                model_id="test",
+                version=1,
                 updated_at="2026-01-01T00:00:00Z",
                 task_scores=dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_FLAVOR)
                 | {"analysis": FlavorScore(score=task_score, confidence=1.0, sample_count=0)},

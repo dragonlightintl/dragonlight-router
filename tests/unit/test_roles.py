@@ -2,13 +2,18 @@
 
 Spec traceability: TM-018 (Role matrix ranking)
 """
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from dragonlight_router.roles.matrix import RoleMatrix
+
+pytestmark = pytest.mark.unit
 
 
 def _write_matrix(path: Path, data: dict) -> None:
@@ -19,13 +24,16 @@ class TestRoleMatrix:
     def test_get_ranked_models(self, tmp_path: Path):
         """[TM-018 AC-1] Ranked models returned in descending rank order."""
         path = tmp_path / "matrix.json"
-        _write_matrix(path, {
-            "coding": {
-                "mistral_codestral": 95,
-                "groq_llama70b": 85,
-                "ollama_qwen": 50,
-            }
-        })
+        _write_matrix(
+            path,
+            {
+                "coding": {
+                    "mistral_codestral": 95,
+                    "groq_llama70b": 85,
+                    "ollama_qwen": 50,
+                }
+            },
+        )
         matrix = RoleMatrix(matrix_path=path)
         ranked = matrix.get_ranked_models("coding")
         assert ranked[0] == ("mistral_codestral", 95)
@@ -35,13 +43,16 @@ class TestRoleMatrix:
     def test_sorted_by_rank_descending(self, tmp_path: Path):
         """[TM-018 AC-1] Models sorted by rank descending."""
         path = tmp_path / "matrix.json"
-        _write_matrix(path, {
-            "coding": {
-                "a": 50,
-                "b": 90,
-                "c": 70,
-            }
-        })
+        _write_matrix(
+            path,
+            {
+                "coding": {
+                    "a": 50,
+                    "b": 90,
+                    "c": 70,
+                }
+            },
+        )
         matrix = RoleMatrix(matrix_path=path)
         ranked = matrix.get_ranked_models("coding")
         ranks = [r[1] for r in ranked]
@@ -84,6 +95,7 @@ class TestRoleMatrix:
 
         # Modify the file
         import time
+
         time.sleep(0.01)
         _write_matrix(path, {"coding": {"a": 99}})
         matrix.reload_if_changed()
@@ -159,7 +171,7 @@ class TestRoleMatrix:
             "version": 1,
             "roles": {
                 "coding": [{"model_id": "gpt4", "rank": 95}],
-            }
+            },
         }
         path.write_text(json.dumps(data))
         matrix = RoleMatrix(matrix_path=path)

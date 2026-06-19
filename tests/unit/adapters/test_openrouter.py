@@ -14,6 +14,9 @@ import pytest
 from dragonlight_router.adapters.openrouter import OpenRouterBackend
 from dragonlight_router.core.types import BackendStatus
 
+pytestmark = pytest.mark.unit
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -219,9 +222,7 @@ async def test_health_check_missing_env_var_returns_false(make_backend_config):
 async def test_health_check_success(make_backend_config):
     """health_check returns True on 200 from the models endpoint."""
     response_body = {"object": "list", "data": [{"id": "openai/gpt-4o", "object": "model"}]}
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(200, json=response_body)
-    )
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=response_body))
     backend = _make_backend(make_backend_config, transport)
     result = await backend.health_check()
     assert result is True
@@ -231,9 +232,7 @@ async def test_health_check_success(make_backend_config):
 @pytest.mark.asyncio
 async def test_health_check_unauthorized(make_backend_config):
     """health_check returns False on 401."""
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(401, json={"error": "bad key"})
-    )
+    transport = httpx.MockTransport(lambda request: httpx.Response(401, json={"error": "bad key"}))
     backend = _make_backend(make_backend_config, transport)
     result = await backend.health_check()
     assert result is False
@@ -280,7 +279,8 @@ async def test_generate_streaming_success(make_backend_config):
 
     chunks: list[str] = []
     async for chunk in backend.generate(
-        [{"role": "user", "content": "Hi"}], stream=True,
+        [{"role": "user", "content": "Hi"}],
+        stream=True,
     ):
         chunks.append(chunk)
 

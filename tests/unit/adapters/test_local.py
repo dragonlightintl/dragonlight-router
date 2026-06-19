@@ -15,9 +15,13 @@ import pytest
 from dragonlight_router.adapters.local import LocalBackend
 from dragonlight_router.core.types import BackendStatus
 
+pytestmark = pytest.mark.unit
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _oai_stream_chunk(content: str, finish: bool = False) -> dict:
     """Build a minimal OpenAI-compatible streaming chunk."""
@@ -57,6 +61,7 @@ class _FakeStreamResponse:
 # Streaming generation tests
 # ---------------------------------------------------------------------------
 
+
 class TestLocalGenerate:
     @pytest.fixture
     def backend(self, make_backend_config):
@@ -70,11 +75,13 @@ class TestLocalGenerate:
         return LocalBackend(config)
 
     async def test_streaming_generation(self, backend):
-        sse_lines = _make_sse_lines([
-            _oai_stream_chunk("Hello"),
-            _oai_stream_chunk(", world!"),
-            _oai_stream_chunk("", finish=True),
-        ])
+        sse_lines = _make_sse_lines(
+            [
+                _oai_stream_chunk("Hello"),
+                _oai_stream_chunk(", world!"),
+                _oai_stream_chunk("", finish=True),
+            ]
+        )
         fake_response = _FakeStreamResponse(sse_lines)
 
         @asynccontextmanager
@@ -89,20 +96,20 @@ class TestLocalGenerate:
             mock_cls.return_value = mock_client
 
             chunks = []
-            async for chunk in backend.generate(
-                [{"role": "user", "content": "Say hello"}]
-            ):
+            async for chunk in backend.generate([{"role": "user", "content": "Say hello"}]):
                 chunks.append(chunk)
 
         assert chunks == ["Hello", ", world!"]
 
     async def test_non_streaming(self, backend):
         response_body = {
-            "choices": [{
-                "index": 0,
-                "message": {"role": "assistant", "content": "Hello, world!"},
-                "finish_reason": "stop",
-            }]
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Hello, world!"},
+                    "finish_reason": "stop",
+                }
+            ]
         }
 
         mock_response = MagicMock(spec=httpx.Response)
@@ -170,9 +177,7 @@ class TestLocalGenerate:
             mock_cls.return_value = mock_client
 
             with pytest.raises(RuntimeError, match="500"):
-                async for _ in backend.generate(
-                    [{"role": "user", "content": "test"}]
-                ):
+                async for _ in backend.generate([{"role": "user", "content": "test"}]):
                     pass
 
         assert backend.status == BackendStatus.ERROR
@@ -191,9 +196,7 @@ class TestLocalGenerate:
             mock_cls.return_value = mock_client
 
             with pytest.raises(ConnectionError, match="Cannot connect"):
-                async for _ in backend.generate(
-                    [{"role": "user", "content": "test"}]
-                ):
+                async for _ in backend.generate([{"role": "user", "content": "test"}]):
                     pass
 
         assert backend.status == BackendStatus.OFFLINE
@@ -212,9 +215,7 @@ class TestLocalGenerate:
             mock_cls.return_value = mock_client
 
             with pytest.raises(RuntimeError, match="Local connection failed"):
-                async for _ in backend.generate(
-                    [{"role": "user", "content": "test"}]
-                ):
+                async for _ in backend.generate([{"role": "user", "content": "test"}]):
                     pass
 
         assert backend.status == BackendStatus.ERROR
@@ -268,9 +269,7 @@ class TestLocalGenerate:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_cls.return_value = mock_client
 
-            async for _ in backend.generate(
-                [{"role": "user", "content": "test"}]
-            ):
+            async for _ in backend.generate([{"role": "user", "content": "test"}]):
                 pass
 
         assert captured_url == "http://localhost:11434/v1/chat/completions"
@@ -279,6 +278,7 @@ class TestLocalGenerate:
 # ---------------------------------------------------------------------------
 # Health check tests
 # ---------------------------------------------------------------------------
+
 
 class TestLocalHealthCheck:
     @pytest.fixture
@@ -364,6 +364,7 @@ class TestLocalHealthCheck:
 # Usage recording
 # ---------------------------------------------------------------------------
 
+
 class TestLocalUsage:
     def test_record_usage(self, make_backend_config):
         config = make_backend_config(name="ollama", provider="local", env_key=None)
@@ -412,6 +413,7 @@ class TestLocalGenerateAdditional:
     # lines 81-84 — HTTPError in generate while streaming
     async def test_http_error_in_stream(self, backend):
         """httpx.HTTPError during stream sets ERROR and raises RuntimeError."""
+
         @asynccontextmanager
         async def fake_stream(method, url, **kwargs):
             raise httpx.HTTPError("generic HTTP error")
@@ -425,9 +427,7 @@ class TestLocalGenerateAdditional:
             mock_cls.return_value = mock_client
 
             with pytest.raises(RuntimeError, match="Local API error"):
-                async for _ in backend.generate(
-                    [{"role": "user", "content": "test"}]
-                ):
+                async for _ in backend.generate([{"role": "user", "content": "test"}]):
                     pass
 
         assert backend.status == BackendStatus.ERROR

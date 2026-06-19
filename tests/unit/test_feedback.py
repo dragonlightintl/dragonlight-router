@@ -3,6 +3,7 @@
 Spec traceability: IBR spec v0.1.0 section 3.2 (Method 2).
 AC numbers: IBR-FLV-03, IBR-FLV-05.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -24,6 +25,9 @@ from dragonlight_router.selection.feedback import (
     _get_score_map,
     _resolve_floor,
 )
+
+pytestmark = pytest.mark.unit
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -51,6 +55,7 @@ def _make_profile(
     qs_scores: dict[str, float] | None = None,
 ) -> ModelFlavorProfile:
     """Build a ModelFlavorProfile with optional partial scores."""
+
     def _build_scores(
         raw: dict[str, float] | None,
         allowed: frozenset[str],
@@ -60,7 +65,9 @@ def _make_profile(
         for key in allowed:
             if key in parsed:
                 scores[key] = FlavorScore(
-                    score=parsed[key], confidence=1.0, sample_count=0,
+                    score=parsed[key],
+                    confidence=1.0,
+                    sample_count=0,
                 )
             else:
                 scores[key] = IBR_NEUTRAL_FLAVOR
@@ -102,16 +109,13 @@ class TestFeedbackStoreInit:
     def test_schema_has_feedback_scores_table(self, feedback_store):
         """feedback_scores table exists after init."""
         cursor = feedback_store._conn.execute(
-            "SELECT name FROM sqlite_master "
-            "WHERE type='table' AND name='feedback_scores'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='feedback_scores'"
         )
         assert cursor.fetchone() is not None
 
     def test_wal_mode_enabled(self, feedback_store):
         """WAL journal mode is set for concurrency safety."""
-        result = feedback_store._conn.execute(
-            "PRAGMA journal_mode"
-        ).fetchone()
+        result = feedback_store._conn.execute("PRAGMA journal_mode").fetchone()
         assert result[0] == "wal"
 
     def test_idempotent_schema_creation(self, tmp_path):
@@ -140,7 +144,8 @@ class TestRecordFeedback:
         profile = profiles["model-a"]
         # quality_rating=5 -> observation=1.0
         assert profile.task_scores["analysis"].score == pytest.approx(
-            1.0, abs=1e-9,
+            1.0,
+            abs=1e-9,
         )
 
     def test_ema_update_second_observation(self, feedback_store):
@@ -153,7 +158,8 @@ class TestRecordFeedback:
         profile = profiles["model-a"]
         # EMA: 0.1 * 0.2 + 0.9 * 1.0 = 0.92
         assert profile.task_scores["analysis"].score == pytest.approx(
-            0.92, abs=1e-9,
+            0.92,
+            abs=1e-9,
         )
 
     def test_sample_count_increments(self, feedback_store):
@@ -177,7 +183,8 @@ class TestRecordFeedback:
         profiles = feedback_store.get_learned_profiles()
         profile = profiles["model-a"]
         assert profile.task_scores["analysis"].confidence == pytest.approx(
-            10 / 50, abs=1e-9,
+            10 / 50,
+            abs=1e-9,
         )
 
     def test_confidence_caps_at_one(self, feedback_store):
@@ -189,7 +196,8 @@ class TestRecordFeedback:
         profiles = feedback_store.get_learned_profiles()
         profile = profiles["model-a"]
         assert profile.task_scores["analysis"].confidence == pytest.approx(
-            1.0, abs=1e-9,
+            1.0,
+            abs=1e-9,
         )
 
     def test_all_three_dimensions_updated(self, feedback_store):
@@ -230,10 +238,12 @@ class TestRecordFeedback:
 
         profiles = feedback_store.get_learned_profiles()
         assert profiles["model-a"].task_scores["analysis"].score == pytest.approx(
-            1.0, abs=1e-9,
+            1.0,
+            abs=1e-9,
         )
         assert profiles["model-b"].task_scores["analysis"].score == pytest.approx(
-            0.2, abs=1e-9,
+            0.2,
+            abs=1e-9,
         )
 
 
@@ -246,11 +256,13 @@ class TestFloorEnforcement:
     """IBR-FLV-03: Feedback cannot lower below 80% of operator-declared value."""
 
     def test_floor_prevents_score_dropping_below_threshold(
-        self, feedback_store,
+        self,
+        feedback_store,
     ):
         """Low rating cannot drop score below 80% of operator value."""
         operator = _make_profile(
-            "model-a", task_scores={"analysis": 0.9},
+            "model-a",
+            task_scores={"analysis": 0.9},
         )
         intent = _make_intent()
         # rating=1 -> observation=0.2, floor = 0.8 * 0.9 = 0.72
@@ -263,7 +275,8 @@ class TestFloorEnforcement:
     def test_floor_allows_scores_above_threshold(self, feedback_store):
         """Scores above the floor pass through unchanged."""
         operator = _make_profile(
-            "model-a", task_scores={"analysis": 0.5},
+            "model-a",
+            task_scores={"analysis": 0.5},
         )
         intent = _make_intent()
         # rating=5 -> observation=1.0, floor = 0.8 * 0.5 = 0.4
@@ -271,7 +284,8 @@ class TestFloorEnforcement:
 
         profiles = feedback_store.get_learned_profiles()
         assert profiles["model-a"].task_scores["analysis"].score == pytest.approx(
-            1.0, abs=1e-9,
+            1.0,
+            abs=1e-9,
         )
 
     def test_no_floor_without_operator_profile(self, feedback_store):
@@ -282,7 +296,8 @@ class TestFloorEnforcement:
         profiles = feedback_store.get_learned_profiles()
         # rating=1 -> observation=0.2, no floor
         assert profiles["model-a"].task_scores["analysis"].score == pytest.approx(
-            0.2, abs=1e-9,
+            0.2,
+            abs=1e-9,
         )
 
 

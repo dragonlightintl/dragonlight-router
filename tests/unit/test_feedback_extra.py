@@ -11,6 +11,7 @@ Supplements test_feedback.py with coverage for:
 Spec traceability: IBR spec v0.1.0 section 3.2 (Method 2).
 AC numbers: IBR-FLV-03, IBR-FLV-05.
 """
+
 from __future__ import annotations
 
 import threading
@@ -34,6 +35,9 @@ from dragonlight_router.selection.feedback import (
     FeedbackStore,
     _apply_floor,
 )
+
+pytestmark = pytest.mark.unit
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -71,7 +75,9 @@ def _make_profile(
         for key in allowed:
             if key in parsed:
                 scores[key] = FlavorScore(
-                    score=parsed[key], confidence=1.0, sample_count=0,
+                    score=parsed[key],
+                    confidence=1.0,
+                    sample_count=0,
                 )
             else:
                 scores[key] = IBR_NEUTRAL_FLAVOR
@@ -110,9 +116,7 @@ class TestSchemaCreation:
 
         store = FeedbackStore(db_path=db_path)
 
-        cursor = store._conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        )
+        cursor = store._conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = {row[0] for row in cursor.fetchall()}
         assert "feedback_scores" in tables
         store.close()
@@ -124,8 +128,13 @@ class TestSchemaCreation:
         cursor = store._conn.execute("PRAGMA table_info(feedback_scores)")
         columns = {row[1] for row in cursor.fetchall()}
         expected = {
-            "model_id", "dimension_type", "dimension_value",
-            "score", "confidence", "sample_count", "updated_at",
+            "model_id",
+            "dimension_type",
+            "dimension_value",
+            "score",
+            "confidence",
+            "sample_count",
+            "updated_at",
         }
         assert expected == columns
         store.close()
@@ -336,10 +345,12 @@ class TestGetLearnedProfilesMultiModel:
 
         profiles = feedback_store.get_learned_profiles()
         assert profiles["model-a"].task_scores["analysis"].score == pytest.approx(
-            1.0, abs=1e-9,
+            1.0,
+            abs=1e-9,
         )
         assert profiles["model-b"].task_scores["analysis"].score == pytest.approx(
-            0.2, abs=1e-9,
+            0.2,
+            abs=1e-9,
         )
 
     def test_different_intents_for_different_models(self, feedback_store):
@@ -384,7 +395,8 @@ class TestEdgeCaseQualityRatings:
 
         profiles = feedback_store.get_learned_profiles()
         assert profiles["model-a"].task_scores["analysis"].score == pytest.approx(
-            0.2, abs=1e-9,
+            0.2,
+            abs=1e-9,
         )
 
     def test_rating_5_gives_maximum_observation(self, feedback_store):
@@ -394,7 +406,8 @@ class TestEdgeCaseQualityRatings:
 
         profiles = feedback_store.get_learned_profiles()
         assert profiles["model-a"].task_scores["analysis"].score == pytest.approx(
-            1.0, abs=1e-9,
+            1.0,
+            abs=1e-9,
         )
 
     def test_rating_0_raises_assertion(self, feedback_store):
@@ -419,7 +432,8 @@ class TestEdgeCaseQualityRatings:
         # EMA: 0.1 * 1.0 + 0.9 * 0.2 = 0.28
         expected = _EMA_ALPHA * 1.0 + (1.0 - _EMA_ALPHA) * 0.2
         assert profiles["model-a"].task_scores["analysis"].score == pytest.approx(
-            expected, abs=1e-9,
+            expected,
+            abs=1e-9,
         )
 
 
@@ -529,7 +543,8 @@ class TestFeedbackStoreLifecycle:
         profiles = store2.get_learned_profiles()
         assert "model-a" in profiles
         assert profiles["model-a"].task_scores["analysis"].score == pytest.approx(
-            1.0, abs=1e-9,
+            1.0,
+            abs=1e-9,
         )
         store2.close()
 
@@ -559,7 +574,8 @@ class TestFeedbackStoreLifecycle:
 
         profiles = store.get_learned_profiles()
         assert profiles["model-a"].task_scores["analysis"].confidence == pytest.approx(
-            1.0, abs=1e-9,
+            1.0,
+            abs=1e-9,
         )
         assert profiles["model-a"].task_scores["analysis"].sample_count == (
             _FULL_CONFIDENCE_SAMPLES

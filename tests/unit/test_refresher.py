@@ -2,6 +2,7 @@
 
 Spec traceability: TM-005 (Catalog refresh and provider model fetching)
 """
+
 from __future__ import annotations
 
 import os
@@ -14,6 +15,8 @@ from dragonlight_router.catalog.refresher import CatalogRefresher, CatalogRefres
 from dragonlight_router.config.schema import ProviderSchema, RateLimitSchema
 from dragonlight_router.core.types import CatalogEntry
 from dragonlight_router.result import Ok
+
+pytestmark = pytest.mark.unit
 
 
 def make_provider(
@@ -35,12 +38,7 @@ def make_provider(
 
 def make_models_response(model_ids: list[str], created: int | None = None) -> dict:
     """Build a fake /v1/models response payload."""
-    return {
-        "data": [
-            {"id": mid, "created": created}
-            for mid in model_ids
-        ]
-    }
+    return {"data": [{"id": mid, "created": created} for mid in model_ids]}
 
 
 class TestCatalogRefresherInit:
@@ -137,9 +135,7 @@ class TestRefresh:
 
         async def fake_fetch(provider_arg):
             if provider_arg.name == "nvidia":
-                raise httpx.HTTPStatusError(
-                    "503", request=MagicMock(), response=MagicMock()
-                )
+                raise httpx.HTTPStatusError("503", request=MagicMock(), response=MagicMock())
             return [CatalogEntry(model_id="groq/llama-70b", provider="groq")]
 
         refresher = CatalogRefresher()
@@ -285,7 +281,8 @@ class TestFetchProvider:
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
         mock_response.json.return_value = make_models_response(
-            ["llama-70b"], created=1700000000,
+            ["llama-70b"],
+            created=1700000000,
         )
 
         mock_client = AsyncMock()

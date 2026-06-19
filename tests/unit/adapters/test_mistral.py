@@ -15,6 +15,8 @@ import pytest
 from dragonlight_router.adapters.mistral import MistralBackend
 from dragonlight_router.core.types import BackendStatus
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def mistral_config(make_backend_config):
@@ -37,9 +39,7 @@ def _make_sse_lines(chunks: list[str], done: bool = True) -> list[str]:
     """Build SSE lines for OpenAI-compatible streaming."""
     lines = []
     for text in chunks:
-        payload = {
-            "choices": [{"delta": {"content": text}, "index": 0}]
-        }
+        payload = {"choices": [{"delta": {"content": text}, "index": 0}]}
         lines.append(f"data: {json.dumps(payload)}")
     if done:
         lines.append("data: [DONE]")
@@ -57,7 +57,9 @@ class _FakeStreamResponse:
     def raise_for_status(self):
         if not self.is_success:
             raise httpx.HTTPStatusError(
-                "error", request=MagicMock(), response=self,
+                "error",
+                request=MagicMock(),
+                response=self,
             )
 
     async def aiter_lines(self):
@@ -88,7 +90,8 @@ class TestMistralGenerate:
 
             chunks = []
             async for chunk in mistral_backend.generate(
-                [{"role": "user", "content": "Hi"}], stream=True,
+                [{"role": "user", "content": "Hi"}],
+                stream=True,
             ):
                 chunks.append(chunk)
 
@@ -98,9 +101,7 @@ class TestMistralGenerate:
     @pytest.mark.asyncio
     async def test_non_streaming_generation(self, mistral_backend):
         """Non-streaming generate yields the full message content."""
-        response_body = {
-            "choices": [{"message": {"content": "Full response here."}}]
-        }
+        response_body = {"choices": [{"message": {"content": "Full response here."}}]}
         fake_response = _FakeStreamResponse([json.dumps(response_body)])
         fake_response.json = lambda: response_body
 
@@ -117,7 +118,8 @@ class TestMistralGenerate:
 
             chunks = []
             async for chunk in mistral_backend.generate(
-                [{"role": "user", "content": "Hi"}], stream=False,
+                [{"role": "user", "content": "Hi"}],
+                stream=False,
             ):
                 chunks.append(chunk)
 
@@ -192,9 +194,9 @@ class TestMistralGenerate:
     async def test_skips_malformed_json(self, mistral_backend):
         """Malformed JSON lines in SSE are silently skipped."""
         lines = [
-            'data: not-valid-json',
-            f'data: {json.dumps({"choices": [{"delta": {"content": "ok"}}]})}',
-            'data: [DONE]',
+            "data: not-valid-json",
+            f"data: {json.dumps({'choices': [{'delta': {'content': 'ok'}}]})}",
+            "data: [DONE]",
         ]
         fake_response = _FakeStreamResponse(lines)
 

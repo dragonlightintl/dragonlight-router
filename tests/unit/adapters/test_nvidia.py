@@ -14,6 +14,9 @@ import pytest
 from dragonlight_router.adapters.nvidia import _DEFAULT_BASE_URL, NvidiaBackend
 from dragonlight_router.core.types import BackendStatus
 
+pytestmark = pytest.mark.unit
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -114,9 +117,7 @@ async def test_generate_streaming_success(make_backend_config):
     """Streaming generate yields text chunks from SSE delta events."""
     sse = _sse_lines("Hello", " world")
 
-    transport = httpx.MockTransport(
-        lambda request: _stream_response(200, sse)
-    )
+    transport = httpx.MockTransport(lambda request: _stream_response(200, sse))
     backend = _make_nvidia_backend(make_backend_config, transport)
 
     chunks: list[str] = []
@@ -150,9 +151,7 @@ async def test_generate_non_streaming(make_backend_config):
         "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
     }
 
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(200, json=response_body)
-    )
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=response_body))
     backend = _make_nvidia_backend(make_backend_config, transport)
 
     chunks: list[str] = []
@@ -202,9 +201,7 @@ async def test_generate_401_unauthorized(make_backend_config):
 async def test_generate_429_rate_limited(make_backend_config):
     """429 from the API raises RuntimeError and sets ERROR status."""
     transport = httpx.MockTransport(
-        lambda request: httpx.Response(
-            429, json={"error": {"message": "rate limited"}}
-        )
+        lambda request: httpx.Response(429, json={"error": {"message": "rate limited"}})
     )
     backend = _make_nvidia_backend(make_backend_config, transport)
 
@@ -221,9 +218,7 @@ async def test_generate_429_rate_limited(make_backend_config):
 async def test_generate_500_server_error(make_backend_config):
     """500 from the API raises RuntimeError and sets ERROR status."""
     transport = httpx.MockTransport(
-        lambda request: httpx.Response(
-            500, json={"error": {"message": "internal error"}}
-        )
+        lambda request: httpx.Response(500, json={"error": {"message": "internal error"}})
     )
     backend = _make_nvidia_backend(make_backend_config, transport)
 
@@ -248,9 +243,7 @@ async def test_health_check_success(make_backend_config):
         "object": "list",
         "data": [{"id": "nvidia/llama-3.1-nemotron-70b-instruct", "object": "model"}],
     }
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(200, json=response_body)
-    )
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=response_body))
     backend = _make_nvidia_backend(make_backend_config, transport)
 
     result = await backend.health_check()
@@ -415,9 +408,7 @@ async def test_generate_non_streaming_empty_choices(make_backend_config):
     Covers _openai_compat.py line 189 (_extract_non_stream_content no choices).
     """
     response_body = {"id": "chatcmpl-1", "object": "chat.completion", "choices": []}
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(200, json=response_body)
-    )
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=response_body))
     backend = _make_nvidia_backend(make_backend_config, transport)
 
     chunks: list[str] = []
@@ -469,11 +460,11 @@ async def test_generate_runtime_error_propagates(make_backend_config):
         _patch.object(backend, "_parse_sse_stream", _raise_runtime),
         pytest.raises(RuntimeError, match="inner runtime error"),
     ):
-            async for _ in backend.generate(
-                [{"role": "user", "content": "Hi"}],
-                stream=True,
-            ):
-                pass
+        async for _ in backend.generate(
+            [{"role": "user", "content": "Hi"}],
+            stream=True,
+        ):
+            pass
 
 
 @pytest.mark.asyncio
@@ -485,11 +476,13 @@ async def test_generate_streaming_chunk_no_choices(make_backend_config):
     """
     # A chunk with no choices, followed by a valid chunk
     no_choices_data = json.dumps({"id": "c0", "object": "chat.completion.chunk", "choices": []})
-    valid_data = json.dumps({
-        "id": "c1",
-        "object": "chat.completion.chunk",
-        "choices": [{"index": 0, "delta": {"content": "hello"}, "finish_reason": None}],
-    })
+    valid_data = json.dumps(
+        {
+            "id": "c1",
+            "object": "chat.completion.chunk",
+            "choices": [{"index": 0, "delta": {"content": "hello"}, "finish_reason": None}],
+        }
+    )
     body = f"data: {no_choices_data}\n\ndata: {valid_data}\n\ndata: [DONE]\n\n".encode()
 
     transport = httpx.MockTransport(
@@ -550,6 +543,7 @@ def test_resolve_base_url_falls_back_to_default(make_backend_config):
     )
     with patch.dict("os.environ", {"NVIDIA_API_KEY": "nvapi-test"}, clear=True):
         from dragonlight_router.adapters.nvidia import NvidiaBackend
+
         backend = NvidiaBackend(config)
     # Falls back to NvidiaBackend._default_base_url
     assert backend._resolve_base_url() == _DEFAULT_BASE_URL

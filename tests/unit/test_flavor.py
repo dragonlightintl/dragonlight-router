@@ -3,6 +3,7 @@
 Spec traceability: IBR spec v0.1.0 sections 3, 4, 10.
 AC numbers: IBR-FLV-01 through IBR-FLV-06, IBR-SCORE-01 through IBR-SCORE-04.
 """
+
 from __future__ import annotations
 
 import tempfile
@@ -35,6 +36,9 @@ from dragonlight_router.selection.flavor import (
     should_apply_flavor_match,
 )
 
+pytestmark = pytest.mark.unit
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -61,6 +65,7 @@ def _make_profile(
     qs_scores: dict[str, float] | None = None,
 ) -> ModelFlavorProfile:
     """Build a ModelFlavorProfile with optional partial scores."""
+
     def _build_scores(
         raw: dict[str, float] | None,
         allowed: frozenset[str],
@@ -445,9 +450,14 @@ class TestConfidenceGating:
         intent = _make_intent(confidence=0.9)
         # Neutral profile has confidence=0.0 everywhere
         profile = _make_profile()
-        assert should_apply_flavor_match(
-            intent, profile, profile_confidence_threshold=0.3,
-        ) is False
+        assert (
+            should_apply_flavor_match(
+                intent,
+                profile,
+                profile_confidence_threshold=0.3,
+            )
+            is False
+        )
 
     def test_returns_true_when_both_above_threshold(self):
         """[IBR-SCORE-04] Returns True when both confidences are above thresholds."""
@@ -457,11 +467,15 @@ class TestConfidenceGating:
             domain_scores={"code": 0.7},
             qs_scores={"balanced": 0.6},
         )
-        assert should_apply_flavor_match(
-            intent, profile,
-            confidence_threshold=0.6,
-            profile_confidence_threshold=0.3,
-        ) is True
+        assert (
+            should_apply_flavor_match(
+                intent,
+                profile,
+                confidence_threshold=0.6,
+                profile_confidence_threshold=0.3,
+            )
+            is True
+        )
 
     def test_confidence_exactly_at_threshold_passes(self):
         """[IBR-SCORE-04] Confidence exactly at threshold still passes (>=)."""
@@ -472,7 +486,8 @@ class TestConfidenceGating:
             qs_scores={"balanced": 0.6},
         )
         result = should_apply_flavor_match(
-            intent, profile,
+            intent,
+            profile,
             confidence_threshold=0.6,
             profile_confidence_threshold=0.3,
         )
@@ -487,7 +502,8 @@ class TestConfidenceGating:
             qs_scores={"balanced": 0.6},
         )
         result = should_apply_flavor_match(
-            intent, profile,
+            intent,
+            profile,
             confidence_threshold=0.6,
             profile_confidence_threshold=0.3,
         )
@@ -523,7 +539,8 @@ class TestConfidenceGating:
             qs_scores={"balanced": 0.6},
         )
         result = should_apply_flavor_match(
-            intent, profile,
+            intent,
+            profile,
             confidence_threshold=0.0,
             profile_confidence_threshold=0.0,
         )
@@ -613,7 +630,8 @@ class TestProfileMerging:
     def test_feedback_overlays_operator_score(self):
         """Feedback score replaces operator score when sample_count > 0."""
         operator = _make_profile(
-            "m1", task_scores={"analysis": 0.7},
+            "m1",
+            task_scores={"analysis": 0.7},
         )
         feedback = _make_profile("m1")
         # Manually set feedback task_scores with sample_count > 0
@@ -635,13 +653,15 @@ class TestProfileMerging:
     def test_floor_enforcement_prevents_lowering(self):
         """[IBR-FLV-03] Feedback cannot lower below 80% of operator value."""
         operator = _make_profile(
-            "m1", task_scores={"analysis": 0.9},
+            "m1",
+            task_scores={"analysis": 0.9},
         )
         feedback = ModelFlavorProfile(
             model_id="m1",
             version=1,
             updated_at="2026-06-01",
-            task_scores=dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_FLAVOR) | {
+            task_scores=dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_FLAVOR)
+            | {
                 "analysis": FlavorScore(score=0.5, confidence=0.3, sample_count=15),
             },
             domain_scores=dict.fromkeys(IBR_DOMAINS, IBR_NEUTRAL_FLAVOR),
@@ -654,7 +674,8 @@ class TestProfileMerging:
     def test_no_feedback_preserves_operator(self):
         """Dimensions without feedback keep operator-declared values."""
         operator = _make_profile(
-            "m1", task_scores={"analysis": 0.85},
+            "m1",
+            task_scores={"analysis": 0.85},
         )
         feedback = _make_profile("m1")  # all neutral, sample_count=0
         merged = _merge_single_profile(operator, feedback)
@@ -696,17 +717,23 @@ class TestProfileMerging:
                     version=1,
                     updated_at="2026-06-01",
                     task_scores=dict.fromkeys(
-                        IBR_TASK_TYPES, IBR_NEUTRAL_FLAVOR,
-                    ) | {
+                        IBR_TASK_TYPES,
+                        IBR_NEUTRAL_FLAVOR,
+                    )
+                    | {
                         "analysis": FlavorScore(
-                            score=0.95, confidence=0.6, sample_count=30,
+                            score=0.95,
+                            confidence=0.6,
+                            sample_count=30,
                         ),
                     },
                     domain_scores=dict.fromkeys(
-                        IBR_DOMAINS, IBR_NEUTRAL_FLAVOR,
+                        IBR_DOMAINS,
+                        IBR_NEUTRAL_FLAVOR,
                     ),
                     qs_scores=dict.fromkeys(
-                        IBR_QUALITY_SPEED, IBR_NEUTRAL_FLAVOR,
+                        IBR_QUALITY_SPEED,
+                        IBR_NEUTRAL_FLAVOR,
                     ),
                 ),
             }
@@ -745,3 +772,62 @@ class TestProfileMerging:
             merged = loader.get_merged_profiles({})
             assert "model-a" in merged
             assert merged["model-a"].task_scores["analysis"].score == 0.8
+
+
+# ---------------------------------------------------------------------------
+# Coverage for reload_if_changed OSError branch (lines 155-156)
+# ---------------------------------------------------------------------------
+
+
+class TestReloadIfChangedOSError:
+    """[IBR-FLV-02] reload_if_changed handles OSError from os.path.getmtime."""
+
+    def test_reload_if_changed_oserror_is_caught(self):
+        """[IBR-FLV-02] OSError in getmtime is caught and logged (lines 155-156)."""
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "profiles.yaml"
+            _write_yaml(path, {"profiles": {"model-a": {"task_scores": {"analysis": 0.8}}}})
+            loader = FlavorProfileLoader(path)
+
+            # Simulate OSError when checking mtime
+            with patch(
+                "dragonlight_router.selection.flavor.os.path.getmtime",
+                side_effect=OSError("permission denied"),
+            ):
+                # Should not raise
+                loader.reload_if_changed()
+
+            # Profiles should remain unchanged
+            assert "model-a" in loader.profiles
+
+
+# ---------------------------------------------------------------------------
+# Coverage for _parse_single_profile non-dict raw (lines 227-228)
+# ---------------------------------------------------------------------------
+
+
+class TestParseSingleProfileNonDict:
+    """[IBR-FLV-03] _parse_single_profile returns None on non-dict input."""
+
+    def test_non_dict_raw_returns_none(self):
+        """_parse_single_profile returns None when raw is not a dict."""
+        from dragonlight_router.selection.flavor import _parse_single_profile
+
+        result = _parse_single_profile("test-model", "not a dict")  # type: ignore[arg-type]
+        assert result is None
+
+    def test_list_raw_returns_none(self):
+        """[IBR-FLV-03] _parse_single_profile returns None when raw is a list."""
+        from dragonlight_router.selection.flavor import _parse_single_profile
+
+        result = _parse_single_profile("test-model", [1, 2, 3])  # type: ignore[arg-type]
+        assert result is None
+
+    def test_none_raw_returns_none(self):
+        """[IBR-FLV-03] _parse_single_profile returns None when raw is None."""
+        from dragonlight_router.selection.flavor import _parse_single_profile
+
+        result = _parse_single_profile("test-model", None)  # type: ignore[arg-type]
+        assert result is None

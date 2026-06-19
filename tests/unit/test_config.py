@@ -2,6 +2,7 @@
 
 Spec traceability: TM-016 (Configuration loading and schema)
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,6 +20,8 @@ from dragonlight_router.config.loader import (
 from dragonlight_router.config.schema import ProviderSchema, RateLimitSchema
 from dragonlight_router.core.errors import RouterConfigError
 from dragonlight_router.result import Err, Ok
+
+pytestmark = pytest.mark.unit
 
 
 class TestRouterConfigDefaults:
@@ -180,3 +183,52 @@ class TestLoadFromYamlErrorPath:
             pytest.raises(OSError),
         ):
             _load_from_yaml(path)
+
+
+# ---------------------------------------------------------------------------
+# Coverage for _validate_provider_urls catalog_url branch (lines 87-94)
+# ---------------------------------------------------------------------------
+
+
+class TestValidateProviderCatalogUrl:
+    def test_catalog_url_ssrf_rejected(self, tmp_path: Path):
+        """[SEC-003] catalog_url pointing to metadata endpoint raises ValueError (lines 87-94)."""
+        from dragonlight_router.config.loader import _validate_provider_urls
+        from dragonlight_router.config.schema import RouterConfig
+
+        config_data = {
+            "providers": [
+                {
+                    "name": "evil",
+                    "base_url": "https://api.example.com/v1",
+                    "catalog_url": "http://169.254.169.254/latest/meta-data/",
+                    "model_prefix": "evil/",
+                    "rate_limits": {"rpm": 30},
+                },
+            ],
+        }
+        config = RouterConfig(**config_data)
+
+        with pytest.raises(ValueError):
+            _validate_provider_urls(config)
+
+    def test_catalog_url_valid_passes(self, tmp_path: Path):
+        """[SEC-003] Valid catalog_url does not raise (lines 84-94 happy path)."""
+        from dragonlight_router.config.loader import _validate_provider_urls
+        from dragonlight_router.config.schema import RouterConfig
+
+        config_data = {
+            "providers": [
+                {
+                    "name": "groq",
+                    "base_url": "https://api.groq.com/openai/v1",
+                    "catalog_url": "https://api.groq.com/openai/v1/models",
+                    "model_prefix": "groq/",
+                    "rate_limits": {"rpm": 30},
+                },
+            ],
+        }
+        config = RouterConfig(**config_data)
+
+        # Should not raise
+        _validate_provider_urls(config)

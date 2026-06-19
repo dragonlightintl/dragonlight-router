@@ -3,6 +3,7 @@
 Spec traceability: IBR spec v0.1.0 sections 2, 10.
 AC numbers: IBR-CLS-01 through IBR-CLS-07, IBR-SYS-03.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -29,6 +30,9 @@ from dragonlight_router.selection.classifier import (
     classify_intent,
     configure_cache,
 )
+
+pytestmark = pytest.mark.unit
+
 
 # ---------------------------------------------------------------------------
 # Helpers — mock adapter factory
@@ -59,7 +63,8 @@ def _make_raising_adapter(exc: Exception) -> MagicMock:
 
 
 def _make_slow_adapter(
-    delay_s: float, response_text: str,
+    delay_s: float,
+    response_text: str,
 ) -> MagicMock:
     """Build a mock adapter that sleeps before yielding."""
     adapter = MagicMock(spec=GenerativeBackend)
@@ -116,9 +121,14 @@ class TestTaxonomyValidation:
     def test_all_8_task_types_accepted(self):
         """[IBR-CLS-05] All 8 task_type values pass validation."""
         expected = {
-            "generation", "analysis", "refactoring",
-            "summarization", "creative", "reasoning",
-            "lookup", "translation",
+            "generation",
+            "analysis",
+            "refactoring",
+            "summarization",
+            "creative",
+            "reasoning",
+            "lookup",
+            "translation",
         }
         assert expected == TASK_TYPES
         for tt in expected:
@@ -128,8 +138,12 @@ class TestTaxonomyValidation:
     def test_all_6_domains_accepted(self):
         """[IBR-CLS-05] All 6 domain values pass validation."""
         expected = {
-            "code", "technical", "legal",
-            "business", "creative_writing", "general",
+            "code",
+            "technical",
+            "legal",
+            "business",
+            "creative_writing",
+            "general",
         }
         assert expected == DOMAINS
         for d in expected:
@@ -167,8 +181,10 @@ class TestTaxonomyValidation:
     def test_none_task_type_rejected(self):
         """[IBR-CLS-05] None task_type returns False."""
         raw = {
-            "task_type": None, "domain": "code",
-            "quality_speed": "balanced", "confidence": 0.9,
+            "task_type": None,
+            "domain": "code",
+            "quality_speed": "balanced",
+            "confidence": 0.9,
         }
         assert _validate_classification(raw) is False
 
@@ -228,9 +244,12 @@ class TestClassificationCache:
 
     def _make_intent(self, **kwargs) -> ClassifiedIntent:
         defaults = {
-            "task_type": "analysis", "domain": "code",
-            "quality_speed": "balanced", "confidence": 0.9,
-            "latency_ms": 10.0, "from_cache": False,
+            "task_type": "analysis",
+            "domain": "code",
+            "quality_speed": "balanced",
+            "confidence": 0.9,
+            "latency_ms": 10.0,
+            "from_cache": False,
         }
         defaults.update(kwargs)
         return ClassifiedIntent(**defaults)
@@ -357,7 +376,9 @@ class TestClassificationCache:
 
         msg = "unique msg " + str(time.monotonic())
         result = await classify_intent(
-            msg, adapter, timeout_s=5.0,
+            msg,
+            adapter,
+            timeout_s=5.0,
         )
         assert result is not None
         assert result.from_cache is False
@@ -407,9 +428,7 @@ class TestTimeoutBehavior:
         configure_cache(max_entries=100, ttl_s=300.0)
         adapter = _make_slow_adapter(5.0, _valid_json())
 
-        log_path = (
-            "dragonlight_router.selection.classifier.logger"
-        )
+        log_path = "dragonlight_router.selection.classifier.logger"
         with patch(log_path) as mock_logger:
             await classify_intent(
                 "log test " + str(time.monotonic()),
@@ -448,10 +467,14 @@ class TestJsonParsing:
 
     def test_markdown_fenced_no_lang(self):
         """[IBR-CLS-05] Plain code fences (no lang) extracted."""
-        inner = json.dumps({
-            "task_type": "reasoning", "domain": "general",
-            "quality_speed": "quality", "confidence": 0.7,
-        })
+        inner = json.dumps(
+            {
+                "task_type": "reasoning",
+                "domain": "general",
+                "quality_speed": "quality",
+                "confidence": 0.7,
+            }
+        )
         text = f"```\n{inner}\n```"
         result = _parse_response(text)
         assert result is not None
@@ -472,23 +495,29 @@ class TestJsonParsing:
 
     def test_extra_fields_ignored_in_parse(self):
         """[IBR-CLS-05] Extra fields in parsed JSON are fine."""
-        text = json.dumps({
-            "task_type": "analysis", "domain": "code",
-            "quality_speed": "balanced", "confidence": 0.9,
-            "reasoning": "this is extra",
-        })
+        text = json.dumps(
+            {
+                "task_type": "analysis",
+                "domain": "code",
+                "quality_speed": "balanced",
+                "confidence": 0.9,
+                "reasoning": "this is extra",
+            }
+        )
         parsed = _parse_response(text)
         assert parsed is not None
         assert _validate_classification(parsed) is True
 
     def test_json_with_preamble_text(self):
         """[IBR-CLS-05] JSON embedded in preamble text extracted."""
-        inner = json.dumps({
-            "task_type": "creative",
-            "domain": "creative_writing",
-            "quality_speed": "quality",
-            "confidence": 0.8,
-        })
+        inner = json.dumps(
+            {
+                "task_type": "creative",
+                "domain": "creative_writing",
+                "quality_speed": "quality",
+                "confidence": 0.8,
+            }
+        )
         text = f"Here is the classification: {inner}"
         result = _parse_response(text)
         assert result is not None
@@ -506,13 +535,15 @@ class TestJsonParsing:
 
     def test_nested_json_extracts_outer(self):
         """[IBR-CLS-05] Nested braces: outer object extracted."""
-        text = json.dumps({
-            "task_type": "lookup",
-            "domain": "general",
-            "quality_speed": "speed",
-            "confidence": 0.5,
-            "meta": {"nested": True},
-        })
+        text = json.dumps(
+            {
+                "task_type": "lookup",
+                "domain": "general",
+                "quality_speed": "speed",
+                "confidence": 0.5,
+                "meta": {"nested": True},
+            }
+        )
         result = _parse_response(text)
         assert result is not None
         assert result["task_type"] == "lookup"
@@ -534,7 +565,8 @@ class TestAdapterIntegration:
 
         result = await classify_intent(
             "valid response " + str(time.monotonic()),
-            adapter, timeout_s=5.0,
+            adapter,
+            timeout_s=5.0,
         )
         assert result is not None
         assert result.task_type == "analysis"
@@ -554,7 +586,8 @@ class TestAdapterIntegration:
 
         result = await classify_intent(
             "invalid json " + str(time.monotonic()),
-            adapter, timeout_s=5.0,
+            adapter,
+            timeout_s=5.0,
         )
         assert result is None
         configure_cache(max_entries=5000, ttl_s=300.0)
@@ -563,15 +596,20 @@ class TestAdapterIntegration:
     async def test_adapter_invalid_values_returns_none(self):
         """[IBR-CLS-04] Invalid taxonomy values returns None."""
         configure_cache(max_entries=100, ttl_s=300.0)
-        bad_json = json.dumps({
-            "task_type": "invalid", "domain": "code",
-            "quality_speed": "balanced", "confidence": 0.9,
-        })
+        bad_json = json.dumps(
+            {
+                "task_type": "invalid",
+                "domain": "code",
+                "quality_speed": "balanced",
+                "confidence": 0.9,
+            }
+        )
         adapter = _make_mock_adapter(bad_json)
 
         result = await classify_intent(
             "invalid values " + str(time.monotonic()),
-            adapter, timeout_s=5.0,
+            adapter,
+            timeout_s=5.0,
         )
         assert result is None
         configure_cache(max_entries=5000, ttl_s=300.0)
@@ -586,7 +624,8 @@ class TestAdapterIntegration:
 
         result = await classify_intent(
             "exception test " + str(time.monotonic()),
-            adapter, timeout_s=5.0,
+            adapter,
+            timeout_s=5.0,
         )
         assert result is None
         configure_cache(max_entries=5000, ttl_s=300.0)
@@ -608,7 +647,8 @@ class TestAdapterIntegration:
         msg = "classify this specific message"
         await classify_intent(
             msg + str(time.monotonic()),
-            adapter, timeout_s=5.0,
+            adapter,
+            timeout_s=5.0,
         )
 
         # system (prompt) + user (operator_message)
@@ -624,14 +664,19 @@ class TestAdapterIntegration:
         """[IBR-CLS-05] All 8 task types handled from adapter."""
         configure_cache(max_entries=100, ttl_s=300.0)
         for tt in TASK_TYPES:
-            resp = json.dumps({
-                "task_type": tt, "domain": "code",
-                "quality_speed": "balanced", "confidence": 0.8,
-            })
+            resp = json.dumps(
+                {
+                    "task_type": tt,
+                    "domain": "code",
+                    "quality_speed": "balanced",
+                    "confidence": 0.8,
+                }
+            )
             adapter = _make_mock_adapter(resp)
             result = await classify_intent(
                 f"test {tt} " + str(time.monotonic()),
-                adapter, timeout_s=5.0,
+                adapter,
+                timeout_s=5.0,
             )
             assert result is not None
             assert result.task_type == tt
@@ -642,14 +687,19 @@ class TestAdapterIntegration:
         """[IBR-CLS-05] All 6 domains handled from adapter."""
         configure_cache(max_entries=100, ttl_s=300.0)
         for d in DOMAINS:
-            resp = json.dumps({
-                "task_type": "analysis", "domain": d,
-                "quality_speed": "balanced", "confidence": 0.8,
-            })
+            resp = json.dumps(
+                {
+                    "task_type": "analysis",
+                    "domain": d,
+                    "quality_speed": "balanced",
+                    "confidence": 0.8,
+                }
+            )
             adapter = _make_mock_adapter(resp)
             result = await classify_intent(
                 f"test {d} " + str(time.monotonic()),
-                adapter, timeout_s=5.0,
+                adapter,
+                timeout_s=5.0,
             )
             assert result is not None
             assert result.domain == d
@@ -660,14 +710,19 @@ class TestAdapterIntegration:
         """[IBR-CLS-05] All 3 quality_speed values from adapter."""
         configure_cache(max_entries=100, ttl_s=300.0)
         for qs in QUALITY_SPEED:
-            resp = json.dumps({
-                "task_type": "analysis", "domain": "code",
-                "quality_speed": qs, "confidence": 0.8,
-            })
+            resp = json.dumps(
+                {
+                    "task_type": "analysis",
+                    "domain": "code",
+                    "quality_speed": qs,
+                    "confidence": 0.8,
+                }
+            )
             adapter = _make_mock_adapter(resp)
             result = await classify_intent(
                 f"test {qs} " + str(time.monotonic()),
-                adapter, timeout_s=5.0,
+                adapter,
+                timeout_s=5.0,
             )
             assert result is not None
             assert result.quality_speed == qs
@@ -697,14 +752,18 @@ class TestAdapterIntegration:
 
         msg = "no cache on fail " + str(time.monotonic())
         r1 = await classify_intent(
-            msg, bad_adapter, timeout_s=5.0,
+            msg,
+            bad_adapter,
+            timeout_s=5.0,
         )
         assert r1 is None
 
         # Good adapter should not get a cache hit
         good_adapter = _make_mock_adapter(_valid_json())
         r2 = await classify_intent(
-            msg, good_adapter, timeout_s=5.0,
+            msg,
+            good_adapter,
+            timeout_s=5.0,
         )
         assert r2 is not None
         assert r2.from_cache is False
@@ -715,14 +774,19 @@ class TestAdapterIntegration:
     async def test_integer_confidence_accepted(self):
         """[IBR-CLS-05] Integer confidence coerced to float."""
         configure_cache(max_entries=100, ttl_s=300.0)
-        resp = json.dumps({
-            "task_type": "analysis", "domain": "code",
-            "quality_speed": "balanced", "confidence": 1,
-        })
+        resp = json.dumps(
+            {
+                "task_type": "analysis",
+                "domain": "code",
+                "quality_speed": "balanced",
+                "confidence": 1,
+            }
+        )
         adapter = _make_mock_adapter(resp)
         result = await classify_intent(
             "int confidence " + str(time.monotonic()),
-            adapter, timeout_s=5.0,
+            adapter,
+            timeout_s=5.0,
         )
         assert result is not None
         assert result.confidence == 1.0
@@ -735,9 +799,164 @@ class TestAdapterIntegration:
         adapter = _make_mock_adapter(_valid_json())
         result = await classify_intent(
             "frozen test " + str(time.monotonic()),
-            adapter, timeout_s=5.0,
+            adapter,
+            timeout_s=5.0,
         )
         assert result is not None
         with pytest.raises(FrozenInstanceError):
             result.task_type = "creative"  # type: ignore[misc]
+        configure_cache(max_entries=5000, ttl_s=300.0)
+
+
+# ---------------------------------------------------------------------------
+# Coverage for fallback ClassifiedIntent import (lines 62-72)
+# ---------------------------------------------------------------------------
+
+
+class TestClassifiedIntentFallback:
+    """[IBR-CLS-01] ClassifiedIntent is always available (lines 62-72)."""
+
+    def test_classified_intent_is_importable(self):
+        """ClassifiedIntent can be imported from core.types."""
+        from dragonlight_router.core.types import ClassifiedIntent
+
+        intent = ClassifiedIntent(
+            task_type="analysis",
+            domain="code",
+            quality_speed="balanced",
+            confidence=0.9,
+            latency_ms=10.0,
+            from_cache=False,
+        )
+        assert intent.task_type == "analysis"
+        assert intent.domain == "code"
+        assert intent.quality_speed == "balanced"
+        assert intent.confidence == 0.9
+        assert intent.latency_ms == 10.0
+        assert intent.from_cache is False
+
+    def test_classified_intent_is_frozen(self):
+        """ClassifiedIntent is immutable."""
+        from dragonlight_router.core.types import ClassifiedIntent
+
+        intent = ClassifiedIntent(
+            task_type="analysis",
+            domain="code",
+            quality_speed="balanced",
+            confidence=0.9,
+            latency_ms=10.0,
+            from_cache=False,
+        )
+        with pytest.raises(FrozenInstanceError):
+            intent.task_type = "creative"  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Coverage for cache put with existing key (line 131)
+# ---------------------------------------------------------------------------
+
+
+class TestCachePutExistingKey:
+    """[IBR-CLS-03] Cache.put replaces existing entry on duplicate key (line 131)."""
+
+    def test_put_replaces_existing_entry(self):
+        """Putting the same key twice replaces the old value."""
+        cache = _ClassificationCache(max_entries=100, ttl_s=300.0)
+        key = hashlib.sha256(b"test message").hexdigest()
+
+        intent1 = ClassifiedIntent(
+            task_type="analysis",
+            domain="code",
+            quality_speed="balanced",
+            confidence=0.8,
+            latency_ms=5.0,
+            from_cache=False,
+        )
+        intent2 = ClassifiedIntent(
+            task_type="creative",
+            domain="general",
+            quality_speed="quality",
+            confidence=0.95,
+            latency_ms=3.0,
+            from_cache=False,
+        )
+
+        cache.put(key, intent1)
+        cache.put(key, intent2)
+
+        result = cache.get(key)
+        assert result is not None
+        assert result.task_type == "creative"
+        assert result.domain == "general"
+
+
+# ---------------------------------------------------------------------------
+# Coverage for classify_intent unexpected error (lines 358-362)
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyIntentUnexpectedError:
+    """[IBR-SYS-03] classify_intent catches unexpected errors (lines 375-381)."""
+
+    @pytest.mark.asyncio
+    async def test_runtime_error_in_call_classifier_returns_none(self):
+        """[IBR-SYS-03] RuntimeError from _call_classifier → returns None (line 375)."""
+        configure_cache(max_entries=100, ttl_s=300.0)
+        adapter = _make_mock_adapter(_valid_json())
+
+        async def _raise_runtime(*args, **kwargs):
+            raise RuntimeError("unexpected crash in classifier")
+
+        with patch(
+            "dragonlight_router.selection.classifier._call_classifier",
+            side_effect=_raise_runtime,
+        ):
+            result = await classify_intent(
+                "runtime error outer " + str(time.monotonic()),
+                adapter,
+                timeout_s=5.0,
+            )
+        assert result is None
+        configure_cache(max_entries=5000, ttl_s=300.0)
+
+    @pytest.mark.asyncio
+    async def test_oserror_in_call_classifier_returns_none(self):
+        """[IBR-SYS-03] OSError from _call_classifier → returns None (line 375)."""
+        configure_cache(max_entries=100, ttl_s=300.0)
+        adapter = _make_mock_adapter(_valid_json())
+
+        async def _raise_oserror(*args, **kwargs):
+            raise OSError("network down in classifier")
+
+        with patch(
+            "dragonlight_router.selection.classifier._call_classifier",
+            side_effect=_raise_oserror,
+        ):
+            result = await classify_intent(
+                "oserror outer " + str(time.monotonic()),
+                adapter,
+                timeout_s=5.0,
+            )
+        assert result is None
+        configure_cache(max_entries=5000, ttl_s=300.0)
+
+    @pytest.mark.asyncio
+    async def test_value_error_in_call_classifier_returns_none(self):
+        """[IBR-SYS-03] ValueError from _call_classifier → returns None (line 375)."""
+        configure_cache(max_entries=100, ttl_s=300.0)
+        adapter = _make_mock_adapter(_valid_json())
+
+        async def _raise_valueerror(*args, **kwargs):
+            raise ValueError("bad data in classifier")
+
+        with patch(
+            "dragonlight_router.selection.classifier._call_classifier",
+            side_effect=_raise_valueerror,
+        ):
+            result = await classify_intent(
+                "valueerror outer " + str(time.monotonic()),
+                adapter,
+                timeout_s=5.0,
+            )
+        assert result is None
         configure_cache(max_entries=5000, ttl_s=300.0)

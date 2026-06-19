@@ -14,6 +14,9 @@ import pytest
 from dragonlight_router.adapters.anthropic import AnthropicBackend
 from dragonlight_router.core.types import BackendStatus
 
+pytestmark = pytest.mark.unit
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -123,9 +126,7 @@ async def test_generate_streaming_success(make_backend_config):
         ("message_stop", {"type": "message_stop"}),
     )
 
-    transport = httpx.MockTransport(
-        lambda request: _stream_response(200, sse)
-    )
+    transport = httpx.MockTransport(lambda request: _stream_response(200, sse))
     with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test-key"}):
         be = _make_backend(make_backend_config, transport)
         chunks: list[str] = []
@@ -193,9 +194,7 @@ async def test_generate_non_streaming(make_backend_config):
         "usage": {"input_tokens": 10, "output_tokens": 5},
     }
 
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(200, json=response_body)
-    )
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=response_body))
     with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test-key"}):
         be = _make_backend(make_backend_config, transport)
         chunks: list[str] = []
@@ -228,9 +227,7 @@ async def test_generate_no_api_key(backend_no_key):
 async def test_generate_401_unauthorized(make_backend_config):
     """401 from the API raises RuntimeError and sets ERROR status."""
     transport = httpx.MockTransport(
-        lambda request: httpx.Response(
-            401, json={"error": {"message": "invalid key"}}
-        )
+        lambda request: httpx.Response(401, json={"error": {"message": "invalid key"}})
     )
     with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test-key"}):
         be = _make_backend(make_backend_config, transport)
@@ -247,9 +244,7 @@ async def test_generate_401_unauthorized(make_backend_config):
 async def test_generate_429_rate_limited(make_backend_config):
     """429 from the API raises RuntimeError and sets ERROR status."""
     transport = httpx.MockTransport(
-        lambda request: httpx.Response(
-            429, json={"error": {"message": "rate limited"}}
-        )
+        lambda request: httpx.Response(429, json={"error": {"message": "rate limited"}})
     )
     with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test-key"}):
         be = _make_backend(make_backend_config, transport)
@@ -266,9 +261,7 @@ async def test_generate_429_rate_limited(make_backend_config):
 async def test_generate_500_server_error(make_backend_config):
     """500 from the API raises RuntimeError and sets ERROR status."""
     transport = httpx.MockTransport(
-        lambda request: httpx.Response(
-            500, json={"error": {"message": "internal error"}}
-        )
+        lambda request: httpx.Response(500, json={"error": {"message": "internal error"}})
     )
     with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test-key"}):
         be = _make_backend(make_backend_config, transport)
@@ -295,9 +288,7 @@ async def test_health_check_success(make_backend_config):
         "content": [{"type": "text", "text": "p"}],
         "usage": {"input_tokens": 1, "output_tokens": 1},
     }
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(200, json=response_body)
-    )
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=response_body))
     with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test-key"}):
         be = _make_backend(make_backend_config, transport)
         result = await be.health_check()
@@ -310,9 +301,7 @@ async def test_health_check_success(make_backend_config):
 async def test_health_check_unauthorized(make_backend_config):
     """health_check returns False on 401."""
     transport = httpx.MockTransport(
-        lambda request: httpx.Response(
-            401, json={"error": {"message": "bad key"}}
-        )
+        lambda request: httpx.Response(401, json={"error": {"message": "bad key"}})
     )
     with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test-key"}):
         be = _make_backend(make_backend_config, transport)
@@ -442,6 +431,7 @@ async def test_generate_runtime_error_propagates(make_backend_config):
 
     Covers anthropic.py lines 131-132 (except RuntimeError: raise).
     """
+
     async def _raise_runtime_error(*args, **kwargs):
         raise RuntimeError("inner error")
         if False:
@@ -453,11 +443,11 @@ async def test_generate_runtime_error_propagates(make_backend_config):
             patch.object(be, "_stream_generate", _raise_runtime_error),
             pytest.raises(RuntimeError, match="inner error"),
         ):
-                async for _ in be.generate(
-                    [{"role": "user", "content": "Hi"}],
-                    stream=True,
-                ):
-                    pass
+            async for _ in be.generate(
+                [{"role": "user", "content": "Hi"}],
+                stream=True,
+            ):
+                pass
 
 
 def test_extract_delta_text_malformed_json():
@@ -465,9 +455,15 @@ def test_extract_delta_text_malformed_json():
 
     Covers anthropic.py lines 168-169.
     """
-    config_mock = type("C", (), {
-        "env_key": None, "base_url": None, "model": "claude-test",
-    })()
+    config_mock = type(
+        "C",
+        (),
+        {
+            "env_key": None,
+            "base_url": None,
+            "model": "claude-test",
+        },
+    )()
     be = AnthropicBackend.__new__(AnthropicBackend)
     be._config = config_mock
     be._api_key = "key"

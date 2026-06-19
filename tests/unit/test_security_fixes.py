@@ -7,6 +7,7 @@ Covers:
 - SEC-006: Admin API key startup warning
 - SEC-007: CORS allow_credentials defaults to False
 """
+
 from __future__ import annotations
 
 import json
@@ -27,6 +28,9 @@ from dragonlight_router.server.routes import (
     _record_admin_auth_failure,
     _reset_admin_auth_failures,
 )
+
+pytestmark = pytest.mark.unit
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -350,3 +354,44 @@ class TestSSRFValidation:
         ]
         for url in known_urls:
             validate_provider_url(url)  # Should not raise
+
+
+# ---------------------------------------------------------------------------
+# Coverage for _is_private_ip DNS resolution branch (line 47)
+# ---------------------------------------------------------------------------
+
+
+class TestIsPrivateIpDnsResolution:
+    """SEC-003: _is_private_ip detects private IPs returned by DNS resolution."""
+
+    def test_hostname_resolving_to_private_ip_returns_true(self):
+        """[SEC-003] Hostname that DNS-resolves to a private IP is detected (line 47)."""
+        from dragonlight_router.core.validation import _is_private_ip
+
+        # Mock getaddrinfo to return a private IP for a non-IP hostname
+        fake_info = [(2, 1, 6, "", ("10.0.0.1", 0))]
+        with patch("dragonlight_router.core.validation.socket.getaddrinfo", return_value=fake_info):
+            result = _is_private_ip("evil-internal.example.com")
+        assert result is True
+
+    def test_hostname_resolving_to_public_ip_returns_false(self):
+        """[SEC-003] Hostname that DNS-resolves to a public IP returns False."""
+        from dragonlight_router.core.validation import _is_private_ip
+
+        fake_info = [(2, 1, 6, "", ("8.8.8.8", 0))]
+        with patch("dragonlight_router.core.validation.socket.getaddrinfo", return_value=fake_info):
+            result = _is_private_ip("safe.example.com")
+        assert result is False
+
+    def test_hostname_dns_failure_returns_false(self):
+        """[SEC-003] DNS resolution failure → treat as non-private (line 48-50)."""
+        import socket
+
+        from dragonlight_router.core.validation import _is_private_ip
+
+        with patch(
+            "dragonlight_router.core.validation.socket.getaddrinfo",
+            side_effect=socket.gaierror("DNS failed"),
+        ):
+            result = _is_private_ip("unknown.example.com")
+        assert result is False

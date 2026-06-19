@@ -2,6 +2,7 @@
 
 Spec traceability: TM-021 (Feature integration tests)
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -32,6 +33,9 @@ from dragonlight_router.selection.scoring import (
     _normalize_cost_score,
     score_candidate,
 )
+
+pytestmark = pytest.mark.unit
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -76,7 +80,10 @@ def _make_config(
             output_per_mtok=output_cost,
         ),
         rate_limits=BackendRateLimits(
-            rpm=60, rpd=14400, tpm=100000, daily_token_cap=1000000,
+            rpm=60,
+            rpd=14400,
+            tpm=100000,
+            daily_token_cap=1000000,
         ),
     )
 
@@ -141,9 +148,12 @@ class TestCacheIntegration:
             content="answer one",
             backend_used="b1",
             backend_tier=BackendTier.SIMPLE,
-            tokens_in=5, tokens_out=10,
-            estimated_cost_usd=0.0, latency_ms=100.0,
-            was_fallback=False, fallback_chain=[],
+            tokens_in=5,
+            tokens_out=10,
+            estimated_cost_usd=0.0,
+            latency_ms=100.0,
+            was_fallback=False,
+            fallback_chain=[],
         )
         _store_cache_response(order1, response1)
 
@@ -167,7 +177,8 @@ class TestCostData:
     def test_model_cost_lookup_exact_match(self) -> None:
         """[TM-021 AC-4] Exact model match returns specific cost profile."""
         cost = RouterEngine._resolve_cost_profile(
-            "gemini/gemini-2.5-pro", "gemini",
+            "gemini/gemini-2.5-pro",
+            "gemini",
         )
         assert cost.input_per_mtok == 1.25
         assert cost.output_per_mtok == 10.00
@@ -175,7 +186,8 @@ class TestCostData:
     def test_model_cost_lookup_provider_default(self) -> None:
         """[TM-021 AC-4] Unknown model falls back to provider default cost."""
         cost = RouterEngine._resolve_cost_profile(
-            "groq/some-new-model", "groq",
+            "groq/some-new-model",
+            "groq",
         )
         assert cost.input_per_mtok == 0.59
         assert cost.output_per_mtok == 0.79
@@ -183,7 +195,8 @@ class TestCostData:
     def test_model_cost_lookup_unknown_provider(self) -> None:
         """[TM-021 AC-4] Unknown provider returns zero cost."""
         cost = RouterEngine._resolve_cost_profile(
-            "unknown/model", "unknown",
+            "unknown/model",
+            "unknown",
         )
         assert cost.input_per_mtok == 0.0
         assert cost.output_per_mtok == 0.0
@@ -203,7 +216,8 @@ class TestCostData:
     def test_ollama_local_is_free(self) -> None:
         """[TM-021 AC-5] Ollama (local) models have zero cost."""
         cost = RouterEngine._resolve_cost_profile(
-            "ollama/llama3", "ollama",
+            "ollama/llama3",
+            "ollama",
         )
         assert cost.input_per_mtok == 0.0
         assert cost.output_per_mtok == 0.0
@@ -259,10 +273,18 @@ class TestCostAwareScoring:
         expensive = _make_config("expensive", input_cost=10.0, output_cost=10.0)
 
         cheap_score = score_candidate(
-            cheap, order, weights, budget_tracker, health_tracker,
+            cheap,
+            order,
+            weights,
+            budget_tracker,
+            health_tracker,
         )
         expensive_score = score_candidate(
-            expensive, order, weights, budget_tracker, health_tracker,
+            expensive,
+            order,
+            weights,
+            budget_tracker,
+            health_tracker,
         )
 
         assert cheap_score > expensive_score, (
@@ -372,9 +394,7 @@ class TestRetryBackoff:
         for attempt in range(20):
             delay = adapter._compute_backoff_delay(attempt)
             max_possible = adapter._max_delay_s * (1 + adapter._jitter_factor)
-            assert delay <= max_possible + 0.01, (
-                f"Delay {delay} exceeds max {max_possible}"
-            )
+            assert delay <= max_possible + 0.01, f"Delay {delay} exceeds max {max_possible}"
 
     def test_retry_config_defaults(self) -> None:
         """[TM-021 AC-11] Default retry config is sensible."""

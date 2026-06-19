@@ -3,6 +3,7 @@
 Spec traceability: model-pinning-v0.1.0-spec.md
 AC numbers: AC-PIN-001 through AC-PIN-022
 """
+
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
@@ -41,6 +42,9 @@ from dragonlight_router.server.routes import (
     _format_dispatch_response,
     _validate_dispatch_request,
 )
+
+pytestmark = pytest.mark.unit
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -161,7 +165,8 @@ class TestPinnedPreflightHappyPath:
     def test_returns_exact_backend_config_from_registry(self, make_backend_config):
         """[AC-PIN-002] The returned BackendConfig is the one from the registry entry."""
         backend, state, backend_config = _make_backend_and_state(
-            make_backend_config, name="anthropic/claude-sonnet-4",
+            make_backend_config,
+            name="anthropic/claude-sonnet-4",
         )
         registry = MagicMock(spec=BackendRegistry)
         registry.get.return_value = (backend, state)
@@ -215,7 +220,8 @@ class TestPinnedPreflightModelRetired:
     def test_retired_status_returns_unhealthy_error(self, make_backend_config):
         """[AC-PIN-004] BackendStatus.RETIRED -> ModelUnhealthyError with status=retired."""
         backend, state, _ = _make_backend_and_state(
-            make_backend_config, status=BackendStatus.RETIRED,
+            make_backend_config,
+            status=BackendStatus.RETIRED,
         )
         state.is_circuit_open.return_value = False
         registry = MagicMock(spec=BackendRegistry)
@@ -234,7 +240,8 @@ class TestPinnedPreflightModelRetired:
     def test_key_invalid_treated_as_retired(self, make_backend_config):
         """[HAZ-PIN-003] KEY_INVALID treated same as retired."""
         backend, state, _ = _make_backend_and_state(
-            make_backend_config, status=BackendStatus.KEY_INVALID,
+            make_backend_config,
+            status=BackendStatus.KEY_INVALID,
         )
         state.is_circuit_open.return_value = False
         registry = MagicMock(spec=BackendRegistry)
@@ -256,7 +263,8 @@ class TestPinnedPreflightCircuitOpen:
     def test_circuit_open_honor_health_true_returns_unhealthy(self, make_backend_config):
         """[AC-PIN-005] Circuit open + honor_health=True -> ModelUnhealthyError."""
         backend, state, _ = _make_backend_and_state(
-            make_backend_config, circuit_open=True,
+            make_backend_config,
+            circuit_open=True,
         )
         registry = MagicMock(spec=BackendRegistry)
         registry.get.return_value = (backend, state)
@@ -279,7 +287,8 @@ class TestPinnedPreflightCircuitOpen:
     def test_circuit_open_honor_health_false_passes(self, make_backend_config):
         """[AC-PIN-006] Circuit open + honor_health=False -> dispatch attempted."""
         backend, state, backend_config = _make_backend_and_state(
-            make_backend_config, circuit_open=True,
+            make_backend_config,
+            circuit_open=True,
         )
         registry = MagicMock(spec=BackendRegistry)
         registry.get.return_value = (backend, state)
@@ -301,7 +310,8 @@ class TestPinnedPreflightCircuitOpen:
     def test_circuit_closed_honor_health_true_passes(self, make_backend_config):
         """[AC-PIN-005] Healthy model + honor_health=True -> passes through."""
         backend, state, backend_config = _make_backend_and_state(
-            make_backend_config, circuit_open=False,
+            make_backend_config,
+            circuit_open=False,
         )
         registry = MagicMock(spec=BackendRegistry)
         registry.get.return_value = (backend, state)
@@ -1074,7 +1084,11 @@ class TestDispatchTopLevel:
             patch(f"{_CASCADE_MOD}._run_cascade", new_callable=AsyncMock) as mock_cascade,
         ):
             result = await dispatch(
-                order, registry, budget_tracker, health_tracker, {},
+                order,
+                registry,
+                budget_tracker,
+                health_tracker,
+                {},
             )
 
         assert isinstance(result, Ok)
@@ -1102,7 +1116,11 @@ class TestDispatchTopLevel:
         ):
             chunks = []
             async for chunk in dispatch_stream(
-                order, registry, budget_tracker, health_tracker, {},
+                order,
+                registry,
+                budget_tracker,
+                health_tracker,
+                {},
             ):
                 chunks.append(chunk)
 
@@ -1292,6 +1310,7 @@ class TestFormatDispatchResponse:
         )
         json_resp = _format_dispatch_response(resp)
         import json
+
         body = json.loads(json_resp.body)
         assert body["dispatch_mode"] == "pinned"
 
@@ -1311,6 +1330,7 @@ class TestFormatDispatchResponse:
         )
         json_resp = _format_dispatch_response(resp)
         import json
+
         body = json.loads(json_resp.body)
         assert body["dispatch_mode"] == "cascade"
 
@@ -1332,6 +1352,7 @@ class TestFormatDispatchFailure:
         error = ModelNotFoundError(model="bad/model", message="not found")
         resp = _format_dispatch_failure(error)
         import json
+
         body = json.loads(resp.body)
         assert body["model"] == "bad/model"
 
@@ -1348,10 +1369,13 @@ class TestFormatDispatchFailure:
     def test_model_unhealthy_includes_status(self):
         """ModelUnhealthyError body includes status field."""
         error = ModelUnhealthyError(
-            model="sick/model", status="retired", message="retired",
+            model="sick/model",
+            status="retired",
+            message="retired",
         )
         resp = _format_dispatch_failure(error)
         import json
+
         body = json.loads(resp.body)
         assert body["status"] == "retired"
 
@@ -1368,10 +1392,13 @@ class TestFormatDispatchFailure:
     def test_budget_exhausted_includes_provider(self):
         """BudgetExhaustedError body includes provider field."""
         error = BudgetExhaustedError(
-            model="m", provider="prov", message="exhausted",
+            model="m",
+            provider="prov",
+            message="exhausted",
         )
         resp = _format_dispatch_failure(error)
         import json
+
         body = json.loads(resp.body)
         assert body["provider"] == "prov"
 
@@ -1412,6 +1439,7 @@ class TestPinnedDispatchConfig:
     def test_frozen(self):
         """PinnedDispatchConfig is frozen (immutable)."""
         from pydantic import ValidationError
+
         config = PinnedDispatchConfig()
         with pytest.raises(ValidationError):
             config.honor_health = False  # type: ignore[misc]

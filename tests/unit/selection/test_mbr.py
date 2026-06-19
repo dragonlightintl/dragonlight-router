@@ -28,9 +28,13 @@ from dragonlight_router.selection.mbr import (
     filter_by_capabilities,
 )
 
+pytestmark = pytest.mark.unit
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_backend(
     name: str,
@@ -267,15 +271,18 @@ def test_filter_by_capabilities_no_candidates() -> None:
 def test_filter_by_capabilities_assertions_candidates_not_list() -> None:
     """[TM-001 AC-3] AssertionError when candidates is not a list."""
     try:
-        _filter_by_capabilities("not a list", DispatchOrder(  # type: ignore
-            intent_category="test",
-            specific_intent="test",
-            operator_message="test",
-            system_prompt="",
-            context_tokens=0,
-            requires_tool_use=False,
-            requires_long_context=False,
-        ))
+        _filter_by_capabilities(
+            "not a list",
+            DispatchOrder(  # type: ignore
+                intent_category="test",
+                specific_intent="test",
+                operator_message="test",
+                system_prompt="",
+                context_tokens=0,
+                requires_tool_use=False,
+                requires_long_context=False,
+            ),
+        )
         pytest.fail("Should have raised AssertionError")
     except AssertionError as e:
         assert "candidates must be a list" in str(e)
@@ -284,15 +291,18 @@ def test_filter_by_capabilities_assertions_candidates_not_list() -> None:
 def test_filter_by_capabilities_assertions_candidates_not_backendconfig() -> None:
     """[TM-001 AC-3] AssertionError when candidates contains non-BackendConfig."""
     try:
-        _filter_by_capabilities(["not a backend"], DispatchOrder(  # type: ignore
-            intent_category="test",
-            specific_intent="test",
-            operator_message="test",
-            system_prompt="",
-            context_tokens=0,
-            requires_tool_use=False,
-            requires_long_context=False,
-        ))
+        _filter_by_capabilities(
+            ["not a backend"],
+            DispatchOrder(  # type: ignore
+                intent_category="test",
+                specific_intent="test",
+                operator_message="test",
+                system_prompt="",
+                context_tokens=0,
+                requires_tool_use=False,
+                requires_long_context=False,
+            ),
+        )
         pytest.fail("Should have raised AssertionError")
     except AssertionError as e:
         assert "all candidates must be BackendConfig instances" in str(e)
@@ -375,6 +385,7 @@ def test_estimate_complexity() -> None:
 # ---------------------------------------------------------------------------
 # AC4 — MBR never downgrades
 # ---------------------------------------------------------------------------
+
 
 class TestAC4NoDowngrade:
     """TM-001 AC4: MBR never returns candidates from a tier LOWER than requested.
@@ -483,6 +494,7 @@ class TestAC4NoDowngrade:
 # ---------------------------------------------------------------------------
 # AC5 — LOCAL providers unlimited-rate passthrough
 # ---------------------------------------------------------------------------
+
 
 class TestAC5LocalPassthrough:
     """TM-001 AC5: LOCAL-tier backends bypass circuit-breaker / rate-limit checks.
@@ -602,6 +614,7 @@ class TestAC5LocalPassthrough:
 # ---------------------------------------------------------------------------
 # Additional gap coverage
 # ---------------------------------------------------------------------------
+
 
 def test_filter_by_capabilities_returns_err_on_empty_registry() -> None:
     """[TM-001 AC-3] filter_by_capabilities returns Err when registry has no backends (line 52)."""

@@ -14,6 +14,8 @@ from dragonlight_router.core.types import BackendStatus, GenerativeBackend, Late
 from dragonlight_router.health.circuit_breaker import CircuitState
 from src.dragonlight_router.health.check_loop import CircuitBreaker, HealthCheckLoop
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def mock_backends():
@@ -87,13 +89,9 @@ async def test_loop_start_stop(health_check_loop):
 
 
 @pytest.mark.asyncio
-async def test_probe_all_backends_calls_probe_backend(
-    health_check_loop, mock_backends
-):
+async def test_probe_all_backends_calls_probe_backend(health_check_loop, mock_backends):
     """[TM-008 AC-3] _probe_all_backends calls _probe_backend for each backend."""
-    with patch.object(
-        health_check_loop, "_probe_backend", new_callable=AsyncMock
-    ) as mock_probe:
+    with patch.object(health_check_loop, "_probe_backend", new_callable=AsyncMock) as mock_probe:
         await health_check_loop._probe_all_backends()
         # Should be called once for each backend
         assert mock_probe.call_count == len(mock_backends)
@@ -102,9 +100,7 @@ async def test_probe_all_backends_calls_probe_backend(
 
 
 @pytest.mark.asyncio
-async def test_probe_backend_success_updates_state(
-    health_check_loop, mock_backends, mock_states
-):
+async def test_probe_backend_success_updates_state(health_check_loop, mock_backends, mock_states):
     """[TM-008 AC-4] Successful probe resets errors, sets AVAILABLE, closes circuit."""
     name = "backend1"
     backend = mock_backends[name]
@@ -166,9 +162,7 @@ async def test_probe_backend_failure_increments_errors_and_updates_status(
 
 
 @pytest.mark.asyncio
-async def test_probe_backend_failure_opens_circuit(
-    health_check_loop, mock_backends, mock_states
-):
+async def test_probe_backend_failure_opens_circuit(health_check_loop, mock_backends, mock_states):
     """[TM-008 AC-5] Consecutive errors trip the circuit breaker to OPEN."""
     name = "backend1"
     backend = mock_backends[name]
@@ -198,9 +192,7 @@ async def test_probe_backend_failure_opens_circuit(
 
 
 @pytest.mark.asyncio
-async def test_probe_backend_404_sets_offline(
-    health_check_loop, mock_backends, mock_states
-):
+async def test_probe_backend_404_sets_offline(health_check_loop, mock_backends, mock_states):
     """[TM-008 AC-5] A 404 from health_check sets state to OFFLINE."""
     name = "backend1"
     backend = mock_backends[name]
@@ -241,7 +233,9 @@ async def test_loop_respects_interval(health_check_loop):
 
 @pytest.mark.asyncio
 async def test_slo_violation_transitions_to_degraded_via_latency(
-    health_check_loop, mock_backends, mock_states,
+    health_check_loop,
+    mock_backends,
+    mock_states,
 ):
     """[TM-008 AC-6] Exceeding latency SLO for 3 consecutive checks transitions to DEGRADED."""
     name = "backend1"
@@ -280,25 +274,27 @@ async def test_slo_violation_transitions_to_degraded_via_latency(
         patch(time_path, side_effect=fake_time),
         patch("asyncio.sleep", new_callable=AsyncMock),
     ):
-            # First violation
-            await health_check_loop._probe_backend(name, backend)
-            assert health_check_loop._slo_violation_counts[name] == 1
-            assert state.status == BackendStatus.AVAILABLE  # Not yet degraded
+        # First violation
+        await health_check_loop._probe_backend(name, backend)
+        assert health_check_loop._slo_violation_counts[name] == 1
+        assert state.status == BackendStatus.AVAILABLE  # Not yet degraded
 
-            # Second violation
-            await health_check_loop._probe_backend(name, backend)
-            assert health_check_loop._slo_violation_counts[name] == 2
-            assert state.status == BackendStatus.AVAILABLE
+        # Second violation
+        await health_check_loop._probe_backend(name, backend)
+        assert health_check_loop._slo_violation_counts[name] == 2
+        assert state.status == BackendStatus.AVAILABLE
 
-            # Third violation -> should transition to degraded
-            await health_check_loop._probe_backend(name, backend)
-            assert health_check_loop._slo_violation_counts[name] == 3
-            assert state.status == BackendStatus.DEGRADED
+        # Third violation -> should transition to degraded
+        await health_check_loop._probe_backend(name, backend)
+        assert health_check_loop._slo_violation_counts[name] == 3
+        assert state.status == BackendStatus.DEGRADED
 
 
 @pytest.mark.asyncio
 async def test_slo_violation_transitions_to_degraded_via_failure(
-    health_check_loop, mock_backends, mock_states,
+    health_check_loop,
+    mock_backends,
+    mock_states,
 ):
     """[TM-008 AC-6] Three consecutive failed checks transition to DEGRADED."""
     name = "backend1"
@@ -383,7 +379,9 @@ async def test_stop_when_not_running_is_noop(health_check_loop):
 
 @pytest.mark.asyncio
 async def test_probe_skipped_when_circuit_open_not_half_open(
-    health_check_loop, mock_backends, mock_states,
+    health_check_loop,
+    mock_backends,
+    mock_states,
 ):
     """[TM-008 AC-3] Probe is skipped when circuit is OPEN and not HALF_OPEN (line 120)."""
     name = "backend1"
@@ -405,7 +403,9 @@ async def test_probe_skipped_when_circuit_open_not_half_open(
 
 @pytest.mark.asyncio
 async def test_probe_skipped_when_key_invalid(
-    health_check_loop, mock_backends, mock_states,
+    health_check_loop,
+    mock_backends,
+    mock_states,
 ):
     """KEY_INVALID backends are skipped during health probing — no API call made."""
     name = "backend1"

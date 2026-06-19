@@ -2,6 +2,7 @@
 
 Spec traceability: TM-010 (RouterEngine dispatch pipeline)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -24,6 +25,8 @@ from dragonlight_router.core.types import (
 )
 from dragonlight_router.result import Err, Ok
 from dragonlight_router.router import RouterEngine, get_router, reset_router
+
+pytestmark = pytest.mark.unit
 
 
 def _setup_config(tmp_path: Path) -> Path:
@@ -142,7 +145,9 @@ class TestSelectModels:
             assert not (providers[i] == providers[i + 1] == providers[i + 2])
 
     def test_key_invalid_backends_excluded_from_select_models(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """KEY_INVALID backends are excluded from select_models results."""
         from dragonlight_router.core.types import BackendStatus
@@ -212,13 +217,15 @@ class TestRecordRequest:
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
         # Should not raise
-        engine.record_request(RequestOutcome(
-            provider="groq",
-            model_id="groq_llama70b",
-            success=True,
-            tokens_used=100,
-            latency_ms=50.0,
-        ))
+        engine.record_request(
+            RequestOutcome(
+                provider="groq",
+                model_id="groq_llama70b",
+                success=True,
+                tokens_used=100,
+                latency_ms=50.0,
+            )
+        )
         # After success, health score should be high
         snapshot = engine.health_snapshot()
         assert "groq" in snapshot
@@ -229,11 +236,13 @@ class TestRecordRequest:
         """[TM-010 AC-4] Recording a failure reduces health score."""
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
-        engine.record_request(RequestOutcome(
-            provider="groq",
-            model_id="groq_llama70b",
-            success=False,
-        ))
+        engine.record_request(
+            RequestOutcome(
+                provider="groq",
+                model_id="groq_llama70b",
+                success=False,
+            )
+        )
         # After failure, health score should be reduced
         snapshot = engine.health_snapshot()
         assert "groq" in snapshot
@@ -245,21 +254,27 @@ class TestRecordRequest:
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
         # Record multiple failures
-        engine.record_request(RequestOutcome(
-            provider="groq",
-            model_id="groq_llama70b",
-            success=False,
-        ))
-        engine.record_request(RequestOutcome(
-            provider="groq",
-            model_id="groq_llama70b",
-            success=False,
-        ))
-        engine.record_request(RequestOutcome(
-            provider="groq",
-            model_id="groq_llama70b",
-            success=False,
-        ))
+        engine.record_request(
+            RequestOutcome(
+                provider="groq",
+                model_id="groq_llama70b",
+                success=False,
+            )
+        )
+        engine.record_request(
+            RequestOutcome(
+                provider="groq",
+                model_id="groq_llama70b",
+                success=False,
+            )
+        )
+        engine.record_request(
+            RequestOutcome(
+                provider="groq",
+                model_id="groq_llama70b",
+                success=False,
+            )
+        )
         # The model should be penalized in selection
         result = engine.select_models("coding")
         # groq_llama70b should no longer be first (circuit open = score 0)
@@ -270,12 +285,14 @@ class TestRecordRequest:
         """[TM-010 AC-5] Recording a success with tokens updates budget snapshot."""
         config_path = _setup_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
-        engine.record_request(RequestOutcome(
-            provider="groq",
-            model_id="groq_llama70b",
-            success=True,
-            tokens_used=500,
-        ))
+        engine.record_request(
+            RequestOutcome(
+                provider="groq",
+                model_id="groq_llama70b",
+                success=True,
+                tokens_used=500,
+            )
+        )
         # Budget should reflect the request
         snapshot = engine.budget_snapshot()
         assert "groq" in snapshot
@@ -378,7 +395,8 @@ class TestCatalogRefreshOnStale:
         engine = RouterEngine(config_path=config_path)
 
         with patch.object(
-            engine._refresher, "refresh",
+            engine._refresher,
+            "refresh",
             new_callable=AsyncMock,
             side_effect=Exception("network down"),
         ):
@@ -396,6 +414,7 @@ class TestCatalogRefreshOnStale:
 
         # Pre-populate cache so it's fresh
         from dragonlight_router.catalog.cache import CatalogCache
+
         cache = CatalogCache(
             cache_path=Path(tmp_path / "state" / "provider_catalog.json"),
             ttl_hours=24,
@@ -406,9 +425,7 @@ class TestCatalogRefreshOnStale:
         }
         cache.set(live_catalog)
 
-        with patch.object(
-            engine._refresher, "refresh", new_callable=AsyncMock
-        ) as mock_refresh:
+        with patch.object(engine._refresher, "refresh", new_callable=AsyncMock) as mock_refresh:
             result = engine.select_models("coding")
 
         mock_refresh.assert_not_called()
@@ -447,6 +464,7 @@ class TestGetRouter:
         """Note: can't easily test singleton in pytest without resetting global state."""
         # Just test that get_router returns a RouterEngine
         import dragonlight_router.router as router_mod
+
         # Reset singleton for test isolation
         router_mod._router_instance = None
         config_path = _setup_config(tmp_path)
@@ -527,12 +545,16 @@ class TestLoadConfig:
 
     def test_load_config_error_falls_back_to_default(self):
         """[TM-010 AC-8] When load_config returns Err, RouterConfig() default is used."""
-        err_result = Err(RouterConfigError(
-            message="simulated parse failure", config_path="/bad/path",
-        ))
+        err_result = Err(
+            RouterConfigError(
+                message="simulated parse failure",
+                config_path="/bad/path",
+            )
+        )
         with patch("dragonlight_router.router.load_config", return_value=err_result):
             config = RouterEngine._load_config(None, {})
         from dragonlight_router.config.schema import RouterConfig
+
         assert isinstance(config, RouterConfig)
         # Default config has no providers
         assert config.providers == []
@@ -573,6 +595,7 @@ class TestInitHealthCheckEmptyRegistry:
         engine = RouterEngine(config_path=config_path)
         # HealthCheckLoop should exist with empty backends
         from dragonlight_router.health.check_loop import HealthCheckLoop
+
         assert isinstance(engine._health_check_loop, HealthCheckLoop)
 
 
@@ -632,6 +655,7 @@ class TestEnsureMatrixInStateDir:
 
         def patched_ensure():
             import shutil
+
             dst = engine._config.state_dir / "model_role_matrix.json"
             if dst.exists():
                 return
@@ -812,9 +836,9 @@ class TestRefreshCatalogAsync:
 
         asyncio.run(run_test())
         # At least one task should be _async_refresh_catalog
-        assert any(
-            "_async_refresh_catalog" in name for name in scheduled_coro_names
-        ), f"Expected _async_refresh_catalog task, got: {scheduled_coro_names}"
+        assert any("_async_refresh_catalog" in name for name in scheduled_coro_names), (
+            f"Expected _async_refresh_catalog task, got: {scheduled_coro_names}"
+        )
 
     def test_async_refresh_catalog_ok_result_updates_cache(self, tmp_path: Path):
         """[TM-010 AC-13] Ok result from refresher updates the catalog cache (line 598)."""
@@ -975,9 +999,7 @@ class TestEnsureMatrixCopyBranch:
         with patch(
             "dragonlight_router.router.Path",
             side_effect=lambda *args: (
-                candidate_src
-                if args == ("config/model_role_matrix.json",)
-                else Path(*args)
+                candidate_src if args == ("config/model_role_matrix.json",) else Path(*args)
             ),
         ):
             engine._ensure_matrix_in_state_dir()
@@ -990,7 +1012,9 @@ class TestRegisterBackendsExceptionHandler:
     """[TM-010 AC-17] Exception in create_adapter is caught and logged (lines 335-341)."""
 
     def test_backend_registration_failure_is_caught(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """[TM-010 AC-17] When create_adapter raises, the exception is logged and skipped."""
         monkeypatch.setenv("GROQ_API_KEY", "test-key-groq")
@@ -1039,6 +1063,7 @@ class TestDispatchMethod:
         engine = RouterEngine(config_path=config_path)
 
         from dragonlight_router.core.types import BackendTier, DispatchOrder, EngineResponse
+
         order = DispatchOrder(
             intent_category="coding",
             specific_intent="write a function",
@@ -1104,7 +1129,6 @@ class TestGetRouterDoubleCheckedLock:
     def test_get_router_concurrent_race_hits_inner_guard(self, tmp_path: Path):
         """[TM-010 AC-19] Concurrent get_router calls hit the inner double-check (line 643)."""
         import threading
-
 
         reset_router()
         config_path = _setup_config(tmp_path)
@@ -1351,7 +1375,8 @@ class TestKeyInvalidOnMissingEnvVar:
     """Integration: backends marked KEY_INVALID when env var is missing at registration."""
 
     def test_backends_marked_key_invalid_on_missing_env_var(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ):
         """Backends whose env_key points to an unset env var are KEY_INVALID after registration."""
         # Use an env_key that does not exist in the environment
@@ -1380,7 +1405,9 @@ class TestKeyInvalidAfterCatalogAuthFailure:
     """Integration: backends marked KEY_INVALID after catalog auth failure (401/403)."""
 
     def test_backends_marked_key_invalid_after_catalog_auth_failure(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """Catalog refresh auth failure marks all backends for that provider KEY_INVALID."""
         monkeypatch.setenv("GROQ_API_KEY", "test-key-groq")
@@ -1396,10 +1423,12 @@ class TestKeyInvalidAfterCatalogAuthFailure:
         # Mock the refresher to return a result with auth failures for groq
         from dragonlight_router.catalog.refresher import CatalogRefreshResult
 
-        mock_result = Ok(CatalogRefreshResult(
-            catalog={},
-            auth_failures={"groq": 401},
-        ))
+        mock_result = Ok(
+            CatalogRefreshResult(
+                catalog={},
+                auth_failures={"groq": 401},
+            )
+        )
 
         async def run_test():
             with patch.object(
@@ -1425,7 +1454,9 @@ class TestCatalogRefreshRestoresKeyInvalid:
     """Integration: successful catalog refresh restores KEY_INVALID backends to AVAILABLE."""
 
     def test_catalog_refresh_restores_key_invalid_backends(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """A successful catalog refresh for a previously KEY_INVALID provider restores backends."""
         monkeypatch.setenv("GROQ_API_KEY", "test-key-groq")
@@ -1448,15 +1479,17 @@ class TestCatalogRefreshRestoresKeyInvalid:
         # backends when the provider appears in the successful catalog.
         from dragonlight_router.catalog.refresher import CatalogRefreshResult
 
-        success_result = Ok(CatalogRefreshResult(
-            catalog={
-                "groq": [
-                    CatalogEntry(model_id="groq/llama-3.1-8b-instant", provider="groq"),
-                    CatalogEntry(model_id="groq/mixtral-8x7b-32768", provider="groq"),
-                ],
-            },
-            auth_failures={},
-        ))
+        success_result = Ok(
+            CatalogRefreshResult(
+                catalog={
+                    "groq": [
+                        CatalogEntry(model_id="groq/llama-3.1-8b-instant", provider="groq"),
+                        CatalogEntry(model_id="groq/mixtral-8x7b-32768", provider="groq"),
+                    ],
+                },
+                auth_failures={},
+            )
+        )
 
         # The restore logic lives in routes._execute_catalog_refresh, so we simulate
         # the same logic that runs there: iterate registry, check provider in catalog
@@ -1479,3 +1512,370 @@ class TestCatalogRefreshRestoresKeyInvalid:
             assert state.status == BackendStatus.AVAILABLE, (
                 f"{model_id} should be AVAILABLE after successful refresh, got {state.status}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Coverage for _init_ibr when IBR is enabled (lines 335-342)
+# ---------------------------------------------------------------------------
+
+
+class TestInitIbrEnabled:
+    """[TM-010] _init_ibr initializes FlavorProfileLoader and FeedbackStore when enabled."""
+
+    def test_init_ibr_enabled_creates_flavor_loader_and_feedback_store(self, tmp_path: Path):
+        """[TM-010] IBR enabled: flavor_loader and feedback_store are created (lines 335-342)."""
+        state_dir = tmp_path / "state"
+        state_dir.mkdir()
+
+        # Create model_flavor_profiles.yaml in state_dir so loader finds it
+        profiles_yaml = state_dir / "model_flavor_profiles.yaml"
+        profiles_yaml.write_text(yaml.dump({"profiles": {}}))
+
+        config = {
+            "state_dir": str(state_dir),
+            "catalog_ttl_hours": 24,
+            "default_top_n": 12,
+            "max_consecutive_same_provider": 2,
+            "providers": [],
+            "intent_classification": {"enabled": True},
+        }
+        config_path = tmp_path / "router.yaml"
+        config_path.write_text(yaml.dump(config))
+
+        matrix = {}
+        (state_dir / "model_role_matrix.json").write_text(json.dumps(matrix))
+
+        engine = RouterEngine(config_path=config_path)
+        assert engine._flavor_loader is not None
+        assert engine._feedback_store is not None
+
+
+# ---------------------------------------------------------------------------
+# Coverage for _resolve_flavor_profile_path (lines 351-361)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveFlavorProfilePath:
+    """[TM-010] _resolve_flavor_profile_path returns a Path when no file exists."""
+
+    def test_returns_default_path_when_no_candidate_exists(self, tmp_path: Path):
+        """[TM-010] _resolve_flavor_profile_path returns default canonical path (line 386)."""
+        state_dir = tmp_path / "state"
+        state_dir.mkdir()
+
+        config = {
+            "state_dir": str(state_dir),
+            "catalog_ttl_hours": 24,
+            "default_top_n": 12,
+            "max_consecutive_same_provider": 2,
+            "providers": [],
+            "intent_classification": {"enabled": True},
+        }
+        config_path = tmp_path / "router.yaml"
+        config_path.write_text(yaml.dump(config))
+
+        matrix = {}
+        (state_dir / "model_role_matrix.json").write_text(json.dumps(matrix))
+
+        engine = RouterEngine(config_path=config_path)
+
+        # Patch Path.exists to return False for all candidate paths,
+        # so the fallback return candidates[0] on line 386 is exercised
+        original_exists = Path.exists
+
+        def patched_exists(self):
+            if "model_flavor_profiles.yaml" in str(self):
+                return False
+            return original_exists(self)
+
+        with patch.object(Path, "exists", patched_exists):
+            result = engine._resolve_flavor_profile_path()
+
+        assert isinstance(result, Path)
+        assert "model_flavor_profiles.yaml" in str(result)
+
+    def test_returns_existing_candidate_path(self, tmp_path: Path):
+        """[TM-010] _resolve_flavor_profile_path returns existing path (lines 357-359)."""
+        state_dir = tmp_path / "state"
+        state_dir.mkdir()
+
+        # Create the file in state_dir
+        profiles = state_dir / "model_flavor_profiles.yaml"
+        profiles.write_text(yaml.dump({"profiles": {}}))
+
+        config = {
+            "state_dir": str(state_dir),
+            "catalog_ttl_hours": 24,
+            "default_top_n": 12,
+            "max_consecutive_same_provider": 2,
+            "providers": [],
+            "intent_classification": {"enabled": True},
+        }
+        config_path = tmp_path / "router.yaml"
+        config_path.write_text(yaml.dump(config))
+
+        matrix = {}
+        (state_dir / "model_role_matrix.json").write_text(json.dumps(matrix))
+
+        engine = RouterEngine(config_path=config_path)
+        result = engine._resolve_flavor_profile_path()
+        assert result.exists()
+
+
+# ---------------------------------------------------------------------------
+# Coverage for _resolve_classification_adapter (lines 369-387)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveClassificationAdapter:
+    """[TM-010] _resolve_classification_adapter resolves or returns None."""
+
+    def test_no_classification_role_returns_none(self, tmp_path: Path):
+        """[TM-010] No 'classification' role in matrix -> None (lines 371-373)."""
+        state_dir = tmp_path / "state"
+        state_dir.mkdir()
+
+        config = {
+            "state_dir": str(state_dir),
+            "catalog_ttl_hours": 24,
+            "default_top_n": 12,
+            "max_consecutive_same_provider": 2,
+            "providers": [],
+            "intent_classification": {"enabled": True},
+        }
+        config_path = tmp_path / "router.yaml"
+        config_path.write_text(yaml.dump(config))
+
+        # Matrix with no 'classification' role
+        matrix = {"coding": {"groq_llama70b": 90}}
+        (state_dir / "model_role_matrix.json").write_text(json.dumps(matrix))
+
+        engine = RouterEngine(config_path=config_path)
+        result = engine._resolve_classification_adapter()
+        assert result is None
+
+    def test_classification_role_with_available_backend(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """classification role with available backend returns backend."""
+        monkeypatch.setenv("GROQ_API_KEY", "test-key-groq")
+
+        state_dir = tmp_path / "state"
+        state_dir.mkdir()
+
+        config = {
+            "state_dir": str(state_dir),
+            "catalog_ttl_hours": 24,
+            "default_top_n": 12,
+            "max_consecutive_same_provider": 2,
+            "providers": [
+                {
+                    "name": "groq",
+                    "base_url": "https://api.groq.com/openai/v1",
+                    "model_prefix": "groq/",
+                    "env_key": "GROQ_API_KEY",
+                    "rate_limits": {"rpm": 30, "rpd": 14400},
+                },
+            ],
+            "intent_classification": {"enabled": True},
+        }
+        config_path = tmp_path / "router.yaml"
+        config_path.write_text(yaml.dump(config))
+
+        # Matrix with a 'classification' role
+        matrix = {
+            "classification": {"groq/llama-3.1-8b-instant": 90},
+        }
+        (state_dir / "model_role_matrix.json").write_text(json.dumps(matrix))
+
+        from dragonlight_router.catalog.cache import CatalogCache
+
+        catalog = {
+            "groq": [CatalogEntry(model_id="groq/llama-3.1-8b-instant", provider="groq")],
+        }
+        cache = CatalogCache(cache_path=state_dir / "provider_catalog.json", ttl_hours=24)
+        cache.set(catalog)
+
+        engine = RouterEngine(config_path=config_path)
+        result = engine._resolve_classification_adapter()
+        # Should have resolved a backend
+        assert result is not None
+
+    def test_classification_role_no_available_backend_returns_none(
+        self,
+        tmp_path: Path,
+    ):
+        """[TM-010] classification role but no available backend -> None (lines 386-387)."""
+        state_dir = tmp_path / "state"
+        state_dir.mkdir()
+
+        config = {
+            "state_dir": str(state_dir),
+            "catalog_ttl_hours": 24,
+            "default_top_n": 12,
+            "max_consecutive_same_provider": 2,
+            "providers": [
+                {
+                    "name": "groq",
+                    "base_url": "https://api.groq.com/openai/v1",
+                    "model_prefix": "groq/",
+                    "rate_limits": {"rpm": 30, "rpd": 14400},
+                },
+            ],
+            "intent_classification": {"enabled": True},
+        }
+        config_path = tmp_path / "router.yaml"
+        config_path.write_text(yaml.dump(config))
+
+        # Matrix with a 'classification' role pointing to models not in registry
+        matrix = {"classification": {"groq/nonexistent-model": 90}}
+        (state_dir / "model_role_matrix.json").write_text(json.dumps(matrix))
+
+        engine = RouterEngine(config_path=config_path)
+        result = engine._resolve_classification_adapter()
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Line 604 — _mark_missing_key: env_key set but env var is present
+# ---------------------------------------------------------------------------
+
+
+class TestMarkMissingKeyEnvPresent:
+    """[TM-010] _mark_missing_key is a no-op when env var IS set (line 604-606)."""
+
+    def test_mark_missing_key_when_env_var_is_present(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """[TM-010] _mark_missing_key leaves AVAILABLE when env var set (line 604)."""
+        monkeypatch.setenv("GROQ_API_KEY", "test-key-groq")
+        config_path = _setup_single_provider_config(tmp_path)
+        engine = RouterEngine(config_path=config_path)
+
+        # Backends should be AVAILABLE because GROQ_API_KEY is set
+        for model_id in ("groq/llama-3.1-8b-instant", "groq/mixtral-8x7b-32768"):
+            _backend, state = engine._registry.get(model_id)
+            if state is not None:
+                assert state.status == BackendStatus.AVAILABLE
+
+    def test_mark_missing_key_no_env_key_returns_early(self, tmp_path: Path):
+        """[TM-010] _mark_missing_key returns early when env_key is None (line 634)."""
+        config_path = _setup_config(tmp_path)
+        engine = RouterEngine(config_path=config_path)
+
+        # Create a mock provider with env_key=None
+        mock_provider = MagicMock()
+        mock_provider.env_key = None
+
+        # Should return early without error — exercises line 634
+        engine._mark_missing_key("some-model", mock_provider)
+
+
+# ---------------------------------------------------------------------------
+# Lines 875-880 — record_ibr_feedback with flavor_loader present
+# ---------------------------------------------------------------------------
+
+
+class TestRecordFlavorFeedback:
+    """[TM-010] record_ibr_feedback calls feedback_store with operator_profile."""
+
+    def test_record_ibr_feedback_with_flavor_loader(self, tmp_path: Path):
+        """[TM-010] When flavor_loader is set, operator_profile is retrieved (lines 875-880)."""
+        state_dir = tmp_path / "state"
+        state_dir.mkdir()
+
+        profiles_path = state_dir / "model_flavor_profiles.yaml"
+        profiles_path.write_text(yaml.dump({"profiles": {}}))
+
+        config = {
+            "state_dir": str(state_dir),
+            "catalog_ttl_hours": 24,
+            "default_top_n": 12,
+            "max_consecutive_same_provider": 2,
+            "providers": [],
+            "intent_classification": {"enabled": True},
+        }
+        config_path = tmp_path / "router.yaml"
+        config_path.write_text(yaml.dump(config))
+
+        matrix = {}
+        (state_dir / "model_role_matrix.json").write_text(json.dumps(matrix))
+
+        from dragonlight_router.core.types import ClassifiedIntent
+
+        engine = RouterEngine(config_path=config_path)
+        assert engine._feedback_store is not None
+
+        intent = ClassifiedIntent(
+            task_type="analysis",
+            domain="code",
+            quality_speed="balanced",
+            confidence=0.9,
+            latency_ms=10.0,
+            from_cache=False,
+        )
+
+        # Should not raise
+        engine.record_ibr_feedback(
+            model_id="test-model",
+            classified_intent=intent,
+            quality_rating=4,
+        )
+
+    def test_record_ibr_feedback_without_feedback_store(self, tmp_path: Path):
+        """[TM-010] When feedback_store is None, function returns early (lines 871-873)."""
+        config_path = _setup_config(tmp_path)
+        engine = RouterEngine(config_path=config_path)
+        # With IBR disabled, _feedback_store is None
+        assert engine._feedback_store is None
+
+        from dragonlight_router.core.types import ClassifiedIntent
+
+        intent = ClassifiedIntent(
+            task_type="analysis",
+            domain="code",
+            quality_speed="balanced",
+            confidence=0.9,
+            latency_ms=10.0,
+            from_cache=False,
+        )
+
+        # Should not raise
+        engine.record_ibr_feedback(
+            model_id="test-model",
+            classified_intent=intent,
+            quality_rating=3,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Lines 997-1001 — _async_refresh_catalog unexpected type in Ok result
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncRefreshCatalogUnexpectedType:
+    """[TM-010] _async_refresh_catalog handles unexpected Ok value types."""
+
+    def test_unexpected_ok_value_type_returns_early(self, tmp_path: Path):
+        """[TM-010] Ok(non-dict, non-CatalogRefreshResult) logs warning (lines 997-1001)."""
+        config_path = _setup_config(tmp_path)
+        engine = RouterEngine(config_path=config_path)
+
+        # Return Ok wrapping something that is neither dict nor CatalogRefreshResult
+        unexpected_result = Ok("this is just a string")
+
+        async def run_test():
+            with patch.object(
+                engine._refresher,
+                "refresh",
+                new_callable=AsyncMock,
+                return_value=unexpected_result,
+            ):
+                await engine._async_refresh_catalog()
+
+        # Should complete without exception
+        asyncio.run(run_test())

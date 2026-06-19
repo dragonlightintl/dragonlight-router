@@ -2,6 +2,7 @@
 
 Spec traceability: TM-012 (BudgetTracker)
 """
+
 from __future__ import annotations
 
 import time
@@ -12,6 +13,8 @@ from hypothesis import strategies as st
 
 from dragonlight_router.budget.tracker import BudgetTracker
 from dragonlight_router.core.types import Ok, ProviderConfig
+
+pytestmark = pytest.mark.unit
 
 
 def _provider(
@@ -99,9 +102,17 @@ class TestRecordRequest:
 
     def test_records_tokens(self):
         """[TM-012 AC-3] Recording requests with tokens decrements TPM and daily token capacity."""
-        bt = BudgetTracker(providers=[_provider(
-            "groq", rpm=100, rpd=1000, tpm=500, daily_token_cap=10000,
-        )])
+        bt = BudgetTracker(
+            providers=[
+                _provider(
+                    "groq",
+                    rpm=100,
+                    rpd=1000,
+                    tpm=500,
+                    daily_token_cap=10000,
+                )
+            ]
+        )
         bt.record_request("groq", tokens_used=100)
         bt.record_request("groq", tokens_used=200)
         # RPM: 98/100, RPD: 998/1000, TPM: 200/500 → 60% remaining, daily: 9700/10000 → 97%
@@ -216,9 +227,16 @@ class TestDailyTokenCap:
 
     def test_daily_token_cap_tracking(self):
         """[TM-012 AC-6] Daily token usage is tracked and reflected in score."""
-        bt = BudgetTracker(providers=[_provider(
-            "groq", rpm=10000, rpd=10000, daily_token_cap=1000,
-        )])
+        bt = BudgetTracker(
+            providers=[
+                _provider(
+                    "groq",
+                    rpm=10000,
+                    rpd=10000,
+                    daily_token_cap=1000,
+                )
+            ]
+        )
         bt.record_request("groq", tokens_used=300)
         bt.record_request("groq", tokens_used=400)
         assert bt._daily_token_remaining("groq") == 300
@@ -253,9 +271,16 @@ class TestDailyTokenCap:
 
     def test_daily_token_reset_at_day_boundary(self):
         """[TM-012 AC-6] Daily token counters reset at day boundary."""
-        bt = BudgetTracker(providers=[_provider(
-            "groq", rpm=10000, rpd=10000, daily_token_cap=1000,
-        )])
+        bt = BudgetTracker(
+            providers=[
+                _provider(
+                    "groq",
+                    rpm=10000,
+                    rpd=10000,
+                    daily_token_cap=1000,
+                )
+            ]
+        )
         # Use some tokens
         bt.record_request("groq", tokens_used=500)
         assert bt._daily_token_remaining("groq") == 500
@@ -272,13 +297,17 @@ class TestScoreWithAllLimits:
 
     def test_score_considers_all_limits(self):
         """[TM-012 AC-7] Score is the minimum ratio across RPM, RPD, TPM, and daily token cap."""
-        bt = BudgetTracker(providers=[_provider(
-            name="groq",
-            rpm=10,      # RPM limit
-            rpd=100,     # RPD limit
-            tpm=1000,    # TPM limit
-            daily_token_cap=10000  # daily token cap
-        )])
+        bt = BudgetTracker(
+            providers=[
+                _provider(
+                    name="groq",
+                    rpm=10,  # RPM limit
+                    rpd=100,  # RPD limit
+                    tpm=1000,  # TPM limit
+                    daily_token_cap=10000,  # daily token cap
+                )
+            ]
+        )
         # Use 5 RPM (50%), 5 RPD (95%), 500 TPM (50%), 500 daily (95%)
         for _ in range(5):
             bt.record_request("groq", tokens_used=100)
@@ -294,13 +323,9 @@ class TestScoreWithAllLimits:
 
     def test_score_zero_when_any_limit_exhausted(self):
         """[TM-012 AC-7] Score drops to zero when any single limit dimension is exhausted."""
-        bt = BudgetTracker(providers=[_provider(
-            name="groq",
-            rpm=10,
-            rpd=100,
-            tpm=1000,
-            daily_token_cap=10000
-        )])
+        bt = BudgetTracker(
+            providers=[_provider(name="groq", rpm=10, rpd=100, tpm=1000, daily_token_cap=10000)]
+        )
         # Exhaust RPM
         for _ in range(10):
             bt.record_request("groq", tokens_used=1)
@@ -309,13 +334,9 @@ class TestScoreWithAllLimits:
         assert result.value == 0.0
 
         # Reset and exhaust RPD
-        bt = BudgetTracker(providers=[_provider(
-            name="groq",
-            rpm=10000,
-            rpd=10,
-            tpm=1000,
-            daily_token_cap=10000
-        )])
+        bt = BudgetTracker(
+            providers=[_provider(name="groq", rpm=10000, rpd=10, tpm=1000, daily_token_cap=10000)]
+        )
         for _ in range(10):
             bt.record_request("groq", tokens_used=1)
         result = bt.score("groq")
@@ -323,26 +344,18 @@ class TestScoreWithAllLimits:
         assert result.value == 0.0
 
         # Reset and exhaust TPM
-        bt = BudgetTracker(providers=[_provider(
-            name="groq",
-            rpm=10000,
-            rpd=10000,
-            tpm=10,
-            daily_token_cap=10000
-        )])
+        bt = BudgetTracker(
+            providers=[_provider(name="groq", rpm=10000, rpd=10000, tpm=10, daily_token_cap=10000)]
+        )
         bt.record_request("groq", tokens_used=10)  # exactly at limit
         result = bt.score("groq")
         assert isinstance(result, Ok)
         assert result.value == 0.0  # TPM remaining 0 -> ratio 0
 
         # Reset and exhaust daily token cap
-        bt = BudgetTracker(providers=[_provider(
-            name="groq",
-            rpm=10000,
-            rpd=10000,
-            tpm=10000,
-            daily_token_cap=10
-        )])
+        bt = BudgetTracker(
+            providers=[_provider(name="groq", rpm=10000, rpd=10000, tpm=10000, daily_token_cap=10)]
+        )
         bt.record_request("groq", tokens_used=10)
         result = bt.score("groq")
         assert isinstance(result, Ok)
@@ -368,9 +381,17 @@ class TestHasCapacityTPMAndDailyTokenCap:
 
     def test_has_capacity_true_when_all_limits_within_bounds(self):
         """[TM-012 AC-4] has_capacity True when all limits have headroom."""
-        bt = BudgetTracker(providers=[_provider(
-            "groq", rpm=100, rpd=1000, tpm=10000, daily_token_cap=100000,
-        )])
+        bt = BudgetTracker(
+            providers=[
+                _provider(
+                    "groq",
+                    rpm=100,
+                    rpd=1000,
+                    tpm=10000,
+                    daily_token_cap=100000,
+                )
+            ]
+        )
         bt.record_request("groq", tokens_used=50)
         assert bt.has_capacity("groq") is True
 
@@ -382,9 +403,16 @@ class TestHasCapacityTPMAndDailyTokenCap:
 
     def test_has_capacity_true_when_daily_token_cap_none(self):
         """[TM-012 AC-4] has_capacity returns True when daily_token_cap is None (unlimited)."""
-        bt = BudgetTracker(providers=[_provider(
-            "groq", rpm=100, rpd=1000, daily_token_cap=None,
-        )])
+        bt = BudgetTracker(
+            providers=[
+                _provider(
+                    "groq",
+                    rpm=100,
+                    rpd=1000,
+                    daily_token_cap=None,
+                )
+            ]
+        )
         bt.record_request("groq", tokens_used=999999)
         assert bt.has_capacity("groq") is True
 
@@ -396,9 +424,16 @@ class TestHasCapacityTPMAndDailyTokenCap:
 
     def test_has_capacity_true_when_daily_token_cap_zero(self):
         """[TM-012 AC-4] has_capacity True when daily_token_cap is 0 (unlimited)."""
-        bt = BudgetTracker(providers=[_provider(
-            "groq", rpm=100, rpd=1000, daily_token_cap=0,
-        )])
+        bt = BudgetTracker(
+            providers=[
+                _provider(
+                    "groq",
+                    rpm=100,
+                    rpd=1000,
+                    daily_token_cap=0,
+                )
+            ]
+        )
         bt.record_request("groq", tokens_used=999999)
         assert bt.has_capacity("groq") is True
 
@@ -413,9 +448,17 @@ class TestHasCapacityTPMAndDailyTokenCap:
 
     def test_daily_token_exhaustion_blocks_even_with_rpm_rpd_tpm_available(self):
         """[TM-012 AC-4] daily_token_cap blocking works independently of RPM/RPD/TPM headroom."""
-        bt = BudgetTracker(providers=[_provider(
-            "groq", rpm=1000, rpd=100000, tpm=100000, daily_token_cap=200,
-        )])
+        bt = BudgetTracker(
+            providers=[
+                _provider(
+                    "groq",
+                    rpm=1000,
+                    rpd=100000,
+                    tpm=100000,
+                    daily_token_cap=200,
+                )
+            ]
+        )
         bt.record_request("groq", tokens_used=200)
         assert bt.has_capacity("groq") is False
 
@@ -465,12 +508,14 @@ class TestInvariantHelper:
     def test_invariant_raises_on_false(self):
         """[TM-012 AC-1] invariant() raises AssertionError when condition is False (line 25)."""
         from dragonlight_router.budget.tracker import invariant
+
         with pytest.raises(AssertionError, match="test message"):
             invariant(False, "test message")
 
     def test_invariant_passes_on_true(self):
         """[TM-012 AC-1] invariant() does not raise when condition is True."""
         from dragonlight_router.budget.tracker import invariant
+
         invariant(True, "should not raise")
 
 
@@ -521,6 +566,7 @@ class TestCheckAndReserve:
     async def test_check_and_reserve_prevents_race_condition(self):
         """[TM-012 AC-4] Concurrent check_and_reserve calls do not exceed capacity."""
         import asyncio
+
         bt = BudgetTracker(providers=[_provider("groq", rpm=3, rpd=100000)])
         # Launch 10 concurrent reserve attempts, only 3 should succeed
         results = await asyncio.gather(
@@ -600,16 +646,12 @@ class TestPropertyTests:
                 st.integers(min_value=0, max_value=1000),
             ),
             max_size=10,
-        )
+        ),
     )
     def test_score_is_between_0_and_100(self, rpm, rpd, tpm, daily_token_cap, requests):
         """Score should always be between 0 and 100 inclusive."""
         provider = _provider(
-            name="test",
-            rpm=rpm,
-            rpd=rpd,
-            tpm=tpm,
-            daily_token_cap=daily_token_cap
+            name="test", rpm=rpm, rpd=rpd, tpm=tpm, daily_token_cap=daily_token_cap
         )
         bt = BudgetTracker(providers=[provider])
         for tokens_used, _ in requests:

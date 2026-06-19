@@ -14,6 +14,9 @@ import pytest
 from dragonlight_router.adapters.cerebras import _DEFAULT_BASE_URL, CerebrasBackend
 from dragonlight_router.core.types import BackendStatus
 
+pytestmark = pytest.mark.unit
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -114,9 +117,7 @@ async def test_generate_streaming_success(make_backend_config):
     """Streaming generate yields text chunks from SSE delta events."""
     sse = _sse_lines("Hello", " world")
 
-    transport = httpx.MockTransport(
-        lambda request: _stream_response(200, sse)
-    )
+    transport = httpx.MockTransport(lambda request: _stream_response(200, sse))
     backend = _make_cerebras_backend(make_backend_config, transport)
 
     chunks: list[str] = []
@@ -150,9 +151,7 @@ async def test_generate_non_streaming(make_backend_config):
         "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
     }
 
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(200, json=response_body)
-    )
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=response_body))
     backend = _make_cerebras_backend(make_backend_config, transport)
 
     chunks: list[str] = []
@@ -202,9 +201,7 @@ async def test_generate_401_unauthorized(make_backend_config):
 async def test_generate_429_rate_limited(make_backend_config):
     """429 from the API raises RuntimeError and sets ERROR status."""
     transport = httpx.MockTransport(
-        lambda request: httpx.Response(
-            429, json={"error": {"message": "rate limited"}}
-        )
+        lambda request: httpx.Response(429, json={"error": {"message": "rate limited"}})
     )
     backend = _make_cerebras_backend(make_backend_config, transport)
 
@@ -221,9 +218,7 @@ async def test_generate_429_rate_limited(make_backend_config):
 async def test_generate_500_server_error(make_backend_config):
     """500 from the API raises RuntimeError and sets ERROR status."""
     transport = httpx.MockTransport(
-        lambda request: httpx.Response(
-            500, json={"error": {"message": "internal error"}}
-        )
+        lambda request: httpx.Response(500, json={"error": {"message": "internal error"}})
     )
     backend = _make_cerebras_backend(make_backend_config, transport)
 
@@ -248,9 +243,7 @@ async def test_health_check_success(make_backend_config):
         "object": "list",
         "data": [{"id": "llama3.1-8b", "object": "model"}],
     }
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(200, json=response_body)
-    )
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=response_body))
     backend = _make_cerebras_backend(make_backend_config, transport)
 
     result = await backend.health_check()

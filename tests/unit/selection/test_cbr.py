@@ -19,6 +19,8 @@ from dragonlight_router.core.types import (
 )
 from dragonlight_router.selection.cbr import filter_by_cost
 
+pytestmark = pytest.mark.unit
+
 
 def test_filter_by_cost_no_candidates():
     """[TM-002 AC-1] Empty candidate list returns empty list."""
@@ -32,7 +34,7 @@ def test_filter_by_cost_no_candidates():
         requires_long_context=False,
     )
     budget_tracker = BudgetTracker(providers=[])
-    
+
     filtered = filter_by_cost([], order, budget_tracker)
     assert filtered == []
 
@@ -68,7 +70,7 @@ def test_filter_by_cost_single_candidate():
         cost=cost,
         rate_limits=rate_limits,
     )
-    
+
     # Create budget tracker with the provider
     provider_config = ProviderConfig(
         name="test-provider",
@@ -82,7 +84,7 @@ def test_filter_by_cost_single_candidate():
         daily_token_cap=1000000,
     )
     budget_tracker = BudgetTracker(providers=[provider_config])
-    
+
     order = DispatchOrder(
         intent_category="test",
         specific_intent="test",
@@ -92,10 +94,10 @@ def test_filter_by_cost_single_candidate():
         requires_tool_use=False,
         requires_long_context=False,
     )
-    
+
     candidates = [backend]
     filtered = filter_by_cost(candidates, order, budget_tracker)
-    
+
     # With single candidate, we should keep it (max(1, 1//2) = 1)
     assert len(filtered) == 1
     assert backend in filtered
@@ -111,25 +113,25 @@ def test_filter_by_cost_multiple_candidates():
         supports_json_mode=False,
         supports_system_prompts=True,
     )
-    
+
     # Low cost backend
     low_cost = BackendCostProfile(
-        input_per_mtok=1.0,   # $1 per million
+        input_per_mtok=1.0,  # $1 per million
         output_per_mtok=2.0,  # $2 per million
     )
     # High cost backend
     high_cost = BackendCostProfile(
         input_per_mtok=100.0,  # $100 per million
-        output_per_mtok=200.0, # $200 per million
+        output_per_mtok=200.0,  # $200 per million
     )
-    
+
     rate_limits = BackendRateLimits(
         rpm=60,
         rpd=1000,
         tpm=10000,
         daily_token_cap=1000000,
     )
-    
+
     low_backend = BackendConfig(
         name="low-cost-backend",
         provider="test-provider",
@@ -141,7 +143,7 @@ def test_filter_by_cost_multiple_candidates():
         cost=low_cost,
         rate_limits=rate_limits,
     )
-    
+
     high_backend = BackendConfig(
         name="high-cost-backend",
         provider="test-provider",
@@ -153,7 +155,7 @@ def test_filter_by_cost_multiple_candidates():
         cost=high_cost,
         rate_limits=rate_limits,
     )
-    
+
     # Create budget tracker with the provider
     provider_config = ProviderConfig(
         name="test-provider",
@@ -167,7 +169,7 @@ def test_filter_by_cost_multiple_candidates():
         daily_token_cap=1000000,
     )
     budget_tracker = BudgetTracker(providers=[provider_config])
-    
+
     order = DispatchOrder(
         intent_category="test",
         specific_intent="test",
@@ -177,10 +179,10 @@ def test_filter_by_cost_multiple_candidates():
         requires_tool_use=False,
         requires_long_context=False,
     )
-    
+
     candidates = [low_backend, high_backend]
     filtered = filter_by_cost(candidates, order, budget_tracker)
-    
+
     # Should keep at least one, and likely the low cost one due to higher efficiency
     assert len(filtered) >= 1
     # The low cost backend should have higher efficiency (budget score / cost)
@@ -200,7 +202,7 @@ def test_filter_by_cost_assertions():
         requires_long_context=False,
     )
     budget_tracker = BudgetTracker(providers=[])
-    
+
     # Test candidates not a list
     try:
         filter_by_cost("not a list", order, budget_tracker)  # type: ignore
@@ -260,10 +262,10 @@ def test_filter_by_cost_provider_not_found():
         cost=cost,
         rate_limits=rate_limits,
     )
-    
+
     # Budget tracker with no providers
     budget_tracker = BudgetTracker(providers=[])
-    
+
     order = DispatchOrder(
         intent_category="test",
         specific_intent="test",
@@ -273,10 +275,10 @@ def test_filter_by_cost_provider_not_found():
         requires_tool_use=False,
         requires_long_context=False,
     )
-    
+
     candidates = [backend]
     filtered = filter_by_cost(candidates, order, budget_tracker)
-    
+
     # Should still return the candidate (with budget score 0.0, but we keep at least 1)
     assert len(filtered) == 1
     assert backend in filtered

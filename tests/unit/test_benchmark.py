@@ -3,6 +3,7 @@
 Spec traceability: IBR spec v0.3.0 section 3.2, Method 3.
 AC numbers: IBR-FLV-01 through IBR-FLV-06.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -41,6 +42,9 @@ from dragonlight_router.core.types import (
     GenerativeBackend,
     ModelFlavorProfile,
 )
+
+pytestmark = pytest.mark.unit
+
 
 # ---------------------------------------------------------------------------
 # Helpers — mock adapter factories (matches test_classifier.py style)
@@ -129,9 +133,7 @@ class TestGetAllPrompts:
     def test_all_prompts_have_valid_domain(self):
         """[IBR-FLV-01] Every prompt has a valid IBR domain."""
         for p in get_all_prompts():
-            assert p.domain in IBR_DOMAINS, (
-                f"Prompt {p.id} has invalid domain: {p.domain}"
-            )
+            assert p.domain in IBR_DOMAINS, f"Prompt {p.id} has invalid domain: {p.domain}"
 
     def test_all_prompts_have_valid_quality_speed(self):
         """[IBR-FLV-01] Every prompt has a valid quality_speed value."""
@@ -671,7 +673,9 @@ class TestAggregateScores:
     def test_single_prompt(self):
         """[IBR-FLV-04] Single prompt populates its dimensions correctly."""
         prompt = _make_eval_prompt(
-            task_type="generation", domain="code", quality_speed="quality",
+            task_type="generation",
+            domain="code",
+            quality_speed="quality",
         )
         scored = [(prompt, 0.9)]
         profile = _aggregate_scores(scored)
@@ -687,10 +691,16 @@ class TestAggregateScores:
     def test_multiple_prompts_same_dimension(self):
         """[IBR-FLV-04] Multiple prompts in same dimension are averaged."""
         p1 = _make_eval_prompt(
-            id="p1", task_type="analysis", domain="code", quality_speed="quality",
+            id="p1",
+            task_type="analysis",
+            domain="code",
+            quality_speed="quality",
         )
         p2 = _make_eval_prompt(
-            id="p2", task_type="analysis", domain="code", quality_speed="quality",
+            id="p2",
+            task_type="analysis",
+            domain="code",
+            quality_speed="quality",
         )
 
         scored = [(p1, 0.8), (p2, 0.6)]
@@ -704,10 +714,16 @@ class TestAggregateScores:
     def test_prompts_across_dimensions(self):
         """[IBR-FLV-04] Prompts across different dimensions populate independently."""
         p1 = _make_eval_prompt(
-            id="p1", task_type="generation", domain="code", quality_speed="quality",
+            id="p1",
+            task_type="generation",
+            domain="code",
+            quality_speed="quality",
         )
         p2 = _make_eval_prompt(
-            id="p2", task_type="analysis", domain="business", quality_speed="speed",
+            id="p2",
+            task_type="analysis",
+            domain="business",
+            quality_speed="speed",
         )
 
         scored = [(p1, 0.9), (p2, 0.3)]
@@ -730,7 +746,10 @@ class TestAggregateScores:
         prompts_and_scores = []
         for i in range(25):
             p = _make_eval_prompt(
-                id=f"p{i}", task_type="generation", domain="code", quality_speed="quality",
+                id=f"p{i}",
+                task_type="generation",
+                domain="code",
+                quality_speed="quality",
             )
             prompts_and_scores.append((p, 0.7))
 
@@ -868,10 +887,12 @@ class TestBenchmarkRunner:
         judge_adapter = _make_mock_adapter(judge_score)
 
         prompts = [
-            _make_eval_prompt(id="p1", task_type="generation", domain="code",
-                              quality_speed="quality"),
-            _make_eval_prompt(id="p2", task_type="analysis", domain="technical",
-                              quality_speed="balanced"),
+            _make_eval_prompt(
+                id="p1", task_type="generation", domain="code", quality_speed="quality"
+            ),
+            _make_eval_prompt(
+                id="p2", task_type="analysis", domain="technical", quality_speed="balanced"
+            ),
         ]
 
         runner = BenchmarkRunner(
@@ -933,16 +954,22 @@ class TestIntegrationPipeline:
         # Use a representative subset of prompts
         prompts = [
             _make_eval_prompt(
-                id="int-gen-code", task_type="generation",
-                domain="code", quality_speed="quality",
+                id="int-gen-code",
+                task_type="generation",
+                domain="code",
+                quality_speed="quality",
             ),
             _make_eval_prompt(
-                id="int-analysis-tech", task_type="analysis",
-                domain="technical", quality_speed="balanced",
+                id="int-analysis-tech",
+                task_type="analysis",
+                domain="technical",
+                quality_speed="balanced",
             ),
             _make_eval_prompt(
-                id="int-creative-writing", task_type="creative",
-                domain="creative_writing", quality_speed="speed",
+                id="int-creative-writing",
+                task_type="creative",
+                domain="creative_writing",
+                quality_speed="speed",
             ),
         ]
 
@@ -995,8 +1022,9 @@ class TestIntegrationPipeline:
         )
 
         prompts = [
-            _make_eval_prompt(id="fail-test", task_type="generation",
-                              domain="code", quality_speed="quality"),
+            _make_eval_prompt(
+                id="fail-test", task_type="generation", domain="code", quality_speed="quality"
+            ),
         ]
 
         runner = BenchmarkRunner(
@@ -1013,3 +1041,54 @@ class TestIntegrationPipeline:
 
         # The generation score should be 0.0 (empty response from adapter failure)
         assert profile.task_scores["generation"].score == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# Coverage for get_prompts_by_task_type and get_prompts_by_domain (lines 983-990)
+# ---------------------------------------------------------------------------
+
+
+class TestGetPromptsByTaskType:
+    """[IBR-FLV-05] get_prompts_by_task_type filters prompts correctly."""
+
+    def test_valid_task_type_returns_filtered_list(self):
+        """get_prompts_by_task_type returns only prompts matching the task_type."""
+        from dragonlight_router.benchmark.prompts import get_prompts_by_task_type
+        from dragonlight_router.core.types import IBR_TASK_TYPES
+
+        task_type = sorted(IBR_TASK_TYPES)[0]  # Pick one deterministically
+        result = get_prompts_by_task_type(task_type)
+        assert isinstance(result, list)
+        assert len(result) > 0
+        for p in result:
+            assert p.task_type == task_type
+
+    def test_invalid_task_type_raises_assertion(self):
+        """get_prompts_by_task_type raises AssertionError on invalid task_type."""
+        from dragonlight_router.benchmark.prompts import get_prompts_by_task_type
+
+        with pytest.raises(AssertionError, match="Invalid task_type"):
+            get_prompts_by_task_type("nonexistent_task_type")
+
+
+class TestGetPromptsByDomain:
+    """[IBR-FLV-05] get_prompts_by_domain filters prompts correctly."""
+
+    def test_valid_domain_returns_filtered_list(self):
+        """get_prompts_by_domain returns only prompts matching the domain."""
+        from dragonlight_router.benchmark.prompts import get_prompts_by_domain
+        from dragonlight_router.core.types import IBR_DOMAINS
+
+        domain = sorted(IBR_DOMAINS)[0]  # Pick one deterministically
+        result = get_prompts_by_domain(domain)
+        assert isinstance(result, list)
+        assert len(result) > 0
+        for p in result:
+            assert p.domain == domain
+
+    def test_invalid_domain_raises_assertion(self):
+        """get_prompts_by_domain raises AssertionError on invalid domain."""
+        from dragonlight_router.benchmark.prompts import get_prompts_by_domain
+
+        with pytest.raises(AssertionError, match="Invalid domain"):
+            get_prompts_by_domain("nonexistent_domain")

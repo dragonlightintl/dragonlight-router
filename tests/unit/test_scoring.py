@@ -2,6 +2,7 @@
 
 Spec traceability: TM-007 (Scoring weights)
 """
+
 from __future__ import annotations
 
 import pytest
@@ -15,6 +16,8 @@ from dragonlight_router.selection.scoring import (
     cost_adjusted_weights,
     score_candidate,
 )
+
+pytestmark = pytest.mark.unit
 
 
 class TestCompositeScore:
@@ -44,56 +47,70 @@ class TestBudgetScore:
     def test_full_capacity(self):
         """[TM-007 AC-3] All limits full -> 100."""
         score = compute_budget_score(
-            rpm_remaining=100, rpm_limit=100,
-            rpd_remaining=1000, rpd_limit=1000,
+            rpm_remaining=100,
+            rpm_limit=100,
+            rpd_remaining=1000,
+            rpd_limit=1000,
         )
         assert score == pytest.approx(100.0)
 
     def test_half_capacity(self):
         """[TM-007 AC-3] Half remaining on both RPM and RPD yields 50."""
         score = compute_budget_score(
-            rpm_remaining=50, rpm_limit=100,
-            rpd_remaining=500, rpd_limit=1000,
+            rpm_remaining=50,
+            rpm_limit=100,
+            rpd_remaining=500,
+            rpd_limit=1000,
         )
         assert score == pytest.approx(50.0)
 
     def test_rpm_limiting(self):
         """[TM-007 AC-3] RPM is more constrained than RPD -- score follows the minimum."""
         score = compute_budget_score(
-            rpm_remaining=10, rpm_limit=100,
-            rpd_remaining=900, rpd_limit=1000,
+            rpm_remaining=10,
+            rpm_limit=100,
+            rpd_remaining=900,
+            rpd_limit=1000,
         )
         assert score == pytest.approx(10.0)
 
     def test_rpd_limiting(self):
         """[TM-007 AC-3] RPD is more constrained than RPM -- score follows the minimum."""
         score = compute_budget_score(
-            rpm_remaining=90, rpm_limit=100,
-            rpd_remaining=100, rpd_limit=1000,
+            rpm_remaining=90,
+            rpm_limit=100,
+            rpd_remaining=100,
+            rpd_limit=1000,
         )
         assert score == pytest.approx(10.0)
 
     def test_none_rpd_unlimited(self):
         """[TM-007 AC-3] None RPD limits treated as unlimited (100)."""
         score = compute_budget_score(
-            rpm_remaining=50, rpm_limit=100,
-            rpd_remaining=None, rpd_limit=None,
+            rpm_remaining=50,
+            rpm_limit=100,
+            rpd_remaining=None,
+            rpd_limit=None,
         )
         assert score == pytest.approx(50.0)
 
     def test_none_rpd_with_low_rpm(self):
         """[TM-007 AC-3] None RPD + low RPM -> RPM drives score."""
         score = compute_budget_score(
-            rpm_remaining=5, rpm_limit=100,
-            rpd_remaining=None, rpd_limit=None,
+            rpm_remaining=5,
+            rpm_limit=100,
+            rpd_remaining=None,
+            rpd_limit=None,
         )
         assert score == pytest.approx(5.0)
 
     def test_zero_remaining(self):
         """[TM-007 AC-3] Zero remaining on both dimensions yields zero score."""
         score = compute_budget_score(
-            rpm_remaining=0, rpm_limit=100,
-            rpd_remaining=0, rpd_limit=1000,
+            rpm_remaining=0,
+            rpm_limit=100,
+            rpd_remaining=0,
+            rpd_limit=1000,
         )
         assert score == pytest.approx(0.0)
 
@@ -146,8 +163,7 @@ class TestScoringWeightsEnum:
         assert adjusted.cost == pytest.approx(0.70)
         assert adjusted.latency == pytest.approx(0.10)
         total = (
-            adjusted.cost + adjusted.latency + adjusted.priority
-            + adjusted.queue + adjusted.health
+            adjusted.cost + adjusted.latency + adjusted.priority + adjusted.queue + adjusted.health
         )
         assert abs(total - 1.0) < 1e-9
 

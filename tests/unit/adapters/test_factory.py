@@ -23,6 +23,9 @@ from dragonlight_router.adapters.openrouter import OpenRouterBackend
 from dragonlight_router.adapters.together import TogetherBackend
 from dragonlight_router.core.types import GenerativeBackend
 
+pytestmark = pytest.mark.unit
+
+
 # ---------------------------------------------------------------------------
 # Provider → expected class mapping
 # ---------------------------------------------------------------------------
@@ -91,9 +94,7 @@ def test_create_adapter_unknown_provider(make_backend_config):
     list(PROVIDER_CLASS_MAP.items()),
     ids=list(PROVIDER_CLASS_MAP.keys()),
 )
-def test_create_adapter_returns_correct_class(
-    make_backend_config, provider, expected_class
-):
+def test_create_adapter_returns_correct_class(make_backend_config, provider, expected_class):
     """create_adapter returns the correct concrete class for each provider."""
     config = make_backend_config(
         name=f"{provider}-test",

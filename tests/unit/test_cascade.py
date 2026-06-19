@@ -2,6 +2,7 @@
 
 Spec traceability: TM-004 (Cascade dispatch)
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -29,9 +30,13 @@ from dragonlight_router.dispatch.cascade import (
 )
 from dragonlight_router.result import Err, Ok
 
+pytestmark = pytest.mark.unit
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_order(**kwargs) -> DispatchOrder:
     defaults = {
@@ -64,6 +69,7 @@ def _make_ctx(registry=None, budget_tracker=None, health_tracker=None, config=No
 # Line 133 — cost_governor_active → cost_adjusted_weights called
 # ---------------------------------------------------------------------------
 
+
 class TestRunCbrStageCostGovernor:
     def test_cost_governor_active_calls_cost_adjusted_weights(self, make_backend_config):
         """[TM-004 AC-1] cost_governor_active True → cost_adjusted_weights used in CBR scoring."""
@@ -85,8 +91,12 @@ class TestRunCbrStageCostGovernor:
             "cost_down_threshold_daily": 100.0,
             "cost_down_threshold_monthly": 1000.0,
         }
-        ctx = _make_ctx(registry=registry, budget_tracker=budget_tracker,
-                        health_tracker=health_tracker, config=config)
+        ctx = _make_ctx(
+            registry=registry,
+            budget_tracker=budget_tracker,
+            health_tracker=health_tracker,
+            config=config,
+        )
 
         cascade_mod = "dragonlight_router.dispatch.cascade"
         with (
@@ -98,8 +108,10 @@ class TestRunCbrStageCostGovernor:
                 cost=0.70, latency=0.10, priority=0.10, queue=0.05, health=0.05
             )
             mock_filter.return_value = [backend]
-            with patch("dragonlight_router.dispatch.cascade._score_and_rank_candidates",
-                       return_value=[backend]):
+            with patch(
+                "dragonlight_router.dispatch.cascade._score_and_rank_candidates",
+                return_value=[backend],
+            ):
                 result = _run_cbr_stage(order, [backend], ctx)
 
         # TS-003: Primary assertion is output behavior, not just mock wiring.
@@ -113,6 +125,7 @@ class TestRunCbrStageCostGovernor:
 # ---------------------------------------------------------------------------
 # Lines 171-178 — _apply_degraded_penalty when backend IS DEGRADED
 # ---------------------------------------------------------------------------
+
 
 class TestApplyDegradedPenalty:
     def test_degraded_backend_score_halved(self, make_backend_config):
@@ -162,6 +175,7 @@ class TestApplyDegradedPenalty:
 # Line 195 — _run_lbr_stage empty result → Err(LBRNoCapacityError)
 # ---------------------------------------------------------------------------
 
+
 class TestRunLbrStageEmpty:
     def test_empty_lbr_result_returns_err(self, make_backend_config):
         """[TM-004 AC-3] LBR returning no candidates → Err(LBRNoCapacityError)."""
@@ -175,12 +189,14 @@ class TestRunLbrStageEmpty:
 
         assert result.is_err()
         from dragonlight_router.core.errors import LBRNoCapacityError
+
         assert isinstance(result.error, LBRNoCapacityError)
 
 
 # ---------------------------------------------------------------------------
 # Lines 248-268 — route() full cascade path including select_final_candidate
 # ---------------------------------------------------------------------------
+
 
 class TestRoute:
     @pytest.mark.asyncio
@@ -197,7 +213,8 @@ class TestRoute:
         with (
             patch(
                 f"{cascade_mod}._run_cascade",
-                new_callable=AsyncMock, return_value=Ok([backend]),
+                new_callable=AsyncMock,
+                return_value=Ok([backend]),
             ),
             patch(f"{cascade_mod}.select_final_candidate", return_value=backend),
         ):
@@ -216,6 +233,7 @@ class TestRoute:
         config = {}
 
         from dragonlight_router.core.errors import BudgetExceededError
+
         err = BudgetExceededError("no budget")
 
         with patch(
@@ -257,6 +275,7 @@ class TestRoute:
 # Lines 295-296 — _build_messages when system_content is a plain string
 # ---------------------------------------------------------------------------
 
+
 class TestBuildMessages:
     def test_system_content_is_string_appended(self):
         """[TM-004 AC-5] String system_content is added as system message."""
@@ -295,6 +314,7 @@ class TestBuildMessages:
 # HAZ-001 — _filter_by_trust_floor context trust tier enforcement
 # ---------------------------------------------------------------------------
 
+
 class TestFilterByTrustFloor:
     """HAZ-001 mitigation: context_trust_tier enforcement in cascade."""
 
@@ -327,7 +347,8 @@ class TestFilterByTrustFloor:
         complex_ = make_backend_config(name="c1", tier=BackendTier.COMPLEX)
         local = make_backend_config(name="l1", tier=BackendTier.LOCAL)
         result = _filter_by_trust_floor(
-            [simple, moderate, complex_, local], "semi_trusted",
+            [simple, moderate, complex_, local],
+            "semi_trusted",
         )
         assert len(result) == 4
 
@@ -379,6 +400,7 @@ class TestFilterByTrustFloor:
 
         assert result.is_err()
         from dragonlight_router.selection.mbr import MBRNoCandidatesError
+
         assert isinstance(result.error, MBRNoCandidatesError)
         assert "context_trust_tier" in str(result.error)
 
@@ -386,6 +408,7 @@ class TestFilterByTrustFloor:
 # ---------------------------------------------------------------------------
 # Streaming dispatch — _try_streaming_dispatch
 # ---------------------------------------------------------------------------
+
 
 def _make_mock_adapter(chunks: list[str]):
     """Create a mock adapter whose generate() yields the given chunks."""
@@ -496,6 +519,7 @@ class TestTryStreamingDispatch:
 # Streaming dispatch — dispatch_stream
 # ---------------------------------------------------------------------------
 
+
 class TestDispatchStream:
     @pytest.mark.asyncio
     async def test_streams_tokens_on_success(self, make_backend_config):
@@ -516,7 +540,11 @@ class TestDispatchStream:
         ):
             chunks = []
             async for chunk in dispatch_stream(
-                order, registry, budget_tracker, health_tracker, {},
+                order,
+                registry,
+                budget_tracker,
+                health_tracker,
+                {},
             ):
                 chunks.append(chunk)
 
@@ -536,11 +564,13 @@ class TestDispatchStream:
         health_tracker = MagicMock()
 
         from dragonlight_router.core.errors import BudgetExceededError
+
         err = BudgetExceededError("no budget")
 
         with patch(
             "dragonlight_router.dispatch.cascade._run_cascade",
-            new_callable=AsyncMock, return_value=Err(err),
+            new_callable=AsyncMock,
+            return_value=Err(err),
         ):
             chunks = []
             async for chunk in dispatch_stream(order, registry, budget_tracker, health_tracker, {}):
@@ -581,7 +611,8 @@ class TestDispatchStream:
         with (
             patch(
                 f"{cascade_mod}._run_cascade",
-                new_callable=AsyncMock, return_value=Ok([sc1, sc2]),
+                new_callable=AsyncMock,
+                return_value=Ok([sc1, sc2]),
             ),
             patch(adapter_path, side_effect=_create_adapter),
         ):
@@ -616,13 +647,18 @@ class TestDispatchStream:
         with (
             patch(
                 f"{cascade_mod}._run_cascade",
-                new_callable=AsyncMock, return_value=Ok([sc1, sc2]),
+                new_callable=AsyncMock,
+                return_value=Ok([sc1, sc2]),
             ),
             patch(adapter_path, return_value=failing_adapter),
         ):
             chunks = []
             async for chunk in dispatch_stream(
-                order, registry, budget_tracker, health_tracker, {},
+                order,
+                registry,
+                budget_tracker,
+                health_tracker,
+                {},
             ):
                 chunks.append(chunk)
 
@@ -631,3 +667,243 @@ class TestDispatchStream:
         assert "2 backends exhausted" in chunks[0].error_message
         assert "b1" in chunks[0].error_message
         assert "b2" in chunks[0].error_message
+
+
+# ---------------------------------------------------------------------------
+# Line 92 — get_cache() returns the module-level cache singleton
+# ---------------------------------------------------------------------------
+
+
+class TestGetCache:
+    def test_get_cache_returns_none_when_not_configured(self):
+        """[TM-004] get_cache returns None when caching is not configured (line 92)."""
+        from dragonlight_router.dispatch.cascade import _reset_cache, get_cache
+
+        _reset_cache()
+        assert get_cache() is None
+
+    def test_get_cache_returns_cache_after_configure(self, tmp_path):
+        """[TM-004] get_cache returns the SimpleCache after configure_cache (line 92)."""
+        from dragonlight_router.dispatch.cascade import _reset_cache, configure_cache, get_cache
+
+        _reset_cache()
+        cache = configure_cache(db_path=tmp_path / "test_cache.db")
+        assert get_cache() is cache
+        _reset_cache()
+
+
+# ---------------------------------------------------------------------------
+# Lines 274-286 — _run_ibr_stage exception → returns None (IBR-SYS-03)
+# ---------------------------------------------------------------------------
+
+
+class TestRunIbrStageSafe:
+    @pytest.mark.asyncio
+    async def test_ibr_stage_exception_returns_none(self, make_backend_config):
+        """[IBR-SYS-03] _run_ibr_stage catches exceptions and returns None."""
+        from dragonlight_router.config.schema import IntentClassificationConfig
+        from dragonlight_router.dispatch.cascade import DispatchContext, _run_ibr_stage
+
+        backend = make_backend_config(name="b1", provider="prov")
+        order = _make_order()
+
+        ctx = DispatchContext(
+            registry=MagicMock(spec=BackendRegistry),
+            budget_tracker=MagicMock(),
+            health_tracker=MagicMock(),
+            config={},
+            ibr_config=IntentClassificationConfig(enabled=True),
+            flavor_loader=MagicMock(),
+            classification_adapter=MagicMock(),
+        )
+
+        with patch(
+            "dragonlight_router.dispatch.cascade.run_ibr_stage",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("IBR blew up"),
+        ):
+            result = await _run_ibr_stage(order, [backend], ctx)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_ibr_stage_success_returns_result(self, make_backend_config):
+        """[IBR-SYS-03] _run_ibr_stage returns IBRResult on success."""
+        from dragonlight_router.config.schema import IntentClassificationConfig
+        from dragonlight_router.dispatch.cascade import DispatchContext, _run_ibr_stage
+
+        backend = make_backend_config(name="b1", provider="prov")
+        order = _make_order()
+
+        ctx = DispatchContext(
+            registry=MagicMock(spec=BackendRegistry),
+            budget_tracker=MagicMock(),
+            health_tracker=MagicMock(),
+            config={},
+            ibr_config=IntentClassificationConfig(enabled=True),
+            flavor_loader=MagicMock(),
+            classification_adapter=MagicMock(),
+        )
+
+        mock_ibr_result = MagicMock()
+        mock_ibr_result.ibr_active = True
+
+        with patch(
+            "dragonlight_router.dispatch.cascade.run_ibr_stage",
+            new_callable=AsyncMock,
+            return_value=mock_ibr_result,
+        ):
+            result = await _run_ibr_stage(order, [backend], ctx)
+
+        assert result is mock_ibr_result
+
+
+# ---------------------------------------------------------------------------
+# Line 610 — _pinned_dispatch_full returns preflight Err
+# ---------------------------------------------------------------------------
+
+
+class TestPinnedDispatchPreflightErr:
+    @pytest.mark.asyncio
+    async def test_pinned_dispatch_returns_preflight_err(self, make_backend_config):
+        """[TM-004] _pinned_dispatch_full returns Err when preflight fails (line 610)."""
+        from dragonlight_router.dispatch.cascade import _pinned_dispatch_full, _reset_cache
+
+        _reset_cache()
+        order = _make_order(model="nonexistent/model")
+        ctx = _make_ctx()
+
+        # Mock _pinned_preflight to return Err
+        from dragonlight_router.core.types import ModelNotFoundError
+
+        preflight_err = Err(
+            ModelNotFoundError(
+                model="nonexistent/model",
+                message="Model not found",
+            )
+        )
+
+        cascade_mod = "dragonlight_router.dispatch.cascade"
+        with patch(f"{cascade_mod}._pinned_preflight", return_value=preflight_err):
+            result = await _pinned_dispatch_full(order, ctx)
+
+        assert result.is_err()
+
+
+# ---------------------------------------------------------------------------
+# Lines 1203, 1231-1233, 1244, 1329-1330 — cache operations
+# ---------------------------------------------------------------------------
+
+
+class TestCacheLookupAndStore:
+    def test_try_cache_lookup_with_system_prompt(self, tmp_path):
+        """_try_cache_lookup inserts system message when order has system_prompt."""
+        from dragonlight_router.core.types import BackendTier, EngineResponse
+        from dragonlight_router.dispatch.cascade import (
+            _reset_cache,
+            _store_cache_response,
+            _try_cache_lookup,
+            configure_cache,
+        )
+
+        _reset_cache()
+        configure_cache(db_path=tmp_path / "cache.db")
+
+        order = _make_order(system_prompt="Be helpful", operator_message="hello")
+        response = EngineResponse(
+            content="Hi there",
+            backend_used="test-backend",
+            backend_tier=BackendTier.SIMPLE,
+            tokens_in=5,
+            tokens_out=3,
+            estimated_cost_usd=0.0,
+            latency_ms=50.0,
+            was_fallback=False,
+            fallback_chain=[],
+        )
+
+        # Store and then look up — exercises lines 1203 and 1244
+        _store_cache_response(order, response)
+        cached = _try_cache_lookup(order)
+
+        assert cached is not None
+        assert cached.content == "Hi there"
+        assert cached.backend_used == "test-backend"
+        _reset_cache()
+
+    def test_try_cache_lookup_deserialize_error_returns_none(self, tmp_path):
+        """[TM-004] _try_cache_lookup returns None on corrupted cache data (lines 1231-1233)."""
+        from dragonlight_router.caching.simple import SimpleCache
+        from dragonlight_router.dispatch.cascade import (
+            _reset_cache,
+            _try_cache_lookup,
+            configure_cache,
+        )
+
+        _reset_cache()
+        cache = configure_cache(db_path=tmp_path / "cache.db")
+
+        order = _make_order(operator_message="hello")
+
+        # Manually put corrupted data in the cache
+        messages = [{"role": "user", "content": order.operator_message}]
+        cache_key = SimpleCache.make_key(
+            model_id=order.intent_category,
+            system_prompt=order.system_prompt,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=4096,
+        )
+        cache.put(cache_key, "not valid json {{{")
+
+        result = _try_cache_lookup(order)
+        assert result is None
+        _reset_cache()
+
+
+class TestDispatchCacheHit:
+    @pytest.mark.asyncio
+    async def test_dispatch_returns_ok_on_cache_hit(self, tmp_path):
+        """[TM-004] dispatch() returns Ok(cached) on cache hit (lines 1329-1330)."""
+        from dragonlight_router.core.types import BackendTier, EngineResponse
+        from dragonlight_router.dispatch.cascade import (
+            _reset_cache,
+            _store_cache_response,
+            configure_cache,
+            dispatch,
+        )
+
+        _reset_cache()
+        configure_cache(db_path=tmp_path / "cache.db")
+
+        order = _make_order(operator_message="cached question")
+        response = EngineResponse(
+            content="cached answer",
+            backend_used="cached-backend",
+            backend_tier=BackendTier.SIMPLE,
+            tokens_in=10,
+            tokens_out=5,
+            estimated_cost_usd=0.0,
+            latency_ms=10.0,
+            was_fallback=False,
+            fallback_chain=[],
+        )
+
+        _store_cache_response(order, response)
+
+        registry = MagicMock(spec=BackendRegistry)
+        budget_tracker = MagicMock()
+        health_tracker = MagicMock()
+
+        result = await dispatch(
+            order,
+            registry,
+            budget_tracker,
+            health_tracker,
+            {},
+        )
+
+        assert result.is_ok()
+        assert result.value.content == "cached answer"
+        assert result.value.backend_used == "cached-backend"
+        _reset_cache()

@@ -8,9 +8,12 @@ Spec traceability: IBR spec v0.1.0 sections 4-6.
 AC numbers: IBR-SYS-02, IBR-SYS-03, IBR-SCORE-02, IBR-SCORE-03,
             IBR-SCORE-04, IBR-SCORE-05, IBR-PIPE-01.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from dragonlight_router.budget.tracker import BudgetTracker
 from dragonlight_router.config.schema import IntentClassificationConfig
@@ -40,17 +43,35 @@ from dragonlight_router.selection.flavor import FlavorProfileLoader
 from dragonlight_router.selection.ibr import IBRResult, run_ibr_stage
 from dragonlight_router.selection.scoring import ScoringWeightsConfig
 
+pytestmark = pytest.mark.unit
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-IBR_TASK_TYPES = frozenset({
-    "generation", "analysis", "refactoring", "summarization",
-    "creative", "reasoning", "lookup", "translation",
-})
-IBR_DOMAINS = frozenset({
-    "code", "technical", "legal", "business", "creative_writing", "general",
-})
+IBR_TASK_TYPES = frozenset(
+    {
+        "generation",
+        "analysis",
+        "refactoring",
+        "summarization",
+        "creative",
+        "reasoning",
+        "lookup",
+        "translation",
+    }
+)
+IBR_DOMAINS = frozenset(
+    {
+        "code",
+        "technical",
+        "legal",
+        "business",
+        "creative_writing",
+        "general",
+    }
+)
 IBR_QUALITY_SPEED = frozenset({"quality", "balanced", "speed"})
 IBR_NEUTRAL_FLAVOR = FlavorScore(score=0.5, confidence=0.0, sample_count=0)
 
@@ -86,7 +107,9 @@ def _make_profile(
         for key in allowed:
             if key in parsed:
                 scores[key] = FlavorScore(
-                    score=parsed[key], confidence=1.0, sample_count=10,
+                    score=parsed[key],
+                    confidence=1.0,
+                    sample_count=10,
                 )
             else:
                 scores[key] = IBR_NEUTRAL_FLAVOR
@@ -176,7 +199,9 @@ class TestIBRDisabledPath:
     """[IBR-SYS-02] When IBR is disabled, cascade operates identically to pre-IBR."""
 
     async def test_ibr_stage_returns_none_when_config_none(
-        self, make_backend_config, make_dispatch_order,
+        self,
+        make_backend_config,
+        make_dispatch_order,
     ):
         """_run_ibr_stage returns None when ibr_config is None."""
         ctx = DispatchContext(
@@ -194,7 +219,8 @@ class TestIBRDisabledPath:
         assert result is None
 
     async def test_ibr_stage_returns_none_when_flavor_loader_none(
-        self, make_dispatch_order,
+        self,
+        make_dispatch_order,
     ):
         """_run_ibr_stage returns None when flavor_loader is None."""
         ibr_cfg = _make_ibr_config(enabled=True)
@@ -306,8 +332,12 @@ class TestIBRActivePathClassifierSuccess:
         weights = _resolve_cbr_weights(ibr_result, ctx)
         assert weights.flavor_match == 0.15
         total = (
-            weights.cost + weights.latency + weights.priority
-            + weights.queue + weights.health + weights.flavor_match
+            weights.cost
+            + weights.latency
+            + weights.priority
+            + weights.queue
+            + weights.health
+            + weights.flavor_match
         )
         assert abs(total - 1.0) < 1e-9
 
@@ -319,8 +349,12 @@ class TestIBRActivePathClassifierSuccess:
             ibr_active=True,
         )
         weights = ScoringWeightsConfig(
-            cost=0.30, latency=0.20, priority=0.15,
-            queue=0.10, health=0.10, flavor_match=0.15,
+            cost=0.30,
+            latency=0.20,
+            priority=0.15,
+            queue=0.10,
+            health=0.10,
+            flavor_match=0.15,
         )
         # Use identical backends so the only scoring difference is flavor_match
         good = make_backend_config(name="good-model", provider="p1")
@@ -635,23 +669,35 @@ class TestIBRScoringWeightGovernor:
         from dragonlight_router.selection.scoring import cost_adjusted_weights
 
         ibr_weights = ScoringWeightsConfig(
-            cost=0.30, latency=0.20, priority=0.15,
-            queue=0.10, health=0.10, flavor_match=0.15,
+            cost=0.30,
+            latency=0.20,
+            priority=0.15,
+            queue=0.10,
+            health=0.10,
+            flavor_match=0.15,
         )
         adjusted = cost_adjusted_weights(ibr_weights)
         assert adjusted.flavor_match == 0.05
         assert adjusted.cost == 0.65
         total = (
-            adjusted.cost + adjusted.latency + adjusted.priority
-            + adjusted.queue + adjusted.health + adjusted.flavor_match
+            adjusted.cost
+            + adjusted.latency
+            + adjusted.priority
+            + adjusted.queue
+            + adjusted.health
+            + adjusted.flavor_match
         )
         assert abs(total - 1.0) < 1e-9
 
     def test_flavor_match_score_bounded(self, make_backend_config):
         """flavor_match contribution to score is bounded by weight * 1.0."""
         weights = ScoringWeightsConfig(
-            cost=0.30, latency=0.20, priority=0.15,
-            queue=0.10, health=0.10, flavor_match=0.15,
+            cost=0.30,
+            latency=0.20,
+            priority=0.15,
+            queue=0.10,
+            health=0.10,
+            flavor_match=0.15,
         )
         ibr_result = IBRResult(
             classified_intent=_make_intent(),
@@ -670,7 +716,11 @@ class TestIBRScoringWeightGovernor:
         )
 
         scored = _score_and_rank_candidates(
-            [candidate], _make_dispatch_order(), weights, ctx, ibr_result=ibr_result,
+            [candidate],
+            _make_dispatch_order(),
+            weights,
+            ctx,
+            ibr_result=ibr_result,
         )
         # Score must be in [0.0, 1.0]
         assert 0.0 <= scored[0].score <= 1.0

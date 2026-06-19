@@ -15,6 +15,8 @@ import pytest
 from dragonlight_router.adapters.cohere import CohereBackend
 from dragonlight_router.core.types import BackendStatus
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def cohere_config(make_backend_config):
@@ -39,11 +41,7 @@ def _make_cohere_sse_lines(chunks: list[str], finish: bool = True) -> list[str]:
     for text in chunks:
         payload = {
             "type": "content-delta",
-            "delta": {
-                "message": {
-                    "content": {"text": text}
-                }
-            },
+            "delta": {"message": {"content": {"text": text}}},
         }
         lines.append(f"data: {json.dumps(payload)}")
     if finish:
@@ -51,9 +49,7 @@ def _make_cohere_sse_lines(chunks: list[str], finish: bool = True) -> list[str]:
             "type": "message-end",
             "delta": {
                 "finish_reason": "COMPLETE",
-                "usage": {
-                    "billed_units": {"input_tokens": 10, "output_tokens": 20}
-                },
+                "usage": {"billed_units": {"input_tokens": 10, "output_tokens": 20}},
             },
         }
         lines.append(f"data: {json.dumps(end_payload)}")
@@ -71,7 +67,9 @@ class _FakeStreamResponse:
     def raise_for_status(self):
         if not self.is_success:
             raise httpx.HTTPStatusError(
-                "error", request=MagicMock(), response=self,
+                "error",
+                request=MagicMock(),
+                response=self,
             )
 
     async def aiter_lines(self):
@@ -102,7 +100,8 @@ class TestCohereGenerate:
 
             chunks = []
             async for chunk in cohere_backend.generate(
-                [{"role": "user", "content": "Hi"}], stream=True,
+                [{"role": "user", "content": "Hi"}],
+                stream=True,
             ):
                 chunks.append(chunk)
 
@@ -135,7 +134,8 @@ class TestCohereGenerate:
 
             chunks = []
             async for chunk in cohere_backend.generate(
-                [{"role": "user", "content": "Hi"}], stream=True,
+                [{"role": "user", "content": "Hi"}],
+                stream=True,
             ):
                 chunks.append(chunk)
 
@@ -145,11 +145,7 @@ class TestCohereGenerate:
     @pytest.mark.asyncio
     async def test_non_streaming_generation(self, cohere_backend):
         """Non-streaming generate yields content from Cohere v2 response."""
-        response_body = {
-            "message": {
-                "content": [{"type": "text", "text": "Full response."}]
-            }
-        }
+        response_body = {"message": {"content": [{"type": "text", "text": "Full response."}]}}
         fake_response = _FakeStreamResponse([json.dumps(response_body)])
         fake_response.json = lambda: response_body
 
@@ -166,7 +162,8 @@ class TestCohereGenerate:
 
             chunks = []
             async for chunk in cohere_backend.generate(
-                [{"role": "user", "content": "Hi"}], stream=False,
+                [{"role": "user", "content": "Hi"}],
+                stream=False,
             ):
                 chunks.append(chunk)
 
@@ -199,7 +196,8 @@ class TestCohereGenerate:
 
             chunks = []
             async for chunk in cohere_backend.generate(
-                [{"role": "user", "content": "Hi"}], stream=False,
+                [{"role": "user", "content": "Hi"}],
+                stream=False,
             ):
                 chunks.append(chunk)
 
@@ -278,9 +276,9 @@ class TestCohereGenerate:
             "delta": {"message": {"content": {"text": "ok"}}},
         }
         lines = [
-            'data: not-valid-json',
-            f'data: {json.dumps(good_payload)}',
-            'data: [DONE]',
+            "data: not-valid-json",
+            f"data: {json.dumps(good_payload)}",
+            "data: [DONE]",
         ]
         fake_response = _FakeStreamResponse(lines)
 
@@ -558,10 +556,11 @@ class TestCohereAdditionalCoverage:
                 _patch.object(backend, "_parse_stream", _raise_runtime),
                 pytest.raises(RuntimeError, match="inner cohere error"),
             ):
-                    async for _ in backend.generate(
-                        [{"role": "user", "content": "Hi"}], stream=True,
-                    ):
-                        pass
+                async for _ in backend.generate(
+                    [{"role": "user", "content": "Hi"}],
+                    stream=True,
+                ):
+                    pass
 
     # line 114 — non-data lines in _parse_stream are skipped (continue)
     @pytest.mark.asyncio
@@ -604,7 +603,8 @@ class TestCohereAdditionalCoverage:
 
             chunks = []
             async for chunk in backend.generate(
-                [{"role": "user", "content": "Hi"}], stream=True,
+                [{"role": "user", "content": "Hi"}],
+                stream=True,
             ):
                 chunks.append(chunk)
 
@@ -640,7 +640,8 @@ class TestCohereAdditionalCoverage:
 
             chunks = []
             async for chunk in backend.generate(
-                [{"role": "user", "content": "Hi"}], stream=False,
+                [{"role": "user", "content": "Hi"}],
+                stream=False,
             ):
                 chunks.append(chunk)
 
@@ -682,7 +683,8 @@ class TestCohereAdditionalCoverage:
 
             with pytest.raises(RuntimeError, match="Cohere request failed"):
                 async for _ in backend.generate(
-                    [{"role": "user", "content": "Hi"}], stream=False,
+                    [{"role": "user", "content": "Hi"}],
+                    stream=False,
                 ):
                     pass
 

@@ -22,6 +22,8 @@ from dragonlight_router.core.types import (
 from dragonlight_router.result import Ok
 from dragonlight_router.selection.lbr import filter_by_rate_limit
 
+pytestmark = pytest.mark.unit
+
 
 def _make_backend_config(
     name: str,
@@ -109,12 +111,14 @@ def test_filter_by_rate_limit_median_filter():
     # We need a budget tracker that returns specific scores for each provider.
     # Since BudgetTracker.score uses internal state, we'll mock it.
     budget_tracker = Mock(spec=BudgetTracker)
+
     # We'll make score return Ok(80.0) for provider_a and Ok(20.0) for provider_b
     def score_side_effect(provider_name):
         if provider_name == "provider_a":
             return Ok(80.0)
         else:
             return Ok(20.0)
+
     budget_tracker.score.side_effect = score_side_effect
 
     result = filter_by_rate_limit(candidates, order, budget_tracker)
@@ -149,10 +153,14 @@ def test_filter_by_rate_limit_all_zero_scores():
 def test_local_provider_bypasses_rate_limit():
     """[TM-003 AC-4] LOCAL backend with a score below median is still included."""
     config_local = _make_backend_config(
-        name="local-llm", provider="local_provider", tier=BackendTier.LOCAL,
+        name="local-llm",
+        provider="local_provider",
+        tier=BackendTier.LOCAL,
     )
     config_cloud = _make_backend_config(
-        name="cloud-llm", provider="cloud_provider", tier=BackendTier.COMPLEX,
+        name="cloud-llm",
+        provider="cloud_provider",
+        tier=BackendTier.COMPLEX,
     )
     candidates = [config_local, config_cloud]
     order = DispatchOrder(
@@ -186,13 +194,19 @@ def test_local_provider_bypasses_rate_limit():
 def test_local_and_non_local_mixed():
     """[TM-003 AC-4] LOCAL passes through while non-LOCAL below median is filtered."""
     config_local = _make_backend_config(
-        name="local-llm", provider="local_provider", tier=BackendTier.LOCAL,
+        name="local-llm",
+        provider="local_provider",
+        tier=BackendTier.LOCAL,
     )
     config_good = _make_backend_config(
-        name="good-cloud", provider="good_cloud", tier=BackendTier.COMPLEX,
+        name="good-cloud",
+        provider="good_cloud",
+        tier=BackendTier.COMPLEX,
     )
     config_bad = _make_backend_config(
-        name="bad-cloud", provider="bad_cloud", tier=BackendTier.SIMPLE,
+        name="bad-cloud",
+        provider="bad_cloud",
+        tier=BackendTier.SIMPLE,
     )
     candidates = [config_local, config_good, config_bad]
     order = DispatchOrder(
@@ -230,6 +244,7 @@ def test_local_and_non_local_mixed():
 def test_select_final_candidate_single():
     """[TM-003 AC-6] With one candidate, always returns it (no randomisation overhead)."""
     from dragonlight_router.selection.lbr import select_final_candidate
+
     config = _make_backend_config(name="only", provider="prov")
     result = select_final_candidate([ScoredCandidate(config=config, score=80.0)])
     assert result is config
@@ -238,6 +253,7 @@ def test_select_final_candidate_single():
 def test_select_final_candidate_empty_raises():
     """[TM-003 AC-6] select_final_candidate raises ValueError for empty list."""
     from dragonlight_router.selection.lbr import select_final_candidate
+
     with pytest.raises(ValueError, match="Cannot select from empty candidate list"):
         select_final_candidate([])
 
@@ -272,9 +288,7 @@ def test_select_final_candidate_equal_scores():
 
     from dragonlight_router.selection.lbr import select_final_candidate
 
-    configs = [
-        _make_backend_config(name=f"c{i}", provider=f"prov{i}") for i in range(3)
-    ]
+    configs = [_make_backend_config(name=f"c{i}", provider=f"prov{i}") for i in range(3)]
     candidates = [ScoredCandidate(config=c, score=50.0) for c in configs]
 
     _random.seed(42)
@@ -315,6 +329,7 @@ def test_select_final_candidate_zero_score_handled():
 def test_extract_score_non_ok_with_value_attribute():
     """[TM-003 AC-5] _extract_score returns float(result.value) when result has .value."""
     from dragonlight_router.selection.lbr import _extract_score
+
     budget_tracker = MagicMock()
     non_ok_result = MagicMock(spec=[])
     non_ok_result.value = 42.5
@@ -326,6 +341,7 @@ def test_extract_score_non_ok_with_value_attribute():
 def test_extract_score_non_ok_no_value_returns_zero():
     """[TM-003 AC-5] _extract_score returns 0.0 when result is not Ok and has no .value."""
     from dragonlight_router.selection.lbr import _extract_score
+
     budget_tracker = MagicMock()
     budget_tracker.score.return_value = object()
     score = _extract_score(budget_tracker, "some_provider")
@@ -335,6 +351,7 @@ def test_extract_score_non_ok_no_value_returns_zero():
 def test_collect_provider_scores_deduplicates_same_provider():
     """[TM-003 AC-5] _collect_provider_scores hits the continue branch for repeated provider."""
     from dragonlight_router.selection.lbr import _collect_provider_scores
+
     config_a = _make_backend_config(name="a", provider="shared_prov")
     config_b = _make_backend_config(name="b", provider="shared_prov")
     budget_tracker = MagicMock()
@@ -350,6 +367,7 @@ class TestHardCapacityGate:
     def test_removes_no_capacity_provider(self):
         """[TM-003 AC-7] Provider with no remaining capacity is removed by hard gate."""
         from dragonlight_router.selection.lbr import _hard_capacity_gate
+
         config_a = _make_backend_config(name="a", provider="exhausted_prov")
         config_b = _make_backend_config(name="b", provider="healthy_prov")
         budget_tracker = Mock(spec=BudgetTracker)
@@ -361,8 +379,11 @@ class TestHardCapacityGate:
     def test_local_bypasses_capacity_gate(self):
         """[TM-003 AC-7] LOCAL tier bypasses the hard capacity gate."""
         from dragonlight_router.selection.lbr import _hard_capacity_gate
+
         local = _make_backend_config(
-            name="local-llm", provider="local_prov", tier=BackendTier.LOCAL,
+            name="local-llm",
+            provider="local_prov",
+            tier=BackendTier.LOCAL,
         )
         budget_tracker = Mock(spec=BudgetTracker)
         budget_tracker.has_capacity.return_value = False
@@ -373,6 +394,7 @@ class TestHardCapacityGate:
     def test_all_exhausted_returns_empty(self):
         """[TM-003 AC-7] All providers exhausted returns empty list."""
         from dragonlight_router.selection.lbr import _hard_capacity_gate
+
         config_a = _make_backend_config(name="a", provider="prov_a")
         config_b = _make_backend_config(name="b", provider="prov_b")
         budget_tracker = Mock(spec=BudgetTracker)

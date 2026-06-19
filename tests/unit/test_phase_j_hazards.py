@@ -9,11 +9,14 @@ Covers:
 
 Spec traceability: HAZ-003, HAZ-004, HAZ-007, HAZ-010, HAZ-013
 """
+
 from __future__ import annotations
 
 import json
 import time
 from pathlib import Path
+
+import pytest
 
 from dragonlight_router.core.types import (
     BackendCapabilities,
@@ -36,6 +39,9 @@ from dragonlight_router.server.routes import (
     _ALLOWED_INTENT_CATEGORIES,
     _validate_dispatch_request,
 )
+
+pytestmark = pytest.mark.unit
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -551,14 +557,17 @@ class TestHealthEndpointAvailability:
         state_dir.mkdir()
 
         import yaml
+
         config = {
             "state_dir": str(state_dir),
-            "providers": [{
-                "name": "groq",
-                "base_url": "https://api.groq.com/openai/v1",
-                "model_prefix": "groq_",
-                "rate_limits": {"rpm": 30, "rpd": 14400},
-            }],
+            "providers": [
+                {
+                    "name": "groq",
+                    "base_url": "https://api.groq.com/openai/v1",
+                    "model_prefix": "groq_",
+                    "rate_limits": {"rpm": 30, "rpd": 14400},
+                }
+            ],
         }
         config_path = tmp_path / "router.yaml"
         config_path.write_text(yaml.dump(config))

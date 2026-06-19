@@ -3,6 +3,7 @@
 Spec traceability: model-spectrography-v0.1.0-spec.md
 AC numbers: IBR-FLV-01 through IBR-FLV-06.
 """
+
 from __future__ import annotations
 
 import json
@@ -55,6 +56,9 @@ from dragonlight_router.spectrography.runner import (
     _load_checkpoint,
     _parse_delays,
 )
+
+pytestmark = pytest.mark.unit
+
 
 # ---------------------------------------------------------------------------
 # Helpers — build test data
@@ -163,9 +167,7 @@ class TestGetAllProbes:
         probes = get_all_probes()
         counts = Counter(p.discrimination_axis for p in probes)
         for axis in DISCRIMINATION_AXES:
-            assert counts.get(axis, 0) >= 2, (
-                f"axis '{axis}' has only {counts.get(axis, 0)} probes"
-            )
+            assert counts.get(axis, 0) >= 2, f"axis '{axis}' has only {counts.get(axis, 0)} probes"
 
 
 class TestValidateProbe:
@@ -313,12 +315,18 @@ class TestAggregateScores:
     def test_groups_by_task_type_and_domain(self):
         results = [
             _make_probe_result(
-                model_id="m1", probe_id="p1",
-                task_type="generation", domain="code", normalized_score=0.8,
+                model_id="m1",
+                probe_id="p1",
+                task_type="generation",
+                domain="code",
+                normalized_score=0.8,
             ),
             _make_probe_result(
-                model_id="m1", probe_id="p2",
-                task_type="analysis", domain="technical", normalized_score=0.6,
+                model_id="m1",
+                probe_id="p2",
+                task_type="analysis",
+                domain="technical",
+                normalized_score=0.6,
             ),
         ]
         agg = aggregate_scores(results)
@@ -363,8 +371,11 @@ class TestRankNormalize:
     def test_missing_dimensions_get_neutral_flavor(self):
         results = [
             _make_probe_result(
-                model_id="m1", probe_id="p1",
-                task_type="generation", domain="code", quality_speed="quality",
+                model_id="m1",
+                probe_id="p1",
+                task_type="generation",
+                domain="code",
+                quality_speed="quality",
                 normalized_score=0.8,
             ),
         ]
@@ -699,7 +710,8 @@ class TestGetModelsNeedingSpectrography:
 
     def test_missing_matrix_returns_empty(self, tmp_path):
         result = get_models_needing_spectrography(
-            tmp_path / "no-such-matrix.json", {},
+            tmp_path / "no-such-matrix.json",
+            {},
         )
         assert result == []
 
@@ -796,7 +808,8 @@ class TestCreateAdapter:
     def test_unknown_provider_returns_none(self, monkeypatch):
         """Unknown provider prefix → None."""
         monkeypatch.setattr(
-            "dragonlight_router.spectrography.runner._CACHED_PROVIDERS", {},
+            "dragonlight_router.spectrography.runner._CACHED_PROVIDERS",
+            {},
         )
         result = _create_adapter("totally_fake/some-model")
         assert result is None
@@ -805,7 +818,13 @@ class TestCreateAdapter:
         """Provider exists in config but required env var is unset → None."""
         monkeypatch.setattr(
             "dragonlight_router.spectrography.runner._CACHED_PROVIDERS",
-            {"gemini": {"name": "gemini", "env_key": "GEMINI_API_KEY_DEFINITELY_UNSET", "base_url": "https://example.com"}},
+            {
+                "gemini": {
+                    "name": "gemini",
+                    "env_key": "GEMINI_API_KEY_DEFINITELY_UNSET",
+                    "base_url": "https://example.com",
+                }
+            },
         )
         monkeypatch.delenv("GEMINI_API_KEY_DEFINITELY_UNSET", raising=False)
         result = _create_adapter("gemini/gemini-2.5-pro")

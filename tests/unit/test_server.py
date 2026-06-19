@@ -2,6 +2,7 @@
 
 Spec traceability: TM-009 (HTTP API endpoints)
 """
+
 from __future__ import annotations
 
 import json
@@ -32,6 +33,8 @@ from dragonlight_router.server.routes import (
     _validate_dispatch_request,
     _validate_select_request,
 )
+
+pytestmark = pytest.mark.unit
 
 
 def _setup_test_env(tmp_path: Path) -> Path:
@@ -141,9 +144,7 @@ class TestSelectEndpoint:
             assert entry["complexity_tier"] in valid_complexity, (
                 f"invalid complexity_tier: {entry['complexity_tier']}"
             )
-            assert entry["trust_tier"] in valid_trust, (
-                f"invalid trust_tier: {entry['trust_tier']}"
-            )
+            assert entry["trust_tier"] in valid_trust, f"invalid trust_tier: {entry['trust_tier']}"
 
     def test_select_tiers_match_registered_backend(self, tmp_path: Path):
         """When a backend is registered, its tier should flow through to the select response."""
@@ -193,13 +194,16 @@ class TestRecordEndpoint:
         config_path = _setup_test_env(tmp_path)
         app = create_app(config_path=config_path)
         client = TestClient(app)
-        response = client.post("/v1/record", json={
-            "provider": "groq",
-            "model_id": "groq_llama70b",
-            "success": True,
-            "tokens_used": 150,
-            "latency_ms": 45.0,
-        })
+        response = client.post(
+            "/v1/record",
+            json={
+                "provider": "groq",
+                "model_id": "groq_llama70b",
+                "success": True,
+                "tokens_used": 150,
+                "latency_ms": 45.0,
+            },
+        )
         assert response.status_code == 200
         assert response.json() == {"status": "ok"}
 
@@ -208,11 +212,14 @@ class TestRecordEndpoint:
         config_path = _setup_test_env(tmp_path)
         app = create_app(config_path=config_path)
         client = TestClient(app)
-        response = client.post("/v1/record", json={
-            "provider": "groq",
-            "model_id": "groq_llama70b",
-            "success": False,
-        })
+        response = client.post(
+            "/v1/record",
+            json={
+                "provider": "groq",
+                "model_id": "groq_llama70b",
+                "success": False,
+            },
+        )
         assert response.status_code == 200
 
     def test_record_missing_fields_400(self, tmp_path: Path):
@@ -562,10 +569,7 @@ class TestExecuteCatalogRefresh:
         mock_refresher = AsyncMock()
         mock_refresher.refresh.return_value = Ok(mock_catalog)
 
-        refresher_path = (
-            "dragonlight_router.server.routes"
-            "._refresher_mod.CatalogRefresher"
-        )
+        refresher_path = "dragonlight_router.server.routes._refresher_mod.CatalogRefresher"
         with patch(refresher_path, return_value=mock_refresher):
             response = await _execute_catalog_refresh(engine)
 
@@ -633,12 +637,15 @@ class TestLifespan:
         async def _bad_refresh(self):
             raise RuntimeError("network unavailable")
 
-        with patch(
-            "dragonlight_router.router.RouterEngine._async_refresh_catalog",
-            new=_bad_refresh,
-        ), patch(
-            "dragonlight_router.router.RouterEngine.start_health_check_loop",
-            new=AsyncMock(),
+        with (
+            patch(
+                "dragonlight_router.router.RouterEngine._async_refresh_catalog",
+                new=_bad_refresh,
+            ),
+            patch(
+                "dragonlight_router.router.RouterEngine.start_health_check_loop",
+                new=AsyncMock(),
+            ),
         ):
             app = create_app(config_path=config_path)
             with TestClient(app) as client:
@@ -652,12 +659,15 @@ class TestLifespan:
         async def _instant_loop(self_engine):
             pass
 
-        with patch(
-            "dragonlight_router.router.RouterEngine._async_refresh_catalog",
-            new=AsyncMock(),
-        ), patch(
-            "dragonlight_router.router.RouterEngine.start_health_check_loop",
-            new=_instant_loop,
+        with (
+            patch(
+                "dragonlight_router.router.RouterEngine._async_refresh_catalog",
+                new=AsyncMock(),
+            ),
+            patch(
+                "dragonlight_router.router.RouterEngine.start_health_check_loop",
+                new=_instant_loop,
+            ),
         ):
             app = create_app(config_path=config_path)
             with TestClient(app) as client:
@@ -671,12 +681,15 @@ class TestLifespan:
         async def _instant_loop(self_engine):
             pass
 
-        with patch(
-            "dragonlight_router.router.RouterEngine._async_refresh_catalog",
-            new=AsyncMock(),
-        ), patch(
-            "dragonlight_router.router.RouterEngine.start_health_check_loop",
-            new=_instant_loop,
+        with (
+            patch(
+                "dragonlight_router.router.RouterEngine._async_refresh_catalog",
+                new=AsyncMock(),
+            ),
+            patch(
+                "dragonlight_router.router.RouterEngine.start_health_check_loop",
+                new=_instant_loop,
+            ),
         ):
             app = create_app(config_path=config_path)
             engine = app.state.engine
@@ -691,12 +704,15 @@ class TestLifespan:
         async def _instant_loop(self_engine):
             pass
 
-        with patch(
-            "dragonlight_router.router.RouterEngine._async_refresh_catalog",
-            new=AsyncMock(),
-        ), patch(
-            "dragonlight_router.router.RouterEngine.start_health_check_loop",
-            new=_instant_loop,
+        with (
+            patch(
+                "dragonlight_router.router.RouterEngine._async_refresh_catalog",
+                new=AsyncMock(),
+            ),
+            patch(
+                "dragonlight_router.router.RouterEngine.start_health_check_loop",
+                new=_instant_loop,
+            ),
         ):
             app = create_app(config_path=config_path)
             engine = app.state.engine
@@ -719,14 +735,13 @@ class TestMain:
         ):
             mock_create.return_value = MagicMock()
             import os
+
             env_keys = (
                 "DRAGONLIGHT_ROUTER_CONFIG",
                 "DRAGONLIGHT_HOST",
                 "DRAGONLIGHT_PORT",
             )
-            env_backup = {
-                k: os.environ.pop(k, None) for k in env_keys
-            }
+            env_backup = {k: os.environ.pop(k, None) for k in env_keys}
             try:
                 app_module.main()
             finally:
@@ -736,9 +751,7 @@ class TestMain:
             mock_run.assert_called_once()
             _, kwargs = mock_run.call_args
             call_args = mock_run.call_args[0]
-            default_host = (
-                call_args[1] if len(call_args) > 1 else "127.0.0.1"
-            )
+            default_host = call_args[1] if len(call_args) > 1 else "127.0.0.1"
             host = kwargs.get("host", default_host)
             assert host == "127.0.0.1"
 
@@ -755,8 +768,10 @@ class TestMain:
             captured_path.append(config_path)
             return MagicMock()
 
-        with patch("dragonlight_router.server.app.create_app", side_effect=_fake_create_app), \
-             patch("dragonlight_router.server.app.uvicorn.run"):
+        with (
+            patch("dragonlight_router.server.app.create_app", side_effect=_fake_create_app),
+            patch("dragonlight_router.server.app.uvicorn.run"),
+        ):
             old = os.environ.get("DRAGONLIGHT_ROUTER_CONFIG")
             os.environ["DRAGONLIGHT_ROUTER_CONFIG"] = config_path
             try:
@@ -782,8 +797,10 @@ class TestMain:
             captured["port"] = port
             captured["timeout_graceful_shutdown"] = kwargs.get("timeout_graceful_shutdown")
 
-        with patch("dragonlight_router.server.app.create_app", return_value=MagicMock()), \
-             patch("dragonlight_router.server.app.uvicorn.run", side_effect=_fake_run):
+        with (
+            patch("dragonlight_router.server.app.create_app", return_value=MagicMock()),
+            patch("dragonlight_router.server.app.uvicorn.run", side_effect=_fake_run),
+        ):
             env_keys = {"DRAGONLIGHT_HOST": "0.0.0.0", "DRAGONLIGHT_PORT": "9000"}
             old = {k: os.environ.get(k) for k in env_keys}
             os.environ.update(env_keys)
@@ -828,14 +845,12 @@ class TestExecuteCatalogRefreshError:
         mock_refresher = AsyncMock()
         mock_refresher.refresh.return_value = Err(RuntimeError("network down"))
 
-        refresher_path = (
-            "dragonlight_router.server.routes"
-            "._refresher_mod.CatalogRefresher"
-        )
+        refresher_path = "dragonlight_router.server.routes._refresher_mod.CatalogRefresher"
         with patch(refresher_path, return_value=mock_refresher):
             response = await _execute_catalog_refresh(engine)
 
         import json as _json
+
         parsed = _json.loads(response.body)
         assert parsed["status"] == "error"
         assert response.status_code == 500
@@ -1214,3 +1229,626 @@ class TestStreamingDispatchEndpoint:
         )
         assert response.headers.get("cache-control") == "no-cache"
         assert response.headers.get("x-accel-buffering") == "no"
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests — lines 136, 327, 444, 448, 457, 461-466, 474,
+# 596-597, 626-629, 866-867, 872-873, 885, 893-902, 910-921, 926-936,
+# 944-968, 975-990.
+# ---------------------------------------------------------------------------
+
+
+class TestGetClientIpNoClient:
+    """Cover line 136 — _get_client_ip returns 'unknown' when request.client is None."""
+
+    def test_get_client_ip_returns_unknown_when_client_is_none(self):
+        from dragonlight_router.server.routes import _get_client_ip
+
+        mock_request = MagicMock()
+        mock_request.client = None
+        assert _get_client_ip(mock_request) == "unknown"
+
+
+class TestValidateQualityRatingBoolRejected:
+    """Cover line 327 — quality_rating=True (bool) is rejected."""
+
+    def test_quality_rating_bool_is_rejected(self):
+        from dragonlight_router.server.routes import _validate_quality_rating
+
+        rating, error = _validate_quality_rating({"quality_rating": True})
+        assert rating is None
+        assert error is not None
+        assert "must be an integer" in error
+
+
+class TestExecuteCatalogRefreshWithCatalogRefreshResult:
+    """Cover lines 443-444, 456-457, 461-466, 474 — refresh with CatalogRefreshResult."""
+
+    @pytest.mark.asyncio
+    async def test_refresh_with_catalog_refresh_result_and_auth_failures(
+        self,
+        tmp_path: Path,
+    ):
+        """CatalogRefreshResult with auth_failures marks backends KEY_INVALID."""
+        from dragonlight_router.catalog.refresher import CatalogRefreshResult
+        from dragonlight_router.core.types import CatalogEntry
+
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        engine = app.state.engine
+
+        # Register a stub backend whose provider matches "groq"
+        stub = _StubBackend(
+            _config=BackendConfig(
+                name="groq_llama70b",
+                provider="groq",
+                model="groq_llama70b",
+                tier=BackendTier.SIMPLE,
+                base_url="http://localhost:9999",
+                env_key=None,
+                capabilities=BackendCapabilities(
+                    max_context_tokens=4096,
+                    supports_tool_use=False,
+                    supports_streaming=False,
+                    supports_json_mode=False,
+                    supports_system_prompts=True,
+                ),
+                cost=BackendCostProfile(input_per_mtok=0.0, output_per_mtok=0.0),
+                rate_limits=BackendRateLimits(rpm=60, rpd=1000, tpm=100000, daily_token_cap=0),
+            )
+        )
+        engine._registry.register(stub)
+
+        catalog_data = {
+            "groq": [CatalogEntry(model_id="groq_llama70b", provider="groq")],
+        }
+        refresh_result = CatalogRefreshResult(
+            catalog=catalog_data,
+            auth_failures={"nvidia": 401},
+        )
+
+        mock_refresher = AsyncMock()
+        mock_refresher.refresh.return_value = Ok(refresh_result)
+
+        refresher_path = "dragonlight_router.server.routes._refresher_mod.CatalogRefresher"
+        with patch(refresher_path, return_value=mock_refresher):
+            response = await _execute_catalog_refresh(engine)
+
+        parsed = json.loads(response.body)
+        assert parsed["status"] == "ok"
+        assert parsed["model_count"] == 1
+        assert parsed["auth_failures"] == {"nvidia": 401}
+
+    @pytest.mark.asyncio
+    async def test_refresh_marks_backend_key_invalid(self, tmp_path: Path):
+        """Backend with auth failure gets KEY_INVALID status (lines 461-463)."""
+        from dragonlight_router.catalog.refresher import CatalogRefreshResult
+        from dragonlight_router.core.types import CatalogEntry
+
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        engine = app.state.engine
+
+        stub = _StubBackend(
+            _config=BackendConfig(
+                name="nvidia_nemotron",
+                provider="nvidia",
+                model="nvidia_nemotron",
+                tier=BackendTier.SIMPLE,
+                base_url="http://localhost:9999",
+                env_key=None,
+                capabilities=BackendCapabilities(
+                    max_context_tokens=4096,
+                    supports_tool_use=False,
+                    supports_streaming=False,
+                    supports_json_mode=False,
+                    supports_system_prompts=True,
+                ),
+                cost=BackendCostProfile(input_per_mtok=0.0, output_per_mtok=0.0),
+                rate_limits=BackendRateLimits(rpm=60, rpd=1000, tpm=100000, daily_token_cap=0),
+            )
+        )
+        engine._registry.register(stub)
+
+        catalog_data = {
+            "groq": [CatalogEntry(model_id="groq_llama70b", provider="groq")],
+        }
+        refresh_result = CatalogRefreshResult(
+            catalog=catalog_data,
+            auth_failures={"nvidia": 401},
+        )
+
+        mock_refresher = AsyncMock()
+        mock_refresher.refresh.return_value = Ok(refresh_result)
+
+        refresher_path = "dragonlight_router.server.routes._refresher_mod.CatalogRefresher"
+        with patch(refresher_path, return_value=mock_refresher):
+            await _execute_catalog_refresh(engine)
+
+        # The nvidia backend should now be KEY_INVALID
+        for name, _backend, state in engine._registry.all_backends():
+            if name == "nvidia_nemotron":
+                assert state.status == BackendStatus.KEY_INVALID
+
+    @pytest.mark.asyncio
+    async def test_refresh_restores_key_invalid_backend(self, tmp_path: Path):
+        """Backend KEY_INVALID is restored if provider returns in catalog."""
+        from dragonlight_router.catalog.refresher import CatalogRefreshResult
+        from dragonlight_router.core.types import CatalogEntry
+
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        engine = app.state.engine
+
+        stub = _StubBackend(
+            _config=BackendConfig(
+                name="nvidia_nemotron",
+                provider="nvidia",
+                model="nvidia_nemotron",
+                tier=BackendTier.SIMPLE,
+                base_url="http://localhost:9999",
+                env_key=None,
+                capabilities=BackendCapabilities(
+                    max_context_tokens=4096,
+                    supports_tool_use=False,
+                    supports_streaming=False,
+                    supports_json_mode=False,
+                    supports_system_prompts=True,
+                ),
+                cost=BackendCostProfile(input_per_mtok=0.0, output_per_mtok=0.0),
+                rate_limits=BackendRateLimits(rpm=60, rpd=1000, tpm=100000, daily_token_cap=0),
+            )
+        )
+        engine._registry.register(stub)
+
+        # Pre-mark as KEY_INVALID
+        for _name, _backend, state in engine._registry.all_backends():
+            if _name == "nvidia_nemotron":
+                state.status = BackendStatus.KEY_INVALID
+
+        catalog_data = {
+            "nvidia": [CatalogEntry(model_id="nvidia_nemotron", provider="nvidia")],
+        }
+        refresh_result = CatalogRefreshResult(
+            catalog=catalog_data,
+            auth_failures={},
+        )
+
+        mock_refresher = AsyncMock()
+        mock_refresher.refresh.return_value = Ok(refresh_result)
+
+        refresher_path = "dragonlight_router.server.routes._refresher_mod.CatalogRefresher"
+        with patch(refresher_path, return_value=mock_refresher):
+            await _execute_catalog_refresh(engine)
+
+        for name, _backend, state in engine._registry.all_backends():
+            if name == "nvidia_nemotron":
+                assert state.status == BackendStatus.AVAILABLE
+
+
+class TestExecuteCatalogRefreshUnexpectedType:
+    """Cover lines 447-448 — refresh result is neither dict nor has .catalog."""
+
+    @pytest.mark.asyncio
+    async def test_unexpected_type_returns_500(self, tmp_path: Path):
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        engine = app.state.engine
+
+        # An object with no .catalog attr and not a dict
+        unexpected = 12345
+
+        mock_refresher = AsyncMock()
+        mock_refresher.refresh.return_value = Ok(unexpected)
+
+        refresher_path = "dragonlight_router.server.routes._refresher_mod.CatalogRefresher"
+        with patch(refresher_path, return_value=mock_refresher):
+            response = await _execute_catalog_refresh(engine)
+
+        parsed = json.loads(response.body)
+        assert parsed["status"] == "error"
+        assert response.status_code == 500
+        assert "unexpected type" in parsed["error"]
+
+
+class TestSerializeClassifiedIntent:
+    """Cover lines 596-597 — _serialize_classified_intent."""
+
+    def test_serializes_classified_intent(self):
+        from dragonlight_router.core.types import ClassifiedIntent
+        from dragonlight_router.server.routes import _serialize_classified_intent
+
+        intent = ClassifiedIntent(
+            task_type="code_generation",
+            domain="engineering",
+            quality_speed="quality",
+            confidence=0.95,
+            latency_ms=42.0,
+            from_cache=False,
+        )
+        result = _serialize_classified_intent(intent)
+        assert result["task_type"] == "code_generation"
+        assert result["domain"] == "engineering"
+        assert result["quality_speed"] == "quality"
+        assert result["confidence"] == 0.95
+        assert result["latency_ms"] == 42.0
+        assert result["from_cache"] is False
+
+
+class TestFormatDispatchResponseIBR:
+    """Cover lines 625-629 — IBR fields included when ibr_active=True."""
+
+    def test_ibr_fields_included_when_active(self):
+        from dragonlight_router.core.types import ClassifiedIntent, EngineResponse
+        from dragonlight_router.server.routes import _format_dispatch_response
+
+        intent = ClassifiedIntent(
+            task_type="code_review",
+            domain="engineering",
+            quality_speed="balanced",
+            confidence=0.88,
+            latency_ms=15.0,
+            from_cache=True,
+        )
+        engine_resp = EngineResponse(
+            content="result",
+            backend_used="groq_llama70b",
+            backend_tier=BackendTier.SIMPLE,
+            tokens_in=50,
+            tokens_out=100,
+            estimated_cost_usd=0.002,
+            latency_ms=200.0,
+            was_fallback=False,
+            fallback_chain=[],
+            classified_intent=intent,
+            flavor_match_score=0.92,
+            ibr_active=True,
+            dispatch_mode="cascade",
+        )
+        response = _format_dispatch_response(engine_resp)
+        parsed = json.loads(response.body)
+        assert parsed["ibr_active"] is True
+        assert parsed["flavor_match_score"] == 0.92
+        assert "classified_intent" in parsed
+        assert parsed["classified_intent"]["task_type"] == "code_review"
+
+    def test_ibr_fields_excluded_when_inactive(self):
+        from dragonlight_router.core.types import EngineResponse
+        from dragonlight_router.server.routes import _format_dispatch_response
+
+        engine_resp = EngineResponse(
+            content="result",
+            backend_used="groq_llama70b",
+            backend_tier=BackendTier.SIMPLE,
+            tokens_in=50,
+            tokens_out=100,
+            estimated_cost_usd=0.002,
+            latency_ms=200.0,
+            was_fallback=False,
+            fallback_chain=[],
+            ibr_active=False,
+        )
+        response = _format_dispatch_response(engine_resp)
+        parsed = json.loads(response.body)
+        assert "ibr_active" not in parsed
+        assert "flavor_match_score" not in parsed
+
+
+class TestSerializeFlavorScore:
+    """Cover lines 866-867 — _serialize_flavor_score."""
+
+    def test_serializes_flavor_score(self):
+        from dragonlight_router.core.types import FlavorScore
+        from dragonlight_router.server.routes import _serialize_flavor_score
+
+        fs = FlavorScore(score=0.75, confidence=0.9, sample_count=42)
+        result = _serialize_flavor_score(fs)
+        assert result["score"] == 0.75
+        assert result["confidence"] == 0.9
+        assert result["sample_count"] == 42
+
+
+class TestSerializeProfile:
+    """Cover lines 872-873 — _serialize_profile."""
+
+    def test_serializes_model_flavor_profile(self):
+        from dragonlight_router.core.types import FlavorScore, ModelFlavorProfile
+        from dragonlight_router.server.routes import _serialize_profile
+
+        profile = ModelFlavorProfile(
+            model_id="test-model",
+            version=1,
+            updated_at="2026-06-19T00:00:00Z",
+            task_scores={
+                "code_generation": FlavorScore(score=0.8, confidence=1.0, sample_count=10)
+            },
+            domain_scores={"engineering": FlavorScore(score=0.7, confidence=0.9, sample_count=5)},
+            qs_scores={"quality": FlavorScore(score=0.6, confidence=0.8, sample_count=3)},
+        )
+        result = _serialize_profile(profile)
+        assert result["model_id"] == "test-model"
+        assert result["version"] == 1
+        assert "code_generation" in result["task_scores"]
+        assert result["task_scores"]["code_generation"]["score"] == 0.8
+
+
+class TestGetFlavorLoader:
+    """Cover line 885 — _get_flavor_loader returns None when not on app state."""
+
+    def test_returns_none_when_no_loader(self):
+        from dragonlight_router.server.routes import _get_flavor_loader
+
+        mock_request = MagicMock()
+        # State without flavor_loader attribute
+        mock_request.app.state = MagicMock(spec=[])
+        assert _get_flavor_loader(mock_request) is None
+
+
+class TestFlavorProfilesListHandler:
+    """Cover lines 893-902 — flavor_profiles_list_handler."""
+
+    def test_list_returns_empty_when_no_loader(self, tmp_path: Path):
+        """Returns empty profiles dict when flavor_loader is None."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        # Force loader to None
+        app.state.flavor_loader = None
+        client = TestClient(app)
+        response = client.get("/v1/flavor-profiles")
+        assert response.status_code == 200
+        assert response.json() == {"profiles": {}}
+
+    def test_list_returns_loaded_profiles(self, tmp_path: Path):
+        """Returns serialized profiles when loader has data (lines 897-902)."""
+        from dragonlight_router.core.types import FlavorScore, ModelFlavorProfile
+
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+
+        mock_loader = MagicMock()
+        mock_loader.profiles = {
+            "model-a": ModelFlavorProfile(
+                model_id="model-a",
+                version=1,
+                updated_at="2026-06-19T00:00:00Z",
+                task_scores={
+                    "code_generation": FlavorScore(score=0.9, confidence=1.0, sample_count=5)
+                },
+                domain_scores={},
+                qs_scores={},
+            ),
+        }
+        app.state.flavor_loader = mock_loader
+
+        client = TestClient(app)
+        response = client.get("/v1/flavor-profiles")
+        assert response.status_code == 200
+        data = response.json()
+        assert "model-a" in data["profiles"]
+        assert data["profiles"]["model-a"]["model_id"] == "model-a"
+
+
+class TestFlavorProfileDetailHandler:
+    """Cover lines 910-921 — flavor_profile_detail_handler."""
+
+    def test_detail_returns_404_when_no_loader(self, tmp_path: Path):
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        app.state.flavor_loader = None
+        client = TestClient(app)
+        response = client.get("/v1/flavor-profiles/nonexistent")
+        assert response.status_code == 404
+        assert "not found" in response.json()["error"]
+
+    def test_detail_returns_404_when_model_not_in_profiles(self, tmp_path: Path):
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        mock_loader = MagicMock()
+        mock_loader.profiles = {}
+        app.state.flavor_loader = mock_loader
+        client = TestClient(app)
+        response = client.get("/v1/flavor-profiles/missing-model")
+        assert response.status_code == 404
+
+    def test_detail_returns_profile_when_found(self, tmp_path: Path):
+        """Lines 919-921 — returns serialized profile for existing model_id."""
+        from dragonlight_router.core.types import FlavorScore, ModelFlavorProfile
+
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+
+        profile = ModelFlavorProfile(
+            model_id="model-x",
+            version=1,
+            updated_at="2026-06-19T00:00:00Z",
+            task_scores={
+                "code_generation": FlavorScore(score=0.85, confidence=1.0, sample_count=8)
+            },
+            domain_scores={},
+            qs_scores={},
+        )
+        mock_loader = MagicMock()
+        mock_loader.profiles = {"model-x": profile}
+        app.state.flavor_loader = mock_loader
+
+        client = TestClient(app)
+        response = client.get("/v1/flavor-profiles/model-x")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["model_id"] == "model-x"
+
+
+class TestValidateFlavorUpsertBody:
+    """Cover lines 926-936 — _validate_flavor_upsert_body."""
+
+    def test_missing_required_field(self):
+        from dragonlight_router.server.routes import _validate_flavor_upsert_body
+
+        error = _validate_flavor_upsert_body({"task_scores": {}, "domain_scores": {}})
+        assert error is not None
+        assert "qs_scores" in error
+
+    def test_non_dict_scores(self):
+        from dragonlight_router.server.routes import _validate_flavor_upsert_body
+
+        error = _validate_flavor_upsert_body(
+            {
+                "task_scores": "not a dict",
+                "domain_scores": {},
+                "qs_scores": {},
+            }
+        )
+        assert error is not None
+        assert "must be a mapping" in error
+
+    def test_non_numeric_value(self):
+        from dragonlight_router.server.routes import _validate_flavor_upsert_body
+
+        error = _validate_flavor_upsert_body(
+            {
+                "task_scores": {"code_gen": "high"},
+                "domain_scores": {},
+                "qs_scores": {},
+            }
+        )
+        assert error is not None
+        assert "must be a number" in error
+
+    def test_value_out_of_range(self):
+        from dragonlight_router.server.routes import _validate_flavor_upsert_body
+
+        error = _validate_flavor_upsert_body(
+            {
+                "task_scores": {"code_gen": 1.5},
+                "domain_scores": {},
+                "qs_scores": {},
+            }
+        )
+        assert error is not None
+        assert "between 0.0 and 1.0" in error
+
+    def test_valid_body_returns_none(self):
+        from dragonlight_router.server.routes import _validate_flavor_upsert_body
+
+        error = _validate_flavor_upsert_body(
+            {
+                "task_scores": {"code_gen": 0.8},
+                "domain_scores": {"eng": 0.7},
+                "qs_scores": {"quality": 0.6},
+            }
+        )
+        assert error is None
+
+
+class TestFlavorProfileUpsertHandler:
+    """Cover lines 944-968 — flavor_profile_upsert_handler."""
+
+    def test_upsert_requires_admin_auth(self, tmp_path: Path):
+        """Returns 401 when admin key is configured but not provided."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        engine = app.state.engine
+        engine._config = MagicMock()
+        engine._config.admin_api_key = "secret-key"
+        client = TestClient(app)
+        response = client.post(
+            "/v1/flavor-profiles/test-model",
+            json={"task_scores": {}, "domain_scores": {}, "qs_scores": {}},
+        )
+        assert response.status_code == 401
+
+    def test_upsert_invalid_json_returns_400(self, tmp_path: Path):
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        client = TestClient(app)
+        response = client.post(
+            "/v1/flavor-profiles/test-model",
+            content=b"not json",
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 400
+
+    def test_upsert_validation_error_returns_400(self, tmp_path: Path):
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        client = TestClient(app)
+        response = client.post(
+            "/v1/flavor-profiles/test-model",
+            json={"task_scores": "bad"},
+        )
+        assert response.status_code == 400
+
+    def test_upsert_no_loader_returns_503(self, tmp_path: Path):
+        """Returns 503 when flavor_loader is None (line 962)."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        app.state.flavor_loader = None
+        client = TestClient(app)
+        response = client.post(
+            "/v1/flavor-profiles/test-model",
+            json={"task_scores": {"x": 0.5}, "domain_scores": {"y": 0.5}, "qs_scores": {"z": 0.5}},
+        )
+        assert response.status_code == 503
+        assert "not initialized" in response.json()["error"]
+
+    def test_upsert_success(self, tmp_path: Path):
+        """Successful upsert stores profile and returns serialized data (lines 964-968)."""
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+
+        mock_loader = MagicMock()
+        mock_loader._profiles = {}
+        app.state.flavor_loader = mock_loader
+
+        client = TestClient(app)
+        response = client.post(
+            "/v1/flavor-profiles/new-model",
+            json={
+                "task_scores": {"code_gen": 0.8},
+                "domain_scores": {"eng": 0.7},
+                "qs_scores": {"quality": 0.6},
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["model_id"] == "new-model"
+        assert "code_gen" in data["task_scores"]
+        assert mock_loader._profiles["new-model"].model_id == "new-model"
+
+
+class TestBuildProfileFromBody:
+    """Cover lines 975-990 — _build_profile_from_body."""
+
+    def test_builds_profile_with_clamped_scores(self):
+        from dragonlight_router.server.routes import _build_profile_from_body
+
+        profile = _build_profile_from_body(
+            "my-model",
+            {
+                "task_scores": {"code_gen": 0.9, "debugging": 0.1},
+                "domain_scores": {"engineering": 0.5},
+                "qs_scores": {"quality": 0.8},
+            },
+        )
+        assert profile.model_id == "my-model"
+        assert profile.version == 1
+        assert profile.updated_at  # non-empty ISO timestamp
+        assert profile.task_scores["code_gen"].score == 0.9
+        assert profile.task_scores["code_gen"].confidence == 1.0
+        assert profile.task_scores["code_gen"].sample_count == 0
+        assert profile.domain_scores["engineering"].score == 0.5
+        assert profile.qs_scores["quality"].score == 0.8
+
+
+class TestRetireHandlerAdminAuth:
+    """Cover line 873 — retire_handler returns auth error when admin key set."""
+
+    def test_retire_returns_401_when_admin_key_required(self, tmp_path: Path):
+        config_path = _setup_test_env(tmp_path)
+        app = create_app(config_path=config_path)
+        engine = app.state.engine
+        engine._config = MagicMock()
+        engine._config.admin_api_key = "secret-key"
+        client = TestClient(app)
+        response = client.post("/v1/retire", json={"backend": "my-backend"})
+        assert response.status_code == 401

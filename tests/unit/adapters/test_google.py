@@ -19,17 +19,17 @@ from dragonlight_router.adapters.google import (
 )
 from dragonlight_router.core.types import BackendStatus
 
+pytestmark = pytest.mark.unit
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _gemini_chunk(text: str) -> dict:
     """Build a minimal Gemini streaming chunk."""
-    return {
-        "candidates": [
-            {"content": {"parts": [{"text": text}]}}
-        ]
-    }
+    return {"candidates": [{"content": {"parts": [{"text": text}]}}]}
 
 
 def _make_sse_lines(chunks: list[dict], done: bool = True) -> list[str]:
@@ -61,6 +61,7 @@ class _FakeStreamResponse:
 # Unit tests for helper functions
 # ---------------------------------------------------------------------------
 
+
 class TestConvertMessages:
     def test_user_message(self):
         contents, sys = _convert_messages([{"role": "user", "content": "hello"}])
@@ -68,18 +69,22 @@ class TestConvertMessages:
         assert sys is None
 
     def test_system_message(self):
-        contents, sys = _convert_messages([
-            {"role": "system", "content": "be helpful"},
-            {"role": "user", "content": "hi"},
-        ])
+        contents, sys = _convert_messages(
+            [
+                {"role": "system", "content": "be helpful"},
+                {"role": "user", "content": "hi"},
+            ]
+        )
         assert sys == {"parts": [{"text": "be helpful"}]}
         assert len(contents) == 1
         assert contents[0]["role"] == "user"
 
     def test_assistant_maps_to_model(self):
-        contents, _ = _convert_messages([
-            {"role": "assistant", "content": "sure"},
-        ])
+        contents, _ = _convert_messages(
+            [
+                {"role": "assistant", "content": "sure"},
+            ]
+        )
         assert contents[0]["role"] == "model"
 
 
@@ -102,6 +107,7 @@ class TestExtractText:
 # Streaming generation tests
 # ---------------------------------------------------------------------------
 
+
 class TestGoogleGenerate:
     @pytest.fixture
     def backend(self, make_backend_config, monkeypatch):
@@ -116,10 +122,12 @@ class TestGoogleGenerate:
         return GoogleBackend(config)
 
     async def test_streaming_generation(self, backend):
-        sse_lines = _make_sse_lines([
-            _gemini_chunk("Hello"),
-            _gemini_chunk(", world!"),
-        ])
+        sse_lines = _make_sse_lines(
+            [
+                _gemini_chunk("Hello"),
+                _gemini_chunk(", world!"),
+            ]
+        )
         fake_response = _FakeStreamResponse(sse_lines)
 
         @asynccontextmanager
@@ -134,9 +142,7 @@ class TestGoogleGenerate:
             mock_cls.return_value = mock_client
 
             chunks = []
-            async for chunk in backend.generate(
-                [{"role": "user", "content": "Say hello"}]
-            ):
+            async for chunk in backend.generate([{"role": "user", "content": "Say hello"}]):
                 chunks.append(chunk)
 
         assert chunks == ["Hello", ", world!"]
@@ -152,9 +158,7 @@ class TestGoogleGenerate:
         backend = GoogleBackend(config)
 
         with pytest.raises(ValueError, match="API key not configured"):
-            async for _ in backend.generate(
-                [{"role": "user", "content": "test"}]
-            ):
+            async for _ in backend.generate([{"role": "user", "content": "test"}]):
                 pass
 
         assert backend.status == BackendStatus.ERROR
@@ -169,9 +173,7 @@ class TestGoogleGenerate:
         backend = GoogleBackend(config)
 
         with pytest.raises(ValueError, match="No API key configured"):
-            async for _ in backend.generate(
-                [{"role": "user", "content": "test"}]
-            ):
+            async for _ in backend.generate([{"role": "user", "content": "test"}]):
                 pass
 
         assert backend.status == BackendStatus.ERROR
@@ -191,9 +193,7 @@ class TestGoogleGenerate:
             mock_cls.return_value = mock_client
 
             with pytest.raises(RuntimeError, match="429"):
-                async for _ in backend.generate(
-                    [{"role": "user", "content": "test"}]
-                ):
+                async for _ in backend.generate([{"role": "user", "content": "test"}]):
                     pass
 
         assert backend.status == BackendStatus.ERROR
@@ -246,9 +246,7 @@ class TestGoogleGenerate:
             mock_cls.return_value = mock_client
 
             with pytest.raises(RuntimeError, match="Google connection failed"):
-                async for _ in backend.generate(
-                    [{"role": "user", "content": "test"}]
-                ):
+                async for _ in backend.generate([{"role": "user", "content": "test"}]):
                     pass
 
         assert backend.status == BackendStatus.ERROR
@@ -274,9 +272,7 @@ class TestGoogleGenerate:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_cls.return_value = mock_client
 
-            async for _ in backend.generate(
-                [{"role": "user", "content": "test"}]
-            ):
+            async for _ in backend.generate([{"role": "user", "content": "test"}]):
                 pass
 
         assert "gemini-2.0-flash:streamGenerateContent" in captured_url
@@ -287,7 +283,7 @@ class TestGoogleGenerate:
         """Malformed JSON in SSE lines is silently skipped."""
         lines = [
             "data: not-valid-json",
-            f'data: {json.dumps(_gemini_chunk("ok"))}',
+            f"data: {json.dumps(_gemini_chunk('ok'))}",
             "data: [DONE]",
         ]
         fake_response = _FakeStreamResponse(lines)
@@ -304,9 +300,7 @@ class TestGoogleGenerate:
             mock_cls.return_value = mock_client
 
             chunks = []
-            async for chunk in backend.generate(
-                [{"role": "user", "content": "test"}]
-            ):
+            async for chunk in backend.generate([{"role": "user", "content": "test"}]):
                 chunks.append(chunk)
 
         assert chunks == ["ok"]
@@ -315,6 +309,7 @@ class TestGoogleGenerate:
 # ---------------------------------------------------------------------------
 # Health check tests
 # ---------------------------------------------------------------------------
+
 
 class TestGoogleHealthCheck:
     @pytest.fixture
@@ -393,6 +388,7 @@ class TestGoogleHealthCheck:
 # ---------------------------------------------------------------------------
 # Usage recording
 # ---------------------------------------------------------------------------
+
 
 class TestGoogleUsage:
     def test_record_usage(self, make_backend_config):
@@ -529,9 +525,7 @@ class TestGoogleAdditionalCoverage:
             mock_cls.return_value = mock_client
 
             with pytest.raises(RuntimeError, match="Google API error"):
-                async for _ in backend.generate(
-                    [{"role": "user", "content": "test"}]
-                ):
+                async for _ in backend.generate([{"role": "user", "content": "test"}]):
                     pass
 
         assert backend.status == BackendStatus.ERROR

@@ -2,6 +2,7 @@
 
 Covers QA-022, QA-023, QA-024.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -16,6 +17,9 @@ from dragonlight_router.server.middleware import (
     get_cors_config,
 )
 from dragonlight_router.server.routes import _sanitize_prompt, _validate_llm_response
+
+pytestmark = pytest.mark.unit
+
 
 # ---------------------------------------------------------------------------
 # QA-023: Rate-limiting middleware
@@ -199,6 +203,7 @@ def _make_config(tmp_path: Path) -> Path:
     state_dir = tmp_path / "state"
     state_dir.mkdir()
     import json as _json
+
     (state_dir / "model_role_matrix.json").write_text(_json.dumps({}))
     config = {
         "state_dir": str(state_dir),
@@ -245,6 +250,7 @@ class TestRateLimitMiddlewareDispatch:
         mw = RateLimitMiddleware(inner_app, max_requests=2, window_seconds=60)
 
         from starlette.testclient import TestClient as TC
+
         client = TC(mw)
 
         bucket = mw._get_bucket("testclient")
@@ -307,7 +313,9 @@ class TestCORSConfig:
 
     def test_custom_cors_origins(self, monkeypatch):
         """Custom origins are parsed from comma-separated env var."""
-        monkeypatch.setenv("DRAGONLIGHT_CORS_ORIGINS", "https://app.example.com,https://admin.example.com")
+        monkeypatch.setenv(
+            "DRAGONLIGHT_CORS_ORIGINS", "https://app.example.com,https://admin.example.com"
+        )
         monkeypatch.delenv("DRAGONLIGHT_CORS_METHODS", raising=False)
         monkeypatch.delenv("DRAGONLIGHT_CORS_HEADERS", raising=False)
         monkeypatch.delenv("DRAGONLIGHT_CORS_CREDENTIALS", raising=False)
@@ -409,3 +417,83 @@ class TestCORSConfig:
         response = client.get("/v1/health", headers={"Origin": "https://evil.com"})
         assert response.status_code == 200
         assert "access-control-allow-origin" not in response.headers
+
+
+# ---------------------------------------------------------------------------
+# Coverage for RequestBodySizeLimitMiddleware (lines 209-214)
+# ---------------------------------------------------------------------------
+
+
+class TestRequestBodySizeLimitMiddleware:
+    """QA-024: RequestBodySizeLimitMiddleware rejects oversized requests."""
+
+    def test_rejects_request_body_too_large(self):
+        """[QA-024] Content-Length > max_bytes returns 413 (lines 209-212)."""
+        from starlette.applications import Starlette
+        from starlette.responses import JSONResponse
+        from starlette.routing import Route
+        from starlette.testclient import TestClient
+
+        from dragonlight_router.server.middleware import RequestBodySizeLimitMiddleware
+
+        async def _dummy(request):
+            return JSONResponse({"ok": True})
+
+        app = Starlette(routes=[Route("/v1/dispatch", _dummy, methods=["POST"])])
+        # Set a very low limit so we can test the rejection
+        app.add_middleware(RequestBodySizeLimitMiddleware, max_bytes=100)
+        client = TestClient(app)
+
+        response = client.post(
+            "/v1/dispatch",
+            content="x" * 200,
+            headers={"content-length": "200"},
+        )
+        assert response.status_code == 413
+        assert response.json()["error"] == "Request body too large"
+
+    def test_allows_request_body_within_limit(self):
+        """[QA-024] Content-Length <= max_bytes passes through (line 216)."""
+        from starlette.applications import Starlette
+        from starlette.responses import JSONResponse
+        from starlette.routing import Route
+        from starlette.testclient import TestClient
+
+        from dragonlight_router.server.middleware import RequestBodySizeLimitMiddleware
+
+        async def _dummy(request):
+            return JSONResponse({"ok": True})
+
+        app = Starlette(routes=[Route("/v1/dispatch", _dummy, methods=["POST"])])
+        app.add_middleware(RequestBodySizeLimitMiddleware, max_bytes=1000)
+        client = TestClient(app)
+
+        response = client.post(
+            "/v1/dispatch",
+            content="small body",
+            headers={"content-length": "10"},
+        )
+        assert response.status_code == 200
+
+    def test_non_numeric_content_length_is_ignored(self):
+        """[QA-024] Non-numeric Content-Length is silently ignored (lines 213-214)."""
+        from starlette.applications import Starlette
+        from starlette.responses import JSONResponse
+        from starlette.routing import Route
+        from starlette.testclient import TestClient
+
+        from dragonlight_router.server.middleware import RequestBodySizeLimitMiddleware
+
+        async def _dummy(request):
+            return JSONResponse({"ok": True})
+
+        app = Starlette(routes=[Route("/v1/dispatch", _dummy, methods=["POST"])])
+        app.add_middleware(RequestBodySizeLimitMiddleware, max_bytes=100)
+        client = TestClient(app)
+
+        response = client.post(
+            "/v1/dispatch",
+            content="test body",
+            headers={"content-length": "not-a-number"},
+        )
+        assert response.status_code == 200

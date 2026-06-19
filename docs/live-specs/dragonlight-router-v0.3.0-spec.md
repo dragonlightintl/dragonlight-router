@@ -1,7 +1,7 @@
 # Dragonlight Router v0.3.0 Live Spec
 
 **Version:** 0.3.0  
-**Package version:** 0.2.6  
+**Package version:** 0.3.0  
 **Effective:** 2026-06-18  
 **Status:** Canonical (supersedes v0.2.0 spec + delta-spec cycle)
 

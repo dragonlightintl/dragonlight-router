@@ -7,8 +7,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-06-18
+
 ### Added
 
+- **Intent-Based Router (IBR)** — LLM-powered intent classification inserted between MBR and CBR in the cascade, with flavor-match scoring, 100ms hard timeout, graceful degradation, and feedback-loop learning
+- **Model Pinning** — direct-dispatch escape hatch that bypasses the cascade, allowing operators and benchmarks to target specific provider/model pairs
+- **Model Spectrography** — empirical model profiling via discriminative probes and LLM-as-judge scoring; produces multi-dimensional capability spectrograms consumed by IBR for flavor-matched routing
+- **Calibration Audit** — self-calibration benchmark that routes through the router's own API, judges responses via LLM-as-judge, and produces calibration delta reports comparing empirical scores against declared profiles
 - MkDocs Material documentation site with getting-started guide, architecture, provider reference, and ADRs
 - GitHub Actions docs deployment workflow (GitHub Pages)
 - ARCHITECTURE.md with cascade pipeline diagram and package structure
@@ -20,13 +26,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Cascade pipeline extended to MBR → IBR → CBR → LBR with IBR as an opt-in scoring stage
+- "Dogfood Benchmark" renamed to "Calibration Audit" — clearer, no insider jargon
+- "Model Flavor Discovery" renamed to "Model Spectrography" — accurately describes empirical profiling
 - README rewritten with professional badges, feature list, cascade diagram, and streamlined quickstart
 - CI workflow split into separate lint, typecheck, security, and test jobs with Python 3.11/3.12/3.13 matrix
 - pyproject.toml enriched with full classifiers, keywords, and project URLs
 - Makefile expanded with `format`, `docs`, `docs-serve`, and `all` targets
+- Function decomposition across 22 functions to meet 40-line hard limit
+- 5 read-only module dicts frozen with `types.MappingProxyType`
+- 9 bare `except Exception` handlers narrowed to specific exception types
 
 ### Fixed
 
+- Timing attack in admin auth — switched to `hmac.compare_digest`
+- Log redaction — removed raw error bodies from structured log output
+- Missing `httpx.Timeout` on benchmark HTTP client
 - Mock anti-patterns in test suite (async generators instead of plain async functions for failing backends)
 - Expanded property-based tests and added acceptance and security test suites
 
@@ -34,6 +49,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - CORS hardening, admin auth rate limiting, SSRF URL validation (SEC-003, SEC-005, SEC-006)
 - Container image and supply-chain hardening (SEC-004, SEC-008)
+- Timing-safe admin token comparison (hmac.compare_digest)
+- 35 formal deviation records for standards exceptions, documented in delta-spec.md
 
 ## [0.2.6] — 2026-06-17
 
@@ -103,6 +120,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `mypy --strict` typing throughout
 - Provider support: NVIDIA NIM, Groq, OpenRouter, Cerebras, Gemini, Mistral, Anthropic, Ollama
 
-[Unreleased]: https://github.com/dragonlightintl/dragonlight-router/compare/v0.2.6...HEAD
+[Unreleased]: https://github.com/dragonlightintl/dragonlight-router/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/dragonlightintl/dragonlight-router/compare/v0.2.6...v0.3.0
 [0.2.6]: https://github.com/dragonlightintl/dragonlight-router/compare/v0.1.0...v0.2.6
 [0.1.0]: https://github.com/dragonlightintl/dragonlight-router/releases/tag/v0.1.0

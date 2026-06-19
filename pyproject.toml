@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dragonlight-router"
-version = "0.2.6"
+version = "0.3.0"
 description = "Multi-provider LLM routing engine — intelligent model selection and cascade dispatch across 11 providers."
 readme = "README.md"
 license = {text = "MIT"}

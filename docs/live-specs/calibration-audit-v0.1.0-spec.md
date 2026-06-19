@@ -2,7 +2,7 @@
 
 **Version:** 0.1.0
 **Effective:** 2026-06-18
-**Status:** Design (pre-implementation)
+**Status:** Implemented (v0.3.0)
 **Depends on:** Model Pinning v0.1.0, Dragonlight Router v0.3.0, IBR v0.1.0
 
 ## 1. Problem Statement

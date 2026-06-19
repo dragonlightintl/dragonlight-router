@@ -567,6 +567,8 @@ class TestDispatchStream:
 
         call_count = 0
 
+        # DEVIATION TEST-MOCK-001: branching mock required
+        # — factory returns different adapters per backend name.
         def _create_adapter(config):
             nonlocal call_count
             call_count += 1

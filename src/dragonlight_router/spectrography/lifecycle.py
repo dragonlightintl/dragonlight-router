@@ -1,9 +1,9 @@
-"""Discovery lifecycle management for Model Flavor Discovery.
+"""Spectrography lifecycle management for Model Spectrography.
 
-Profile staleness detection, incremental merge of discovery results,
+Profile staleness detection, incremental merge of spectrography results,
 and fingerprint persistence to config directory.
 
-Spec reference: model-flavor-discovery-v0.1.0-spec.md
+Spec reference: model-spectrography-v0.1.0-spec.md
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ logger = structlog.get_logger()
 
 # ---------------------------------------------------------------------------
 # Decay constants — duplicated from benchmark/runner.py (IBR-FLV-06)
-# to avoid circular dependency between discovery and benchmark packages.
+# to avoid circular dependency between spectrography and benchmark packages.
 # ---------------------------------------------------------------------------
 
 _DECAY_THRESHOLD_DAYS: int = 30
@@ -105,11 +105,11 @@ def check_staleness(
 # Decay logic (IBR-FLV-06) — re-implemented to avoid circular import
 # ---------------------------------------------------------------------------
 
-def apply_discovery_decay(
+def apply_spectrography_decay(
     profile: ModelFlavorProfile,
     now: datetime | None = None,
 ) -> ModelFlavorProfile:
-    """Apply time-based decay to a discovery profile.
+    """Apply time-based decay to a spectrography profile.
 
     Profiles older than 30 days decay toward 0.5 at 0.01/day.
     Returns a new profile with adjusted scores but the ORIGINAL
@@ -191,7 +191,7 @@ def merge_incremental(
     existing: dict[str, ModelFlavorProfile],
     new_results: dict[str, ModelFlavorProfile],
 ) -> dict[str, ModelFlavorProfile]:
-    """Merge new discovery results into an existing profile set.
+    """Merge new spectrography results into an existing profile set.
 
     Resolution:
     - Models in new_results replace their entry in existing.
@@ -365,12 +365,12 @@ def _clamp_score(value: float) -> float:
 # Discovery targeting
 # ---------------------------------------------------------------------------
 
-def get_models_needing_discovery(
+def get_models_needing_spectrography(
     role_matrix_path: Path,
     existing_profiles: dict[str, ModelFlavorProfile],
     staleness_days: int = 30,
 ) -> list[str]:
-    """Return model IDs that need discovery (missing or stale profiles).
+    """Return model IDs that need spectrography (missing or stale profiles).
 
     Reads the role matrix JSON to collect all unique model IDs, then
     returns those that either have no existing profile or have a profile
@@ -387,11 +387,11 @@ def get_models_needing_discovery(
         return []
 
     now = datetime.now(UTC)
-    needs_discovery: list[str] = []
+    needs_spectrography: list[str] = []
 
     for model_id in sorted(all_model_ids):
         if model_id not in existing_profiles:
-            needs_discovery.append(model_id)
+            needs_spectrography.append(model_id)
             continue
 
         profile = existing_profiles[model_id]
@@ -401,15 +401,15 @@ def get_models_needing_discovery(
 
         age_days = (now - updated_at).total_seconds() / 86400.0
         if age_days > staleness_days:
-            needs_discovery.append(model_id)
+            needs_spectrography.append(model_id)
 
     logger.info(
-        "models_needing_discovery",
+        "models_needing_spectrography",
         total_in_matrix=len(all_model_ids),
-        needing_discovery=len(needs_discovery),
+        needing_spectrography=len(needs_spectrography),
         staleness_days=staleness_days,
     )
-    return needs_discovery
+    return needs_spectrography
 
 
 def _collect_model_ids_from_matrix(matrix_path: Path) -> set[str]:

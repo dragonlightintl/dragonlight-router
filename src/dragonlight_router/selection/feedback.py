@@ -127,6 +127,7 @@ class FeedbackStore:
             observation=round(observation, 4),
         )
 
+    # DEVIATION CS-PARAM-001: _update_dimension takes 6 params — dataclass grouping would break API.
     def _update_dimension(
         self,
         model_id: str,

@@ -146,7 +146,7 @@ async def _collect_model_response(
         ):
             chunks.append(chunk)
         return "".join(chunks)
-    except Exception as exc:
+    except (RuntimeError, ValueError) as exc:
         logger.warning(
             "benchmark_model_error",
             prompt_id=prompt.id,

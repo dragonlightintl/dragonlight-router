@@ -149,6 +149,7 @@ class _ClassificationCache:
 
 
 # Module-level singleton cache (reconfigurable via configure_cache)
+# DEVIATION CS-MUTABLE-002: intentionally mutable — runtime cache/singleton.
 _cache = _ClassificationCache()
 
 
@@ -225,52 +226,39 @@ def _parse_response(text: str) -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 
 
-async def _call_classifier(
+def _build_classifier_prompt(
     operator_message: str,
-    adapter: GenerativeBackend,
-) -> ClassifiedIntent | None:
-    """Send classification request to the adapter and parse the response.
+) -> list[dict[str, str]]:
+    """Build the system + user messages for the classifier LLM call.
 
-    Returns ClassifiedIntent on success, None on parse/validation failure.
+    Returns a two-element messages list for GenerativeBackend.generate.
     """
     assert isinstance(operator_message, str), "operator_message must be a string"
-
-    messages: list[dict[str, str]] = [
+    assert len(operator_message) > 0, "operator_message must not be empty"
+    return [
         {"role": "system", "content": _CLASSIFICATION_PROMPT},
         {"role": "user", "content": operator_message},
     ]
 
-    start_ns = time.perf_counter_ns()
-    collected: list[str] = []
 
-    try:
-        async for chunk in adapter.generate(
-            messages,
-            max_tokens=128,
-            temperature=0.0,
-            stream=False,
-        ):
-            collected.append(chunk)
-    except Exception:
-        latency_ms = (time.perf_counter_ns() - start_ns) / 1_000_000
-        logger.warning(
-            "ibr_classification_adapter_error",
-            latency_ms=round(latency_ms, 2),
-        )
-        return None
+def _parse_classification_response(
+    raw_text: str, latency_ms: float,
+) -> ClassifiedIntent | None:
+    """Parse and validate raw LLM text into a ClassifiedIntent.
 
-    latency_ms = (time.perf_counter_ns() - start_ns) / 1_000_000
-    raw_text = "".join(collected)
-
+    Returns ClassifiedIntent on success, None on parse/validation failure.
+    All failures are logged at warning level.
+    """
+    assert isinstance(raw_text, str), "raw_text must be a string"
+    assert isinstance(latency_ms, (int, float)), "latency_ms must be numeric"
     parsed = _parse_response(raw_text)
     if parsed is None:
         logger.warning(
             "ibr_classification_parse_error",
-            raw_text=raw_text[:200],
+            raw_text_length=len(raw_text),
             latency_ms=round(latency_ms, 2),
         )
         return None
-
     if not _validate_classification(parsed):
         logger.warning(
             "ibr_classification_validation_error",
@@ -278,7 +266,6 @@ async def _call_classifier(
             latency_ms=round(latency_ms, 2),
         )
         return None
-
     return ClassifiedIntent(
         task_type=parsed["task_type"],
         domain=parsed["domain"],
@@ -289,88 +276,96 @@ async def _call_classifier(
     )
 
 
+async def _call_classifier(
+    operator_message: str,
+    adapter: GenerativeBackend,
+) -> ClassifiedIntent | None:
+    """Send classification request to the adapter and parse the response.
+
+    Returns ClassifiedIntent on success, None on parse/validation failure.
+    """
+    assert isinstance(operator_message, str), "operator_message must be a string"
+    messages = _build_classifier_prompt(operator_message)
+    start_ns = time.perf_counter_ns()
+    collected: list[str] = []
+    try:
+        async for chunk in adapter.generate(
+            messages, max_tokens=128, temperature=0.0, stream=False,
+        ):
+            collected.append(chunk)
+    except (RuntimeError, ValueError, OSError):
+        latency_ms = (time.perf_counter_ns() - start_ns) / 1_000_000
+        logger.warning(
+            "ibr_classification_adapter_error",
+            latency_ms=round(latency_ms, 2),
+        )
+        return None
+    latency_ms = (time.perf_counter_ns() - start_ns) / 1_000_000
+    raw_text = "".join(collected)
+    return _parse_classification_response(raw_text, latency_ms)
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
 
-async def classify_intent(
-    operator_message: str,
-    adapter: GenerativeBackend,
-    *,
-    timeout_s: float = 0.1,
-) -> ClassifiedIntent | None:
-    """Classify an operator message into intent dimensions.
+def _resolve_cache_hit(cached: ClassifiedIntent) -> ClassifiedIntent:
+    """Build a fresh ClassifiedIntent from a cached entry with from_cache=True.
 
-    Checks the in-memory cache first (SHA-256 of operator_message).
-    On cache miss, calls the classification model via *adapter* with
-    a hard timeout.  All failures are logged at warning level and
-    return None -- this function never raises.
-
-    Args:
-        operator_message: The raw operator message to classify.
-        adapter: A GenerativeBackend for the classification model.
-        timeout_s: Hard timeout in seconds (default 0.1 = 100ms).
-
-    Returns:
-        ClassifiedIntent on success, None on timeout / parse error / failure.
+    Measures cache-hit overhead latency and logs the hit.
     """
+    assert isinstance(cached, ClassifiedIntent), "cached must be a ClassifiedIntent"
+    assert cached.task_type in TASK_TYPES, f"invalid cached task_type: {cached.task_type}"
+    start_ns = time.perf_counter_ns()
+    latency_ms = (time.perf_counter_ns() - start_ns) / 1_000_000
+    logger.debug(
+        "ibr_classification_cache_hit",
+        task_type=cached.task_type,
+        domain=cached.domain,
+        quality_speed=cached.quality_speed,
+    )
+    return ClassifiedIntent(
+        task_type=cached.task_type,
+        domain=cached.domain,
+        quality_speed=cached.quality_speed,
+        confidence=cached.confidence,
+        latency_ms=round(latency_ms, 2),
+        from_cache=True,
+    )
+
+
+async def classify_intent(
+    operator_message: str, adapter: GenerativeBackend,
+    *, timeout_s: float = 0.1,
+) -> ClassifiedIntent | None:
+    """Classify operator_message via cache or LLM; returns None on any failure."""
     assert isinstance(operator_message, str), "operator_message must be a string"
     assert timeout_s > 0, f"timeout_s must be positive, got {timeout_s}"
-
     cache_key = _compute_cache_key(operator_message)
-
-    # --- cache hit path ---
     cached = _cache.get(cache_key)
     if cached is not None:
-        start_ns = time.perf_counter_ns()
-        latency_ms = (time.perf_counter_ns() - start_ns) / 1_000_000
-        logger.debug(
-            "ibr_classification_cache_hit",
-            task_type=cached.task_type,
-            domain=cached.domain,
-            quality_speed=cached.quality_speed,
-        )
-        return ClassifiedIntent(
-            task_type=cached.task_type,
-            domain=cached.domain,
-            quality_speed=cached.quality_speed,
-            confidence=cached.confidence,
-            latency_ms=round(latency_ms, 2),
-            from_cache=True,
-        )
-
-    # --- cache miss path: call classifier with hard timeout ---
+        return _resolve_cache_hit(cached)
     try:
         result = await asyncio.wait_for(
-            _call_classifier(operator_message, adapter),
-            timeout=timeout_s,
+            _call_classifier(operator_message, adapter), timeout=timeout_s,
         )
     except TimeoutError:
-        logger.warning(
-            "ibr_classification_timeout",
-            timeout_s=timeout_s,
-            operator_message_len=len(operator_message),
-        )
+        logger.warning("ibr_classification_timeout",
+                       timeout_s=timeout_s,
+                       operator_message_len=len(operator_message))
         return None
-    except Exception:
-        logger.warning(
-            "ibr_classification_unexpected_error",
-            operator_message_len=len(operator_message),
-            exc_info=True,
-        )
+    except (RuntimeError, ValueError, OSError):
+        logger.warning("ibr_classification_unexpected_error",
+                       operator_message_len=len(operator_message),
+                       exc_info=True)
         return None
-
     if result is not None:
         _cache.put(cache_key, result)
         logger.info(
-            "ibr_classification",
-            task_type=result.task_type,
-            domain=result.domain,
-            quality_speed=result.quality_speed,
-            confidence=result.confidence,
-            latency_ms=result.latency_ms,
+            "ibr_classification", task_type=result.task_type,
+            domain=result.domain, quality_speed=result.quality_speed,
+            confidence=result.confidence, latency_ms=result.latency_ms,
             from_cache=False,
         )
-
     return result

@@ -1,4 +1,4 @@
-# Dogfood Benchmark v0.1.0 Live Spec
+# Calibration Audit v0.1.0 Live Spec
 
 **Version:** 0.1.0
 **Effective:** 2026-06-18
@@ -9,14 +9,14 @@
 
 The existing `benchmark/runner.py` calls model adapters directly, bypassing the router entirely. This means benchmarks never exercise the operational machinery that real requests hit: rate limiting, budget enforcement, health monitoring, cost tracking, provider interleaving, and now model pinning.
 
-The dogfood benchmark closes this gap. It is an HTTP client that calls `POST /v1/dispatch` with the `model` field set -- using the pinning feature to isolate each model while still flowing through every router subsystem. The judge calls also route through the router. The result is a benchmark that tests the models *and* the router simultaneously: 1000 dispatch calls that exercise the full operational stack end-to-end.
+The calibration audit closes this gap. It is an HTTP client that calls `POST /v1/dispatch` with the `model` field set -- using the pinning feature to isolate each model while still flowing through every router subsystem. The judge calls also route through the router. The result is a benchmark that tests the models *and* the router simultaneously: 1000 dispatch calls that exercise the full operational stack end-to-end.
 
 Secondary value: the benchmark produces empirical flavor profiles to validate (or replace) the operator-declared profiles in `model_flavor_profiles.yaml`.
 
 ## 2. Architecture
 
 ```
-dogfood_benchmark.py (HTTP client)
+calibration_audit.py (HTTP client)
         |
         | POST /v1/dispatch { model: "...", messages: [...] }
         v
@@ -192,7 +192,7 @@ The `--judge-model` CLI flag overrides the default.
 ## 9. CLI Interface
 
 ```
-python -m dragonlight_router.benchmark.dogfood \
+python -m dragonlight_router.benchmark.calibration_audit \
   --router-url http://localhost:8000 \
   --judge-model gemini/gemini-2.5-pro \
   --output-dir benchmark_results/ \
@@ -213,7 +213,7 @@ python -m dragonlight_router.benchmark.dogfood \
 
 ## 10. What This Exercises in the Router
 
-Every dispatch call through the dogfood benchmark validates these router subsystems:
+Every dispatch call through the calibration audit validates these router subsystems:
 
 - **Model pinning** (the core feature under test) -- `dispatch_mode: "pinned"` in every response
 - **Budget enforcement** -- `check_and_reserve` runs per call, 1000 calls stress the sliding window

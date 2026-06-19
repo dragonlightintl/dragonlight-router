@@ -1,15 +1,13 @@
-"""Tests for discovery/ — probes, analyzer, lifecycle, and runner.
+"""Tests for spectrography/ — probes, analyzer, lifecycle, and runner.
 
-Spec traceability: model-flavor-discovery-v0.1.0-spec.md
+Spec traceability: model-spectrography-v0.1.0-spec.md
 AC numbers: IBR-FLV-01 through IBR-FLV-06.
 """
 from __future__ import annotations
 
 import json
-import math
 from collections import Counter
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 import pytest
 import yaml
@@ -22,11 +20,8 @@ from dragonlight_router.core.types import (
     FlavorScore,
     ModelFlavorProfile,
 )
-from dragonlight_router.discovery.analyzer import (
-    CalibrationDelta,
-    DimensionStats,
+from dragonlight_router.spectrography.analyzer import (
     ProbeResult,
-    RawFingerprint,
     _delta_recommendation,
     aggregate_scores,
     build_fingerprints_yaml,
@@ -34,26 +29,24 @@ from dragonlight_router.discovery.analyzer import (
     compute_calibration_deltas,
     rank_normalize,
 )
-from dragonlight_router.discovery.lifecycle import (
-    StaleProfile,
-    apply_discovery_decay,
+from dragonlight_router.spectrography.lifecycle import (
+    apply_spectrography_decay,
     check_staleness,
-    get_models_needing_discovery,
+    get_models_needing_spectrography,
     load_existing_fingerprints,
     merge_incremental,
     write_fingerprints_yaml,
 )
-from dragonlight_router.discovery.probes import (
-    DIFFICULTY_LEVELS,
+from dragonlight_router.spectrography.probes import (
     DISCRIMINATION_AXES,
-    DiscoveryProbe,
+    SpectrographyProbe,
     _validate_probe,
     get_all_probes,
     get_probes_by_axis,
     get_probes_by_domain,
     get_probes_by_task_type,
 )
-from dragonlight_router.discovery.runner import (
+from dragonlight_router.spectrography.runner import (
     ProviderPacer,
     _append_checkpoint,
     _create_adapter,
@@ -62,7 +55,6 @@ from dragonlight_router.discovery.runner import (
     _load_checkpoint,
     _parse_delays,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers — build test data
@@ -107,14 +99,14 @@ def _make_flavor_profile(
         model_id=model_id,
         version=1,
         updated_at=updated_at,
-        task_scores={t: fs for t in IBR_TASK_TYPES},
-        domain_scores={d: fs for d in IBR_DOMAINS},
-        qs_scores={q: fs for q in IBR_QUALITY_SPEED},
+        task_scores=dict.fromkeys(IBR_TASK_TYPES, fs),
+        domain_scores=dict.fromkeys(IBR_DOMAINS, fs),
+        qs_scores=dict.fromkeys(IBR_QUALITY_SPEED, fs),
     )
 
 
-def _make_discovery_probe(**overrides) -> DiscoveryProbe:
-    """Build a DiscoveryProbe with sensible defaults."""
+def _make_spectrography_probe(**overrides) -> SpectrographyProbe:
+    """Build a SpectrographyProbe with sensible defaults."""
     defaults = {
         "id": "disc-test-001",
         "task_type": "generation",
@@ -126,7 +118,7 @@ def _make_discovery_probe(**overrides) -> DiscoveryProbe:
         "difficulty": "medium",
     }
     defaults.update(overrides)
-    return DiscoveryProbe(**defaults)
+    return SpectrographyProbe(**defaults)
 
 
 # ===========================================================================
@@ -180,32 +172,32 @@ class TestValidateProbe:
     """Tests for _validate_probe rejection on invalid fields."""
 
     def test_rejects_invalid_task_type(self):
-        probe = _make_discovery_probe(task_type="INVALID")
+        probe = _make_spectrography_probe(task_type="INVALID")
         with pytest.raises(AssertionError, match="Invalid task_type"):
             _validate_probe(probe)
 
     def test_rejects_invalid_domain(self):
-        probe = _make_discovery_probe(domain="INVALID")
+        probe = _make_spectrography_probe(domain="INVALID")
         with pytest.raises(AssertionError, match="Invalid domain"):
             _validate_probe(probe)
 
     def test_rejects_invalid_quality_speed(self):
-        probe = _make_discovery_probe(quality_speed="INVALID")
+        probe = _make_spectrography_probe(quality_speed="INVALID")
         with pytest.raises(AssertionError, match="Invalid quality_speed"):
             _validate_probe(probe)
 
     def test_rejects_invalid_discrimination_axis(self):
-        probe = _make_discovery_probe(discrimination_axis="INVALID")
+        probe = _make_spectrography_probe(discrimination_axis="INVALID")
         with pytest.raises(AssertionError, match="Invalid discrimination_axis"):
             _validate_probe(probe)
 
     def test_rejects_invalid_difficulty(self):
-        probe = _make_discovery_probe(difficulty="INVALID")
+        probe = _make_spectrography_probe(difficulty="INVALID")
         with pytest.raises(AssertionError, match="Invalid difficulty"):
             _validate_probe(probe)
 
     def test_rejects_id_not_starting_with_disc(self):
-        probe = _make_discovery_probe(id="bad-id-001")
+        probe = _make_spectrography_probe(id="bad-id-001")
         with pytest.raises(AssertionError, match="Probe ID must start with 'disc-'"):
             _validate_probe(probe)
 
@@ -462,7 +454,7 @@ class TestBuildFingerprintsYaml:
         profiles = {"m1": _make_flavor_profile(model_id="m1")}
         yaml_str = build_fingerprints_yaml(profiles, "test-run-001")
         parsed = yaml.safe_load(yaml_str)
-        assert parsed["source"] == "discovery-run-test-run-001"
+        assert parsed["source"] == "spectrography-run-test-run-001"
         assert "generated_at" in parsed
         assert parsed["version"] == 1
 
@@ -544,13 +536,13 @@ class TestCheckStaleness:
         assert results[0].needs_refresh is True
 
 
-class TestApplyDiscoveryDecay:
-    """Tests for apply_discovery_decay."""
+class TestApplySpectrographyDecay:
+    """Tests for apply_spectrography_decay."""
 
     def test_no_op_for_profiles_30_days_or_younger(self):
         recent_time = datetime.now(UTC).isoformat()
         profile = _make_flavor_profile(model_id="m1", updated_at=recent_time, score=0.9)
-        result = apply_discovery_decay(profile)
+        result = apply_spectrography_decay(profile)
         # Scores should be unchanged
         for t in IBR_TASK_TYPES:
             assert result.task_scores[t].score == pytest.approx(0.9)
@@ -558,7 +550,7 @@ class TestApplyDiscoveryDecay:
     def test_decays_toward_0_5_for_old_profiles(self):
         old_time = (datetime.now(UTC) - timedelta(days=60)).isoformat()
         profile = _make_flavor_profile(model_id="m1", updated_at=old_time, score=0.9)
-        result = apply_discovery_decay(profile)
+        result = apply_spectrography_decay(profile)
         # Score should move toward 0.5 (be less than 0.9)
         for t in IBR_TASK_TYPES:
             assert result.task_scores[t].score < 0.9
@@ -567,13 +559,13 @@ class TestApplyDiscoveryDecay:
     def test_preserves_original_updated_at(self):
         old_time = (datetime.now(UTC) - timedelta(days=60)).isoformat()
         profile = _make_flavor_profile(model_id="m1", updated_at=old_time, score=0.9)
-        result = apply_discovery_decay(profile)
+        result = apply_spectrography_decay(profile)
         assert result.updated_at == old_time
 
     def test_decay_moves_low_scores_up(self):
         old_time = (datetime.now(UTC) - timedelta(days=60)).isoformat()
         profile = _make_flavor_profile(model_id="m1", updated_at=old_time, score=0.1)
-        result = apply_discovery_decay(profile)
+        result = apply_spectrography_decay(profile)
         # Score 0.1 should move toward 0.5 (increase)
         for t in IBR_TASK_TYPES:
             assert result.task_scores[t].score > 0.1
@@ -588,7 +580,7 @@ class TestApplyDiscoveryDecay:
         )
         # now = 61 days later -> should decay
         now = updated + timedelta(days=61)
-        result = apply_discovery_decay(profile, now=now)
+        result = apply_spectrography_decay(profile, now=now)
         for t in IBR_TASK_TYPES:
             assert result.task_scores[t].score < 0.9
 
@@ -672,8 +664,8 @@ class TestLoadExistingFingerprints:
         assert result == {}
 
 
-class TestGetModelsNeedingDiscovery:
-    """Tests for get_models_needing_discovery."""
+class TestGetModelsNeedingSpectrography:
+    """Tests for get_models_needing_spectrography."""
 
     def test_identifies_missing_profiles(self, tmp_path):
         matrix = {
@@ -688,7 +680,7 @@ class TestGetModelsNeedingDiscovery:
         matrix_path.write_text(json.dumps(matrix))
         # Only m1 has a profile
         existing = {"m1": _make_flavor_profile(model_id="m1")}
-        result = get_models_needing_discovery(matrix_path, existing)
+        result = get_models_needing_spectrography(matrix_path, existing)
         assert "m2" in result
         assert "m1" not in result
 
@@ -702,11 +694,11 @@ class TestGetModelsNeedingDiscovery:
         matrix_path.write_text(json.dumps(matrix))
         old_time = (datetime.now(UTC) - timedelta(days=60)).isoformat()
         existing = {"m1": _make_flavor_profile(model_id="m1", updated_at=old_time)}
-        result = get_models_needing_discovery(matrix_path, existing)
+        result = get_models_needing_spectrography(matrix_path, existing)
         assert "m1" in result
 
     def test_missing_matrix_returns_empty(self, tmp_path):
-        result = get_models_needing_discovery(
+        result = get_models_needing_spectrography(
             tmp_path / "no-such-matrix.json", {},
         )
         assert result == []
@@ -751,8 +743,8 @@ class TestInterleavedSchedule:
     def test_interleaves_models_across_probes(self):
         models = ["m1", "m2"]
         probes = [
-            _make_discovery_probe(id="disc-a-001"),
-            _make_discovery_probe(id="disc-a-002"),
+            _make_spectrography_probe(id="disc-a-001"),
+            _make_spectrography_probe(id="disc-a-002"),
         ]
         schedule = _interleaved_schedule(models, probes)
         # Should be: (m1, probe1), (m2, probe1), (m1, probe2), (m2, probe2)
@@ -763,7 +755,7 @@ class TestInterleavedSchedule:
         assert schedule[3] == ("m2", probes[1])
 
     def test_empty_models(self):
-        probes = [_make_discovery_probe()]
+        probes = [_make_spectrography_probe()]
         schedule = _interleaved_schedule([], probes)
         assert schedule == []
 
@@ -804,7 +796,7 @@ class TestCreateAdapter:
     def test_unknown_provider_returns_none(self, monkeypatch):
         """Unknown provider prefix → None."""
         monkeypatch.setattr(
-            "dragonlight_router.discovery.runner._CACHED_PROVIDERS", {},
+            "dragonlight_router.spectrography.runner._CACHED_PROVIDERS", {},
         )
         result = _create_adapter("totally_fake/some-model")
         assert result is None
@@ -812,7 +804,7 @@ class TestCreateAdapter:
     def test_missing_env_key_returns_none(self, monkeypatch):
         """Provider exists in config but required env var is unset → None."""
         monkeypatch.setattr(
-            "dragonlight_router.discovery.runner._CACHED_PROVIDERS",
+            "dragonlight_router.spectrography.runner._CACHED_PROVIDERS",
             {"gemini": {"name": "gemini", "env_key": "GEMINI_API_KEY_DEFINITELY_UNSET", "base_url": "https://example.com"}},
         )
         monkeypatch.delenv("GEMINI_API_KEY_DEFINITELY_UNSET", raising=False)
@@ -821,9 +813,16 @@ class TestCreateAdapter:
 
     def test_valid_provider_returns_adapter(self, monkeypatch):
         """Known provider with env key set → non-None adapter."""
+        groq_cfg = {
+            "name": "groq",
+            "env_key": "GROQ_API_KEY",
+            "base_url": "https://api.groq.com/openai/v1",
+            "model_prefix": "groq/",
+            "rate_limits": {},
+        }
         monkeypatch.setattr(
-            "dragonlight_router.discovery.runner._CACHED_PROVIDERS",
-            {"groq": {"name": "groq", "env_key": "GROQ_API_KEY", "base_url": "https://api.groq.com/openai/v1", "model_prefix": "groq/", "rate_limits": {}}},
+            "dragonlight_router.spectrography.runner._CACHED_PROVIDERS",
+            {"groq": groq_cfg},
         )
         monkeypatch.setenv("GROQ_API_KEY", "test-key-for-unit-test")
         result = _create_adapter("groq/llama-3.3-70b-versatile")

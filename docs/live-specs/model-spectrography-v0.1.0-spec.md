@@ -1,4 +1,4 @@
-# Model Flavor Discovery v0.1.0 Live Spec
+# Model Spectrography v0.1.0 Live Spec
 
 **Version:** 0.1.0
 **Effective:** 2026-06-18
@@ -16,25 +16,25 @@ Neither answers the fundamental question: **what are the actual, empirical diffe
 
 Kimi K2.6 vs DeepSeek V4 Pro vs Gemini Flash — all strong coding models, but which one is better at *refactoring* vs *generation* vs *analysis*? Qwen 3.5 vs Llama 3.3 — how do their reasoning styles actually compare on legal vs technical domains?
 
-The Model Flavor Discovery system closes this gap. It runs controlled, head-to-head evaluations across all IBR dimensions, uses LLM-as-judge scoring, and produces empirical flavor fingerprints that can replace or validate operator-declared profiles. It also provides a lifecycle mechanism to keep profiles current as models are added, updated, or deprecated.
+The Model Spectrography system closes this gap. It runs controlled, head-to-head evaluations across all IBR dimensions, uses LLM-as-judge scoring, and produces empirical flavor fingerprints that can replace or validate operator-declared profiles. It also provides a lifecycle mechanism to keep profiles current as models are added, updated, or deprecated.
 
-**Distinction from dogfood benchmark:** The dogfood benchmark (`benchmark/dogfood.py`) tests the *router's operational machinery* — budget enforcement, rate limiting, health monitoring, cost tracking. Flavor discovery tests the *models themselves* — their relative strengths, weaknesses, and personality across intent dimensions. The dogfood benchmark routes through the router's HTTP API. Flavor discovery calls model adapters directly to isolate model performance from router performance.
+**Distinction from calibration audit:** The calibration audit (`benchmark/calibration_audit.py`) tests the *router's operational machinery* — budget enforcement, rate limiting, health monitoring, cost tracking. Model spectrography tests the *models themselves* — their relative strengths, weaknesses, and personality across intent dimensions. The calibration audit routes through the router's HTTP API. Model spectrography calls model adapters directly to isolate model performance from router performance.
 
 ## 2. Architecture
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│           Model Flavor Discovery System               │
+│           Model Spectrography System                  │
 │                                                       │
-│  discovery/                                           │
+│  spectrography/                                       │
 │    probes.py      — discriminative probe prompts      │
 │    runner.py      — orchestrator (eval + judge)       │
 │    analyzer.py    — fingerprint computation + delta   │
 │    lifecycle.py   — staleness, scheduling, triggers   │
 │                                                       │
 │  Output:                                              │
-│    discovery_results/<run_id>/report.json              │
-│    discovery_results/<run_id>/fingerprints.yaml        │
+│    spectrography_results/<run_id>/report.json          │
+│    spectrography_results/<run_id>/fingerprints.yaml    │
 │    config/model_flavor_profiles.yaml  (optional write) │
 └──────────────────────────────────────────────────────┘
          |                          |
@@ -46,11 +46,11 @@ The Model Flavor Discovery system closes this gap. It runs controlled, head-to-h
 
 ### 2.1 Direct Adapter Calls (Not Router HTTP)
 
-Unlike the dogfood benchmark which routes through `POST /v1/dispatch`, flavor discovery calls adapters directly via the `GenerativeBackend` protocol. This isolates model-specific behavior from router-specific behavior (rate limiting, budget, circuit breakers). The discovery system manages its own pacing and retry logic.
+Unlike the calibration audit which routes through `POST /v1/dispatch`, model spectrography calls adapters directly via the `GenerativeBackend` protocol. This isolates model-specific behavior from router-specific behavior (rate limiting, budget, circuit breakers). The spectrography system manages its own pacing and retry logic.
 
 ### 2.2 Discriminative Probe Design
 
-The existing eval prompts in `benchmark/prompts.py` test general capability within each dimension. Flavor discovery needs something different: probes that **discriminate** between models of similar capability. Two models might both score 4/5 on a general coding prompt, but differ on:
+The existing eval prompts in `benchmark/prompts.py` test general capability within each dimension. Model spectrography needs something different: probes that **discriminate** between models of similar capability. Two models might both score 4/5 on a general coding prompt, but differ on:
 
 - Style preference (verbose vs terse)
 - Error handling approach (defensive vs optimistic)
@@ -66,7 +66,7 @@ Discriminative probes are designed to surface these differences, not just measur
 
 ```python
 @dataclass(frozen=True)
-class DiscoveryProbe:
+class SpectrographyProbe:
     id: str                    # e.g. "disc-refactoring-code-001"
     task_type: str             # IBR task_type dimension
     domain: str                # IBR domain dimension
@@ -98,13 +98,13 @@ Target: **80 probes** spanning all 8 task_types x 6 domains, with emphasis on hi
 
 ### 3.4 Probe Bank Location
 
-`src/dragonlight_router/discovery/probes.py` — same pattern as `benchmark/prompts.py`.
+`src/dragonlight_router/spectrography/probes.py` — same pattern as `benchmark/prompts.py`.
 
 ## 4. Execution Flow
 
 ### 4.1 Model Target Selection
 
-Same deduplication logic as the dogfood benchmark: read the role matrix, collect all model IDs, deduplicate by base model identity (strip provider prefix), keep the highest-priority provider per model. The `--models` flag allows subsetting.
+Same deduplication logic as the calibration audit: read the role matrix, collect all model IDs, deduplicate by base model identity (strip provider prefix), keep the highest-priority provider per model. The `--models` flag allows subsetting.
 
 ### 4.2 Evaluation Phase
 
@@ -141,7 +141,7 @@ After all evaluations complete:
 Compare each empirical fingerprint against the operator-declared profile from `model_flavor_profiles.yaml`:
 
 - For each dimension, compute `delta = abs(empirical - declared)`.
-- Flag any dimension where `delta > 0.15` (same threshold as dogfood benchmark).
+- Flag any dimension where `delta > 0.15` (same threshold as calibration audit).
 - Produce a calibration table: `{model, dimension, declared, empirical, delta, recommendation}`.
 - Recommendation is one of: `"confirm"` (delta ≤ 0.05), `"review"` (0.05 < delta ≤ 0.15), `"update"` (delta > 0.15).
 
@@ -149,7 +149,7 @@ Compare each empirical fingerprint against the operator-declared profile from `m
 
 ### 5.1 Per-Provider Rate Limiting
 
-Same pattern as dogfood benchmark's `ProviderPacer`:
+Same pattern as calibration audit's `ProviderPacer`:
 
 | Provider | Min delay between requests | Rationale |
 |----------|---------------------------|-----------|
@@ -168,7 +168,7 @@ On adapter error: **no retry for eval calls** (failure is signal). For judge cal
 
 ## 6. Output Format
 
-### 6.1 JSON Report (`discovery_results/<run_id>/report.json`)
+### 6.1 JSON Report (`spectrography_results/<run_id>/report.json`)
 
 ```json
 {
@@ -210,13 +210,13 @@ On adapter error: **no retry for eval calls** (failure is signal). For judge cal
 }
 ```
 
-### 6.2 Fingerprints YAML (`discovery_results/<run_id>/fingerprints.yaml`)
+### 6.2 Fingerprints YAML (`spectrography_results/<run_id>/fingerprints.yaml`)
 
 Drop-in replacement for `config/model_flavor_profiles.yaml`. Same schema, empirical values. The operator can review and copy this file to replace the hand-tuned profiles.
 
 ```yaml
 version: 1
-source: "discovery-run-disc-20260618-a1b2c3"
+source: "spectrography-run-disc-20260618-a1b2c3"
 generated_at: "2026-06-18T11:30:00Z"
 
 profiles:
@@ -234,7 +234,7 @@ profiles:
       # ...
 ```
 
-### 6.3 Markdown Summary (`discovery_results/<run_id>/summary.md`)
+### 6.3 Markdown Summary (`spectrography_results/<run_id>/summary.md`)
 
 Human-readable report:
 - Run metadata (timestamp, duration, judge model, model count)
@@ -248,23 +248,23 @@ Human-readable report:
 
 ### 7.1 Staleness Detection
 
-Discovery profiles include `generated_at` timestamps. The same decay logic from `benchmark/runner.py` applies (IBR-FLV-06):
+Spectrography profiles include `generated_at` timestamps. The same decay logic from `benchmark/runner.py` applies (IBR-FLV-06):
 
 - Profiles older than 30 days decay toward 0.5 at 0.01/day.
-- The discovery runner checks profile age at boot. If any model's profile is >30 days old, it logs a warning: `"stale_discovery_profile"`.
+- The spectrography runner checks profile age at boot. If any model's profile is >30 days old, it logs a warning: `"stale_spectrography_profile"`.
 
-### 7.2 Triggers for Re-Discovery
+### 7.2 Triggers for Re-Spectrography
 
 The system should be re-run when:
 
 1. **New model added** to the router's backend registry or role matrix.
 2. **Model version updated** (e.g., model provider releases a new version behind the same model ID).
-3. **Significant calibration drift** detected by the dogfood benchmark (delta > 0.15 on multiple dimensions).
-4. **Scheduled cadence** — monthly re-discovery recommended. The `--models` flag allows targeting only new/changed models.
+3. **Significant calibration drift** detected by the calibration audit (delta > 0.15 on multiple dimensions).
+4. **Scheduled cadence** — monthly re-spectrography recommended. The `--models` flag allows targeting only new/changed models.
 
-### 7.3 Incremental Discovery
+### 7.3 Incremental Spectrography
 
-The `--models` flag allows running discovery on a subset. New model fingerprints are merged into the existing `fingerprints.yaml`:
+The `--models` flag allows running spectrography on a subset. New model fingerprints are merged into the existing `fingerprints.yaml`:
 
 - New models are added.
 - Existing models are updated only if the new run includes them.
@@ -272,24 +272,24 @@ The `--models` flag allows running discovery on a subset. New model fingerprints
 
 ### 7.4 Profile Integration Path
 
-Discovery fingerprints feed into the IBR through the existing profile merge hierarchy:
+Spectrography fingerprints feed into the IBR through the existing profile merge hierarchy:
 
 ```
-Operator-declared (YAML)  ←  Discovery can update this
+Operator-declared (YAML)  ←  Spectrography can update this
         ↓
 Feedback-learned (EMA)    ←  Production quality signal
         ↓
 Merged profile (runtime)  ←  FlavorProfileLoader.get_merged_profiles()
 ```
 
-Discovery results can either:
+Spectrography results can either:
 - **Replace** operator-declared profiles (copy `fingerprints.yaml` → `model_flavor_profiles.yaml`)
 - **Validate** operator-declared profiles (review calibration deltas, manually adjust)
 - **Seed** feedback learning (provide high-confidence starting points that EMA refines)
 
 ## 8. Judge Model Selection
 
-Same as dogfood benchmark:
+Same as calibration audit:
 
 - **Primary judge:** `gemini/gemini-2.5-pro` — broadest coverage, highest review rank.
 - **Fallback judge:** `nvidia_nim/qwen/qwen3.5-397b-a17b` — top reasoning rank.
@@ -299,9 +299,9 @@ Same as dogfood benchmark:
 ## 9. CLI Interface
 
 ```
-python -m dragonlight_router.discovery.runner \
+python -m dragonlight_router.spectrography.runner \
   --judge-model gemini/gemini-2.5-pro \
-  --output-dir discovery_results/ \
+  --output-dir spectrography_results/ \
   --models gemini/gemini-2.5-flash groq/llama-3.3-70b-versatile \
   --provider-delay groq=2.0 openrouter=3.0 \
   --write-profiles          # Write fingerprints.yaml to config/
@@ -311,7 +311,7 @@ python -m dragonlight_router.discovery.runner \
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--judge-model` | `gemini/gemini-2.5-pro` | Model to use for judging |
-| `--output-dir` | `discovery_results/` | Output directory |
+| `--output-dir` | `spectrography_results/` | Output directory |
 | `--models` | all from role matrix | Subset of models to evaluate |
 | `--provider-delay` | see section 5.1 | Per-provider delay overrides |
 | `--write-profiles` | off | Write fingerprints.yaml into `config/` |
@@ -322,7 +322,7 @@ python -m dragonlight_router.discovery.runner \
 
 ### 10.1 Checkpoint File
 
-Same pattern as dogfood benchmark: `discovery_results/<run_id>/checkpoint.jsonl`. One JSON line per completed (model, probe) evaluation. On `--resume`, skip completed pairs.
+Same pattern as calibration audit: `spectrography_results/<run_id>/checkpoint.jsonl`. One JSON line per completed (model, probe) evaluation. On `--resume`, skip completed pairs.
 
 ### 10.2 Failure Modes
 
@@ -341,9 +341,9 @@ On SIGINT/SIGTERM: flush checkpoint, write partial report from available data. M
 
 ## 11. Acceptance Criteria
 
-- AC-DISC-001: Discovery probes MUST span all 8 IBR task_types.
-- AC-DISC-002: Discovery probes MUST span all 6 IBR domains.
-- AC-DISC-003: At least 80 discovery probes MUST exist.
+- AC-DISC-001: Spectrography probes MUST span all 8 IBR task_types.
+- AC-DISC-002: Spectrography probes MUST span all 6 IBR domains.
+- AC-DISC-003: At least 80 spectrography probes MUST exist.
 - AC-DISC-004: Each probe MUST specify a `discrimination_axis`.
 - AC-DISC-005: Model evaluation MUST use direct adapter calls, NOT router HTTP dispatch.
 - AC-DISC-006: Judge scoring MUST use the same 4-criterion rubric (accuracy, completeness, clarity, relevance).
@@ -354,16 +354,16 @@ On SIGINT/SIGTERM: flush checkpoint, write partial report from available data. M
 - AC-DISC-011: Self-evaluation (judge evaluating its own model) MUST be flagged.
 - AC-DISC-012: Checkpoint/resume MUST work correctly for interrupted runs.
 - AC-DISC-013: `--write-profiles` MUST produce a valid drop-in YAML file.
-- AC-DISC-014: The system MUST NOT modify the existing dogfood benchmark or benchmark runner.
+- AC-DISC-014: The system MUST NOT modify the existing calibration audit or benchmark runner.
 - AC-DISC-015: Per-provider pacing MUST be enforced to avoid rate-limit exhaustion.
 - AC-DISC-016: Graceful shutdown MUST flush checkpoint and write partial report.
-- AC-DISC-017: The `--models` flag MUST allow incremental discovery of new models only.
-- AC-DISC-018: Discovery profiles older than 30 days MUST decay toward 0.5 (reuse IBR-FLV-06).
+- AC-DISC-017: The `--models` flag MUST allow incremental spectrography of new models only.
+- AC-DISC-018: Spectrography profiles older than 30 days MUST decay toward 0.5 (reuse IBR-FLV-06).
 
 ## 12. File Layout
 
 ```
-src/dragonlight_router/discovery/
+src/dragonlight_router/spectrography/
     __init__.py
     probes.py          — 80+ discriminative probe prompts
     runner.py          — main orchestrator (CLI entry point)

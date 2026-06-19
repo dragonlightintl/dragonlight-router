@@ -254,7 +254,10 @@ class TestGracefulShutdown:
         engine = app.state.engine
 
         with (
-            patch.object(engine, "save_state", side_effect=OSError("disk full")),
+            patch.object(engine, "save_state", side_effect=OSError("disk full")) as mock_save,
             TestClient(app),
         ):
             pass  # Should not raise
+
+        # Verify save_state was actually called (and its OSError was tolerated)
+        assert mock_save.called, "save_state must be invoked during lifespan exit"

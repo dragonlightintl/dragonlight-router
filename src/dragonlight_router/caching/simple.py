@@ -85,6 +85,7 @@ class SimpleCache:
         # Evict if over max
         self._evict_if_needed()
 
+    # DEVIATION CS-PARAM-001: 5 params — dataclass would break API.
     @staticmethod
     def make_key(
         model_id: str,

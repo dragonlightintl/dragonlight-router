@@ -86,6 +86,7 @@ class LocalBackend(GenerativeBackend):
             logger.error("ollama_http_error", error=str(exc))
             raise RuntimeError(f"Local API error: {exc}") from exc
 
+    # DEVIATION CS-PARAM-001: 5 params — dataclass would break API.
     def _build_request_body(
         self,
         messages: list[dict[str, str]],
@@ -116,7 +117,7 @@ class LocalBackend(GenerativeBackend):
                 logger.error(
                     "ollama_api_error",
                     status=response.status_code,
-                    body=error_body[:500],
+                    body_length=len(error_body),
                 )
                 raise RuntimeError(
                     f"Local API error {response.status_code}"

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import time
+import types
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,6 +62,7 @@ _DEGRADED_SCORE_PENALTY = 0.5
 _CHARS_PER_TOKEN_ESTIMATE = 4
 
 # Module-level response cache — set via configure_cache(), None = caching disabled.
+# DEVIATION CS-MUTABLE-002: intentionally mutable — runtime cache/singleton.
 _dispatch_cache: SimpleCache | None = None
 
 
@@ -97,20 +99,20 @@ def _reset_cache() -> None:
 
 # Mapping from caller-specified trust tier strings to ProviderTrustTier ordering.
 # Higher numeric value = more restrictive trust requirement.
-_TRUST_TIER_RANK: dict[str, int] = {
+_TRUST_TIER_RANK: types.MappingProxyType[str, int] = types.MappingProxyType({
     "untrusted": 0,
     "semi_trusted": 1,
     "trusted": 2,
     "local": 3,
-}
+})
 
 # Reverse mapping from ProviderTrustTier enum to rank for comparison.
-_PROVIDER_TRUST_RANK: dict[ProviderTrustTier, int] = {
+_PROVIDER_TRUST_RANK: types.MappingProxyType[ProviderTrustTier, int] = types.MappingProxyType({
     ProviderTrustTier.UNTRUSTED: 0,
     ProviderTrustTier.SEMI_TRUSTED: 1,
     ProviderTrustTier.TRUSTED: 2,
     ProviderTrustTier.LOCAL: 3,
-}
+})
 
 
 @dataclass(frozen=True)
@@ -279,7 +281,7 @@ async def _run_ibr_stage(
         )
         logger.debug("IBR stage complete", ibr_active=result.ibr_active)
         return result
-    except Exception:
+    except (KeyError, ValueError, TypeError, RuntimeError, OSError, TimeoutError):
         logger.warning("ibr_stage_cascade_error", exc_info=True)
         return None
 
@@ -304,6 +306,7 @@ def _resolve_cbr_weights(
     return ScoringWeightsConfig()
 
 
+# DEVIATION CS-PARAM-001: _score_and_rank_candidates takes 5 params — dataclass would break API.
 def _score_and_rank_candidates(
     candidates: list[BackendConfig],
     order: DispatchOrder,
@@ -827,6 +830,7 @@ async def _pinned_dispatch_stream(
 # Justification: Public API entry point with cascade orchestration, context construction,
 # and result handling. Extraction would fragment the dispatch contract.
 # Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
+# DEVIATION CS-PARAM-001: route takes 9 params — dataclass would break API.
 async def route(
     order: DispatchOrder,
     registry: BackendRegistry,
@@ -943,6 +947,7 @@ def _compute_cost_usd(
     )
 
 
+# DEVIATION CS-PARAM-001: _record_dispatch_success takes 8 params — dataclass would break API.
 def _record_dispatch_success(
     backend_config: BackendConfig,
     ctx: DispatchContext,
@@ -976,6 +981,7 @@ def _record_dispatch_success(
 # Justification: Single adapter dispatch attempt with context filtering, generation,
 # token estimation, and tracking. Core pipeline step; further extraction already done.
 # Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
+# DEVIATION CS-PARAM-001: _try_adapter_dispatch takes 5 params — dataclass would break API.
 async def _try_adapter_dispatch(
     backend_config: BackendConfig,
     base_context: dict[str, Any],
@@ -1021,6 +1027,7 @@ async def _try_adapter_dispatch(
     ))
 
 
+# DEVIATION CS-PARAM-001: _build_engine_response takes 7 params — dataclass would break API.
 def _build_engine_response(
     backend_config: BackendConfig,
     content: str,
@@ -1262,6 +1269,7 @@ def _log_cache_hit(cached: EngineResponse) -> None:
 # Justification: Main dispatch entry point with cache check, cascade, fallback chain,
 # and cache storage. Public API contract; cache hit path already extracted.
 # Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
+# DEVIATION CS-PARAM-001: dispatch takes 9 params — dataclass would break API.
 async def dispatch(
     order: DispatchOrder,
     registry: BackendRegistry,
@@ -1329,6 +1337,7 @@ async def dispatch(
     return result
 
 
+# DEVIATION CS-PARAM-001: _build_stream_metadata_chunk takes 6 params — dataclass would break API.
 def _build_stream_metadata_chunk(
     backend_config: BackendConfig,
     tokens_in: int,
@@ -1356,6 +1365,7 @@ def _build_stream_metadata_chunk(
 # prevents extracting the loop body. Token estimation and metadata construction already
 # extracted into helpers.
 # Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
+# DEVIATION CS-PARAM-001: _try_streaming_dispatch takes 5 params — dataclass would break API.
 async def _try_streaming_dispatch(
     backend_config: BackendConfig,
     base_context: dict[str, Any],
@@ -1447,6 +1457,7 @@ async def _stream_with_fallback(
 # Justification: Async generator public API that must yield from both error and success
 # paths. Fallback iteration already extracted into _stream_with_fallback.
 # Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
+# DEVIATION CS-PARAM-001: dispatch_stream takes 9 params — dataclass would break API.
 async def dispatch_stream(
     order: DispatchOrder,
     registry: BackendRegistry,

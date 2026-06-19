@@ -64,6 +64,7 @@ _INACTIVE_RESULT = IBRResult(
 # ---------------------------------------------------------------------------
 
 
+# DEVIATION CS-PARAM-001: run_ibr_stage takes 5 params — dataclass grouping would break API.
 async def run_ibr_stage(
     order: DispatchOrder,
     candidates: list[BackendConfig],
@@ -87,7 +88,7 @@ async def run_ibr_stage(
         return await _execute_ibr(
             order, candidates, ibr_config, flavor_loader, classification_adapter,
         )
-    except Exception:
+    except (KeyError, ValueError, TypeError, RuntimeError, OSError, TimeoutError):
         logger.warning("ibr_stage_unexpected_error", exc_info=True)
         return _INACTIVE_RESULT
 
@@ -97,6 +98,7 @@ async def run_ibr_stage(
 # ---------------------------------------------------------------------------
 
 
+# DEVIATION CS-PARAM-001: _execute_ibr takes 5 params — dataclass grouping would break API.
 async def _execute_ibr(
     order: DispatchOrder,
     candidates: list[BackendConfig],

@@ -12,6 +12,7 @@ import pytest
 from dragonlight_router.core.types import (
     DispatchOrder,
 )
+from dragonlight_router.result import Err, Ok
 from dragonlight_router.router import RouterEngine
 
 
@@ -45,7 +46,8 @@ class TestCascadeDispatchIntegration:
         # the cascade selects the optimal provider based on scoring
         # For now, we'll test that the dispatch method returns a valid result
 
-        # Mock the internal dependencies to avoid complex setup
+        # DEVIATION TEST-MOCK-002: mocks internal engine attributes
+        # — RouterEngine lacks DI for health/budget subsystems.
         with patch.object(router_engine._registry, 'get') as mock_get:
             mock_backend = AsyncMock()
             mock_backend.config.name = "test-provider/test-model"
@@ -106,23 +108,47 @@ class TestCascadeDispatchIntegration:
         self, router_engine, sample_dispatch_order
     ):
         """[TM-011 AC-4] Circuit breaker opens after 3 consecutive errors."""
-        # This would test the health tracker's circuit breaker functionality
-        # After 3 consecutive errors, a backend should be marked as circuit_open
+        model_id = "test-model"
 
-        # For now, just verify the dispatch method doesn't crash
-        result = await router_engine.dispatch(sample_dispatch_order)
-        assert result is not None
+        # Record 3 consecutive errors to trip the circuit breaker
+        for _ in range(3):
+            router_engine._health.record_error(model_id)
+
+        # After 3 errors the circuit should be open and the model unavailable
+        assert not router_engine._health.is_available(model_id), (
+            "model must be unavailable after 3 consecutive errors"
+        )
+        assert router_engine._health.get_error_count(model_id) == 3, (
+            "error count must reflect all recorded errors"
+        )
 
     @pytest.mark.asyncio
     async def test_budget_exhaustion_deprioritizes_expensive_providers(
         self, router_engine, sample_dispatch_order
     ):
         """[TM-011 AC-5] Budget constraints deprioritize expensive providers."""
-        # Test that when budget is low, expensive providers are deprioritized
-        # This would verify the cost governor and budget scoring integration
+        # Verify that a registered provider's budget score decreases after
+        # recording high token usage, proving the cost governor can deprioritize it.
+        registered_providers = list(router_engine._budget._providers.keys())
+        if not registered_providers:
+            # No providers configured — dispatch should still return Err gracefully
+            result = await router_engine.dispatch(sample_dispatch_order)
+            assert isinstance(result, Err), (
+                "dispatch with no registered backends must return Err"
+            )
+            return
 
-        result = await router_engine.dispatch(sample_dispatch_order)
-        assert result is not None
+        provider = registered_providers[0]
+        score_before = router_engine._budget.score(provider)
+        assert isinstance(score_before, Ok), "score must succeed for registered provider"
+
+        # Record enough tokens to reduce the budget score
+        router_engine._budget.record_request(provider, 100_000)
+        score_after = router_engine._budget.score(provider)
+        assert isinstance(score_after, Ok), "score must succeed after recording usage"
+        assert score_after.value <= score_before.value, (
+            "budget score must not increase after recording token usage"
+        )
 
     @pytest.mark.asyncio
     async def test_catalog_refresh_failure_degrades_gracefully(

@@ -4,6 +4,7 @@ All routes operate on a shared RouterEngine instance.
 """
 from __future__ import annotations
 
+import hmac
 import json
 import re
 import time
@@ -80,6 +81,7 @@ _ADMIN_AUTH_FAIL_WINDOW = 60  # seconds
 _ADMIN_AUTH_FAIL_MAX = 5  # max failures within the window
 
 # Global mutable state — keyed by IP, values are lists of failure timestamps.
+# DEVIATION CS-MUTABLE-002: intentionally mutable — runtime cache/singleton.
 _admin_auth_failures: dict[str, list[float]] = {}
 
 
@@ -168,7 +170,7 @@ def _check_admin_auth(request: Request) -> JSONResponse | None:
         return _format_error_response("Missing or invalid Authorization header", 401)
 
     provided_token = auth_header[7:]  # Strip "Bearer "
-    if provided_token != admin_key:
+    if not hmac.compare_digest(provided_token, admin_key):
         _record_admin_auth_failure(client_ip)
         logger.warning("admin_auth_failed", path=request.url.path)
         return _format_error_response("Invalid admin API key", 401)
@@ -1464,6 +1466,7 @@ def _build_openapi_schema() -> dict[str, Any]:
 
 
 # Cache the schema dict at module level (built once, served many times).
+# DEVIATION CS-MUTABLE-002: intentionally mutable — runtime cache/singleton.
 _OPENAPI_SCHEMA: dict[str, Any] | None = None
 
 

@@ -1,12 +1,12 @@
-"""Discriminative probe bank for Model Flavor Discovery.
+"""Discriminative probe bank for Model Spectrography.
 
 Contains ~80 probes designed to surface behavioral differences between models
 of similar capability. Unlike eval prompts (which measure general quality),
-discovery probes target specific discrimination axes: style preferences,
+spectrography probes target specific discrimination axes: style preferences,
 edge-case awareness, reasoning depth, domain-crossing, instruction following,
 and speed-quality calibration.
 
-Spec reference: intent-based-router-v0.1.0-spec.md section 3.3, Discovery.
+Spec reference: intent-based-router-v0.1.0-spec.md section 3.3, Spectrography.
 """
 from __future__ import annotations
 
@@ -23,8 +23,8 @@ DIFFICULTY_LEVELS: frozenset[str] = frozenset({"easy", "medium", "hard"})
 
 
 @dataclass(frozen=True)
-class DiscoveryProbe:
-    """Single discriminative probe for model flavor discovery.
+class SpectrographyProbe:
+    """Single discriminative probe for model spectrography.
 
     id: unique identifier, prefixed with "disc-"
     task_type: which IBR task_type this tests
@@ -46,8 +46,8 @@ class DiscoveryProbe:
     difficulty: str
 
 
-def _validate_probe(p: DiscoveryProbe) -> None:
-    """Assert that a DiscoveryProbe references valid IBR dimensions."""
+def _validate_probe(p: SpectrographyProbe) -> None:
+    """Assert that a SpectrographyProbe references valid IBR dimensions."""
     assert p.id.startswith("disc-"), (
         f"Probe ID must start with 'disc-': {p.id}"
     )
@@ -74,8 +74,8 @@ def _validate_probe(p: DiscoveryProbe) -> None:
 # Style probes — test verbosity, formatting, code style preferences
 # ---------------------------------------------------------------------------
 
-_STYLE_PROBES: list[DiscoveryProbe] = [
-    DiscoveryProbe(
+_STYLE_PROBES: list[SpectrographyProbe] = [
+    SpectrographyProbe(
         id="disc-generation-code-001",
         task_type="generation",
         domain="code",
@@ -92,7 +92,7 @@ _STYLE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="style",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-refactoring-code-001",
         task_type="refactoring",
         domain="code",
@@ -122,7 +122,7 @@ _STYLE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="style",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-generation-code-002",
         task_type="generation",
         domain="code",
@@ -142,7 +142,7 @@ _STYLE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="style",
         difficulty="easy",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-generation-code-003",
         task_type="generation",
         domain="code",
@@ -159,7 +159,7 @@ _STYLE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="style",
         difficulty="easy",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-generation-technical-001",
         task_type="generation",
         domain="technical",
@@ -178,7 +178,7 @@ _STYLE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="style",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-creative-creative_writing-001",
         task_type="creative",
         domain="creative_writing",
@@ -197,7 +197,7 @@ _STYLE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="style",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-generation-code-004",
         task_type="generation",
         domain="code",
@@ -215,7 +215,7 @@ _STYLE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="style",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-summarization-technical-001",
         task_type="summarization",
         domain="technical",
@@ -238,8 +238,8 @@ _STYLE_PROBES: list[DiscoveryProbe] = [
 # Edge-case probes — test defensive thinking, corner-case awareness
 # ---------------------------------------------------------------------------
 
-_EDGE_CASE_PROBES: list[DiscoveryProbe] = [
-    DiscoveryProbe(
+_EDGE_CASE_PROBES: list[SpectrographyProbe] = [
+    SpectrographyProbe(
         id="disc-analysis-code-001",
         task_type="analysis",
         domain="code",
@@ -277,7 +277,7 @@ _EDGE_CASE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="edge_case",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-analysis-code-002",
         task_type="analysis",
         domain="code",
@@ -301,7 +301,7 @@ _EDGE_CASE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="edge_case",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-analysis-code-003",
         task_type="analysis",
         domain="code",
@@ -331,7 +331,7 @@ _EDGE_CASE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="edge_case",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-refactoring-code-002",
         task_type="refactoring",
         domain="code",
@@ -359,7 +359,7 @@ _EDGE_CASE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="edge_case",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-analysis-code-004",
         task_type="analysis",
         domain="code",
@@ -386,7 +386,7 @@ _EDGE_CASE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="edge_case",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-analysis-code-005",
         task_type="analysis",
         domain="code",
@@ -418,7 +418,7 @@ _EDGE_CASE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="edge_case",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-analysis-technical-001",
         task_type="analysis",
         domain="technical",
@@ -442,7 +442,7 @@ _EDGE_CASE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="edge_case",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-reasoning-code-001",
         task_type="reasoning",
         domain="code",
@@ -478,8 +478,8 @@ _EDGE_CASE_PROBES: list[DiscoveryProbe] = [
 # Reasoning-depth probes — test chain-of-thought quality, step decomposition
 # ---------------------------------------------------------------------------
 
-_REASONING_DEPTH_PROBES: list[DiscoveryProbe] = [
-    DiscoveryProbe(
+_REASONING_DEPTH_PROBES: list[SpectrographyProbe] = [
+    SpectrographyProbe(
         id="disc-reasoning-code-002",
         task_type="reasoning",
         domain="code",
@@ -504,7 +504,7 @@ _REASONING_DEPTH_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="reasoning_depth",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-reasoning-code-003",
         task_type="reasoning",
         domain="code",
@@ -532,7 +532,7 @@ _REASONING_DEPTH_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="reasoning_depth",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-reasoning-technical-001",
         task_type="reasoning",
         domain="technical",
@@ -554,7 +554,7 @@ _REASONING_DEPTH_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="reasoning_depth",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-reasoning-technical-002",
         task_type="reasoning",
         domain="technical",
@@ -574,7 +574,7 @@ _REASONING_DEPTH_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="reasoning_depth",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-reasoning-code-004",
         task_type="reasoning",
         domain="code",
@@ -601,7 +601,7 @@ _REASONING_DEPTH_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="reasoning_depth",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-reasoning-legal-001",
         task_type="reasoning",
         domain="legal",
@@ -622,7 +622,7 @@ _REASONING_DEPTH_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="reasoning_depth",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-analysis-business-001",
         task_type="analysis",
         domain="business",
@@ -643,7 +643,7 @@ _REASONING_DEPTH_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="reasoning_depth",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-reasoning-code-005",
         task_type="reasoning",
         domain="code",
@@ -680,8 +680,8 @@ _REASONING_DEPTH_PROBES: list[DiscoveryProbe] = [
 # Domain-cross probes — test knowledge boundary identification
 # ---------------------------------------------------------------------------
 
-_DOMAIN_CROSS_PROBES: list[DiscoveryProbe] = [
-    DiscoveryProbe(
+_DOMAIN_CROSS_PROBES: list[SpectrographyProbe] = [
+    SpectrographyProbe(
         id="disc-analysis-code-006",
         task_type="analysis",
         domain="code",
@@ -714,7 +714,7 @@ _DOMAIN_CROSS_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="domain_cross",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-generation-legal-001",
         task_type="generation",
         domain="legal",
@@ -734,7 +734,7 @@ _DOMAIN_CROSS_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="domain_cross",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-analysis-technical-002",
         task_type="analysis",
         domain="technical",
@@ -755,7 +755,7 @@ _DOMAIN_CROSS_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="domain_cross",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-generation-business-001",
         task_type="generation",
         domain="business",
@@ -775,7 +775,7 @@ _DOMAIN_CROSS_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="domain_cross",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-analysis-business-002",
         task_type="analysis",
         domain="business",
@@ -795,7 +795,7 @@ _DOMAIN_CROSS_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="domain_cross",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-reasoning-business-001",
         task_type="reasoning",
         domain="business",
@@ -816,7 +816,7 @@ _DOMAIN_CROSS_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="domain_cross",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-creative-general-001",
         task_type="creative",
         domain="general",
@@ -842,8 +842,8 @@ _DOMAIN_CROSS_PROBES: list[DiscoveryProbe] = [
 # Instruction-following probes — test exact constraint adherence
 # ---------------------------------------------------------------------------
 
-_INSTRUCTION_FOLLOWING_PROBES: list[DiscoveryProbe] = [
-    DiscoveryProbe(
+_INSTRUCTION_FOLLOWING_PROBES: list[SpectrographyProbe] = [
+    SpectrographyProbe(
         id="disc-generation-general-001",
         task_type="generation",
         domain="general",
@@ -860,7 +860,7 @@ _INSTRUCTION_FOLLOWING_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="instruction_following",
         difficulty="easy",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-generation-general-002",
         task_type="generation",
         domain="general",
@@ -880,7 +880,7 @@ _INSTRUCTION_FOLLOWING_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="instruction_following",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-translation-general-001",
         task_type="translation",
         domain="general",
@@ -903,7 +903,7 @@ _INSTRUCTION_FOLLOWING_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="instruction_following",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-summarization-business-001",
         task_type="summarization",
         domain="business",
@@ -922,7 +922,7 @@ _INSTRUCTION_FOLLOWING_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="instruction_following",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-generation-code-005",
         task_type="generation",
         domain="code",
@@ -945,7 +945,7 @@ _INSTRUCTION_FOLLOWING_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="instruction_following",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-creative-creative_writing-002",
         task_type="creative",
         domain="creative_writing",
@@ -964,7 +964,7 @@ _INSTRUCTION_FOLLOWING_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="instruction_following",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-lookup-general-001",
         task_type="lookup",
         domain="general",
@@ -982,7 +982,7 @@ _INSTRUCTION_FOLLOWING_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="instruction_following",
         difficulty="easy",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-generation-technical-002",
         task_type="generation",
         domain="technical",
@@ -1001,7 +1001,7 @@ _INSTRUCTION_FOLLOWING_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="instruction_following",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-analysis-general-001",
         task_type="analysis",
         domain="general",
@@ -1025,8 +1025,8 @@ _INSTRUCTION_FOLLOWING_PROBES: list[DiscoveryProbe] = [
 # Speed-quality probes — test response calibration under different framings
 # ---------------------------------------------------------------------------
 
-_SPEED_QUALITY_PROBES: list[DiscoveryProbe] = [
-    DiscoveryProbe(
+_SPEED_QUALITY_PROBES: list[SpectrographyProbe] = [
+    SpectrographyProbe(
         id="disc-reasoning-code-006",
         task_type="reasoning",
         domain="code",
@@ -1043,7 +1043,7 @@ _SPEED_QUALITY_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="speed_quality",
         difficulty="easy",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-reasoning-code-007",
         task_type="reasoning",
         domain="code",
@@ -1063,7 +1063,7 @@ _SPEED_QUALITY_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="speed_quality",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-lookup-technical-001",
         task_type="lookup",
         domain="technical",
@@ -1079,7 +1079,7 @@ _SPEED_QUALITY_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="speed_quality",
         difficulty="easy",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-lookup-technical-002",
         task_type="lookup",
         domain="technical",
@@ -1099,7 +1099,7 @@ _SPEED_QUALITY_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="speed_quality",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-summarization-general-001",
         task_type="summarization",
         domain="general",
@@ -1114,7 +1114,7 @@ _SPEED_QUALITY_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="speed_quality",
         difficulty="easy",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-summarization-general-002",
         task_type="summarization",
         domain="general",
@@ -1134,7 +1134,7 @@ _SPEED_QUALITY_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="speed_quality",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-generation-code-006",
         task_type="generation",
         domain="code",
@@ -1151,7 +1151,7 @@ _SPEED_QUALITY_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="speed_quality",
         difficulty="easy",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-generation-code-007",
         task_type="generation",
         domain="code",
@@ -1172,7 +1172,7 @@ _SPEED_QUALITY_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="speed_quality",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-translation-general-002",
         task_type="translation",
         domain="general",
@@ -1189,7 +1189,7 @@ _SPEED_QUALITY_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="speed_quality",
         difficulty="easy",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-translation-general-003",
         task_type="translation",
         domain="general",
@@ -1220,8 +1220,8 @@ _SPEED_QUALITY_PROBES: list[DiscoveryProbe] = [
 # Additional coverage probes — fill gaps in task_type x domain matrix
 # ---------------------------------------------------------------------------
 
-_COVERAGE_PROBES: list[DiscoveryProbe] = [
-    DiscoveryProbe(
+_COVERAGE_PROBES: list[SpectrographyProbe] = [
+    SpectrographyProbe(
         id="disc-refactoring-code-003",
         task_type="refactoring",
         domain="code",
@@ -1260,7 +1260,7 @@ _COVERAGE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="style",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-refactoring-code-004",
         task_type="refactoring",
         domain="code",
@@ -1288,7 +1288,7 @@ _COVERAGE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="instruction_following",
         difficulty="easy",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-summarization-legal-001",
         task_type="summarization",
         domain="legal",
@@ -1307,7 +1307,7 @@ _COVERAGE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="reasoning_depth",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-creative-creative_writing-003",
         task_type="creative",
         domain="creative_writing",
@@ -1327,7 +1327,7 @@ _COVERAGE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="style",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-lookup-general-002",
         task_type="lookup",
         domain="general",
@@ -1345,7 +1345,7 @@ _COVERAGE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="instruction_following",
         difficulty="easy",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-translation-general-004",
         task_type="translation",
         domain="general",
@@ -1376,7 +1376,7 @@ _COVERAGE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="instruction_following",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-generation-business-002",
         task_type="generation",
         domain="business",
@@ -1395,7 +1395,7 @@ _COVERAGE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="instruction_following",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-analysis-code-007",
         task_type="analysis",
         domain="code",
@@ -1416,7 +1416,7 @@ _COVERAGE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="edge_case",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-reasoning-technical-003",
         task_type="reasoning",
         domain="technical",
@@ -1438,7 +1438,7 @@ _COVERAGE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="reasoning_depth",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-lookup-technical-003",
         task_type="lookup",
         domain="technical",
@@ -1457,7 +1457,7 @@ _COVERAGE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="instruction_following",
         difficulty="easy",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-analysis-legal-001",
         task_type="analysis",
         domain="legal",
@@ -1478,7 +1478,7 @@ _COVERAGE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="domain_cross",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-creative-general-002",
         task_type="creative",
         domain="general",
@@ -1497,7 +1497,7 @@ _COVERAGE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="style",
         difficulty="easy",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-refactoring-code-005",
         task_type="refactoring",
         domain="code",
@@ -1530,7 +1530,7 @@ _COVERAGE_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="edge_case",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-summarization-creative_writing-001",
         task_type="summarization",
         domain="creative_writing",
@@ -1557,8 +1557,8 @@ _COVERAGE_PROBES: list[DiscoveryProbe] = [
 # Additional probes to reach 80+ count and fill remaining coverage gaps
 # ---------------------------------------------------------------------------
 
-_ADDITIONAL_PROBES: list[DiscoveryProbe] = [
-    DiscoveryProbe(
+_ADDITIONAL_PROBES: list[SpectrographyProbe] = [
+    SpectrographyProbe(
         id="disc-translation-code-001",
         task_type="translation",
         domain="code",
@@ -1577,7 +1577,7 @@ _ADDITIONAL_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="style",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-translation-code-002",
         task_type="translation",
         domain="code",
@@ -1601,7 +1601,7 @@ _ADDITIONAL_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="instruction_following",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-creative-creative_writing-004",
         task_type="creative",
         domain="creative_writing",
@@ -1623,7 +1623,7 @@ _ADDITIONAL_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="style",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-creative-creative_writing-005",
         task_type="creative",
         domain="creative_writing",
@@ -1643,7 +1643,7 @@ _ADDITIONAL_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="style",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-lookup-general-003",
         task_type="lookup",
         domain="general",
@@ -1661,7 +1661,7 @@ _ADDITIONAL_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="speed_quality",
         difficulty="easy",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-lookup-legal-001",
         task_type="lookup",
         domain="legal",
@@ -1680,7 +1680,7 @@ _ADDITIONAL_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="instruction_following",
         difficulty="easy",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-refactoring-code-006",
         task_type="refactoring",
         domain="code",
@@ -1713,7 +1713,7 @@ _ADDITIONAL_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="edge_case",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-refactoring-technical-001",
         task_type="refactoring",
         domain="technical",
@@ -1739,7 +1739,7 @@ _ADDITIONAL_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="edge_case",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-analysis-creative_writing-001",
         task_type="analysis",
         domain="creative_writing",
@@ -1763,7 +1763,7 @@ _ADDITIONAL_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="reasoning_depth",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-generation-legal-002",
         task_type="generation",
         domain="legal",
@@ -1783,7 +1783,7 @@ _ADDITIONAL_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="domain_cross",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-summarization-code-001",
         task_type="summarization",
         domain="code",
@@ -1802,7 +1802,7 @@ _ADDITIONAL_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="speed_quality",
         difficulty="easy",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-reasoning-general-001",
         task_type="reasoning",
         domain="general",
@@ -1824,7 +1824,7 @@ _ADDITIONAL_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="reasoning_depth",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-generation-creative_writing-001",
         task_type="generation",
         domain="creative_writing",
@@ -1843,7 +1843,7 @@ _ADDITIONAL_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="style",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-analysis-technical-003",
         task_type="analysis",
         domain="technical",
@@ -1864,7 +1864,7 @@ _ADDITIONAL_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="reasoning_depth",
         difficulty="medium",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-lookup-business-001",
         task_type="lookup",
         domain="business",
@@ -1881,7 +1881,7 @@ _ADDITIONAL_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="speed_quality",
         difficulty="easy",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-summarization-technical-002",
         task_type="summarization",
         domain="technical",
@@ -1902,7 +1902,7 @@ _ADDITIONAL_PROBES: list[DiscoveryProbe] = [
         discrimination_axis="instruction_following",
         difficulty="hard",
     ),
-    DiscoveryProbe(
+    SpectrographyProbe(
         id="disc-translation-technical-001",
         task_type="translation",
         domain="technical",
@@ -1940,10 +1940,10 @@ _ADDITIONAL_PROBES: list[DiscoveryProbe] = [
 # Aggregated probe bank
 # ---------------------------------------------------------------------------
 
-def get_all_probes() -> list[DiscoveryProbe]:
-    """Return the complete discovery probe bank, validated against IBR dimensions.
+def get_all_probes() -> list[SpectrographyProbe]:
+    """Return the complete spectrography probe bank, validated against IBR dimensions.
 
-    Returns a list of ~80 DiscoveryProbe instances covering all 8 task_types,
+    Returns a list of ~80 SpectrographyProbe instances covering all 8 task_types,
     6 domains, and 6 discrimination axes. Each probe is validated on first access.
     """
     all_probes = (
@@ -2000,19 +2000,19 @@ def get_all_probes() -> list[DiscoveryProbe]:
     return all_probes
 
 
-def get_probes_by_task_type(task_type: str) -> list[DiscoveryProbe]:
+def get_probes_by_task_type(task_type: str) -> list[SpectrographyProbe]:
     """Return probes filtered by task_type."""
     assert task_type in IBR_TASK_TYPES, f"Invalid task_type: {task_type}"
     return [p for p in get_all_probes() if p.task_type == task_type]
 
 
-def get_probes_by_domain(domain: str) -> list[DiscoveryProbe]:
+def get_probes_by_domain(domain: str) -> list[SpectrographyProbe]:
     """Return probes filtered by domain."""
     assert domain in IBR_DOMAINS, f"Invalid domain: {domain}"
     return [p for p in get_all_probes() if p.domain == domain]
 
 
-def get_probes_by_axis(axis: str) -> list[DiscoveryProbe]:
+def get_probes_by_axis(axis: str) -> list[SpectrographyProbe]:
     """Return probes filtered by discrimination_axis."""
     assert axis in DISCRIMINATION_AXES, f"Invalid discrimination_axis: {axis}"
     return [p for p in get_all_probes() if p.discrimination_axis == axis]

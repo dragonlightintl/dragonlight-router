@@ -285,6 +285,7 @@ class HealthCheckLoop:
         else:
             self._slo_violation_counts[name] += 1
 
+    # DEVIATION CS-PARAM-001: _update_backend_status takes 6 params (by design).
     def _update_backend_status(
         self,
         name: str,

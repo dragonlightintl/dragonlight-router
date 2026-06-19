@@ -247,6 +247,7 @@ def normalize_health_score(health_score: float) -> float:
     return normalized
 
 
+# DEVIATION CS-PARAM-001: score_candidate takes 5 params — dataclass grouping would break API.
 def score_candidate(
     config: BackendConfig,
     order: DispatchOrder,

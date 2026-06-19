@@ -196,7 +196,7 @@ class GoogleBackend(GenerativeBackend):
                 logger.error(
                     "google_api_error",
                     status=response.status_code,
-                    body=error_body[:500],
+                    body_length=len(error_body),
                 )
                 raise RuntimeError(
                     f"Google API error {response.status_code}"

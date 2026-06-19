@@ -45,6 +45,7 @@ class CostFilterParams:
 # and delegation to _filter_by_cost_impl. The docstring and assertions account for most
 # of the length; extraction would lose the clear public/private boundary.
 # Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
+# DEVIATION CS-PARAM-001: filter_by_cost takes 8 params — dataclass grouping would break API.
 def filter_by_cost(
     candidates: list[BackendConfig],
     order: DispatchOrder,

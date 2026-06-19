@@ -1,10 +1,10 @@
-"""Flavor fingerprint analyzer for Model Flavor Discovery.
+"""Flavor fingerprint analyzer for Model Spectrography.
 
-Computes flavor fingerprints from raw discovery probe results, performs
+Computes flavor fingerprints from raw spectrography probe results, performs
 cross-model rank normalization, and calculates calibration deltas against
 operator-declared profiles.
 
-Spec reference: model-flavor-discovery-v0.1.0-spec.md
+Spec reference: model-spectrography-v0.1.0-spec.md
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ logger = structlog.get_logger()
 
 @dataclass(frozen=True)
 class ProbeResult:
-    """Single probe evaluation result from a discovery run."""
+    """Single probe evaluation result from a spectrography run."""
     model_id: str
     probe_id: str
     task_type: str
@@ -526,7 +526,7 @@ def build_fingerprints_yaml(
 
     Output format:
         version: 1
-        source: "discovery-run-<run_id>"
+        source: "spectrography-run-<run_id>"
         generated_at: "<iso timestamp>"
         profiles:
           "model/id":
@@ -539,7 +539,7 @@ def build_fingerprints_yaml(
 
     data: dict[str, Any] = {
         "version": _PROFILE_SCHEMA_VERSION,
-        "source": f"discovery-run-{run_id}",
+        "source": f"spectrography-run-{run_id}",
         "generated_at": datetime.now(UTC).isoformat(),
         "profiles": {},
     }

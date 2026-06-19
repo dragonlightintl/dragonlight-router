@@ -204,6 +204,8 @@ class TestFallbackChainE2E:
         primary_config = backend_configs[0]
         secondary_config = backend_configs[1]
 
+        # DEVIATION TEST-MOCK-001: branching mock required
+        # — factory returns different adapters per backend name.
         def _fake_create_adapter(config):
             if config.name == primary_config.name:
                 return _make_mock_backend(config, fail=True)
@@ -351,6 +353,8 @@ class TestFallbackChainE2E:
         # First two fail, third succeeds
         failing_names = {backend_configs[0].name, backend_configs[1].name}
 
+        # DEVIATION TEST-MOCK-001: branching mock required
+        # — factory returns different adapters per backend name.
         def _selective_adapter(config):
             if config.name in failing_names:
                 return _make_mock_backend(config, fail=True)

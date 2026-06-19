@@ -210,6 +210,6 @@ async def _collect_response(
         ):
             chunks.append(chunk)
         return "".join(chunks) if chunks else None
-    except Exception as exc:
+    except (RuntimeError, ValueError) as exc:
         logger.warning("judge_adapter_error", error=str(exc))
         return None

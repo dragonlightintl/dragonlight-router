@@ -3,6 +3,8 @@
 Exports all GenerativeBackend implementations for supported providers.
 """
 
+import types
+
 from dragonlight_router.core.types import BackendConfig, GenerativeBackend
 
 from .anthropic import AnthropicBackend
@@ -32,7 +34,7 @@ __all__ = [
     "create_adapter",
 ]
 
-_PROVIDER_MAP: dict[str, type[GenerativeBackend]] = {
+_PROVIDER_MAP: types.MappingProxyType[str, type[GenerativeBackend]] = types.MappingProxyType({
     "anthropic": AnthropicBackend,
     "cerebras": CerebrasBackend,
     "cohere": CohereBackend,
@@ -44,7 +46,7 @@ _PROVIDER_MAP: dict[str, type[GenerativeBackend]] = {
     "openai": OpenAIBackend,
     "openrouter": OpenRouterBackend,
     "together": TogetherBackend,
-}
+})
 
 
 def create_adapter(config: BackendConfig) -> GenerativeBackend:

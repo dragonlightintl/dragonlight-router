@@ -62,11 +62,19 @@ Issues = "https://github.com/dragonlightintl/dragonlight-router/issues"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "--cov=dragonlight_router --cov-report=term-missing --cov-fail-under=80"
+addopts = "--cov=dragonlight_router --cov-report=term-missing --cov-fail-under=100"
 timeout = 60
 timeout_method = "signal"
 markers = [
     "live: marks tests that hit real provider APIs (deselect with '-m \"not live\"')",
+    "unit: marks unit tests",
+    "integration: marks integration tests",
+    "contract: marks contract tests",
+    "e2e: marks end-to-end tests",
+    "smoke: marks smoke tests",
+    "property: marks property-based (Hypothesis) tests",
+    "acceptance: marks acceptance tests",
+    "slow: marks tests that take >5s",
 ]
 
 [tool.mypy]
@@ -89,6 +97,12 @@ convention = "google"
 [tool.bandit]
 targets = ["src/dragonlight_router"]
 skips = ["B101", "B603"]
+
+# TODO: SEC-SUPPLY-001 — Add --require-hashes to pip install workflow.
+# Per dragonlight-security-implementation-standard.md §3, all production
+# dependencies should be hash-pinned to prevent supply chain attacks.
+# Implement via: pip-compile --generate-hashes -> requirements.lock
+# and pip install --require-hashes -r requirements.lock in CI/CD.
 
 [tool.setuptools.packages.find]
 where = ["src"]

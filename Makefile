@@ -1,4 +1,4 @@
-.PHONY: help install dev test test-cov lint format typecheck security docs docs-serve run docker-build docker-run clean all
+.PHONY: help install dev test test-cov test-unit test-integration test-contract test-property test-smoke test-acceptance lint format format-check typecheck security dep-audit docs docs-serve run docker-build docker-run clean all
 
 PYTHON ?= python3
 PORT   ?= 8100
@@ -20,17 +20,41 @@ test: ## Run test suite (fast, no coverage)
 test-cov: ## Run tests with coverage report
 	$(PYTHON) -m pytest --cov-report=term-missing
 
+test-unit: ## Run unit tests only
+	$(PYTHON) -m pytest tests/unit/ --no-cov -q
+
+test-integration: ## Run integration tests only
+	$(PYTHON) -m pytest tests/integration/ --no-cov -q
+
+test-contract: ## Run contract tests only
+	$(PYTHON) -m pytest tests/contracts/ --no-cov -q
+
+test-property: ## Run property-based tests only
+	$(PYTHON) -m pytest tests/unit/test_properties.py --no-cov -q
+
+test-smoke: ## Run smoke tests only
+	$(PYTHON) -m pytest tests/smoke/ --no-cov -q
+
+test-acceptance: ## Run acceptance tests only
+	$(PYTHON) -m pytest tests/acceptance/ --no-cov -q
+
 lint: ## Run ruff linter
 	$(PYTHON) -m ruff check src/ tests/
 
 format: ## Format code with ruff
 	$(PYTHON) -m ruff format src/ tests/
 
+format-check: ## Check code formatting without changes
+	$(PYTHON) -m ruff format --check src/ tests/
+
 typecheck: ## Run mypy strict type checking
 	$(PYTHON) -m mypy src/dragonlight_router/
 
 security: ## Run bandit security scanner
 	$(PYTHON) -m bandit -r src/dragonlight_router/ -c pyproject.toml
+
+dep-audit: ## Audit dependencies for known vulnerabilities
+	$(PYTHON) -m pip_audit
 
 docs: ## Build documentation site
 	$(PYTHON) -m mkdocs build --strict
@@ -58,4 +82,4 @@ clean: ## Remove build artifacts and caches
 	find . -name "*.pyc" -delete 2>/dev/null || true
 	rm -f .coverage coverage.xml
 
-all: lint typecheck security test ## Run lint + typecheck + security + tests (CI in a box)
+all: lint format-check typecheck security test ## Run lint + format-check + typecheck + security + tests (CI in a box)

@@ -25,6 +25,7 @@ from dragonlight_router.server.routes import _reset_admin_auth_failures
 # BackendConfig
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _clear_admin_auth_rate_limiter():
     """Reset the admin auth rate limiter between every test.
@@ -78,6 +79,7 @@ def sample_backend_config() -> BackendConfig:
 # DispatchOrder
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def sample_dispatch_order() -> DispatchOrder:
     """A DispatchOrder with sensible test defaults.
@@ -99,6 +101,7 @@ def sample_dispatch_order() -> DispatchOrder:
 # ---------------------------------------------------------------------------
 # ProviderConfig
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def sample_provider_config() -> ProviderConfig:
@@ -123,6 +126,7 @@ def sample_provider_config() -> ProviderConfig:
 # ---------------------------------------------------------------------------
 # BudgetTracker
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def sample_budget_tracker(sample_provider_config: ProviderConfig) -> BudgetTracker:

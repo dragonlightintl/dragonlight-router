@@ -2,13 +2,18 @@
 
 Spec traceability: TM-020 (Response caching)
 """
+
 from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from dragonlight_router.caching.semantic import SemanticCache
 from dragonlight_router.caching.simple import SimpleCache
+
+pytestmark = pytest.mark.unit
 
 
 class TestSimpleCacheKey:
@@ -86,6 +91,7 @@ class TestSimpleCache:
         cache = SimpleCache(db_path=tmp_path / "cache.db", ttl_s=0)
         cache.put("key1", "value")
         import time
+
         time.sleep(0.01)
         # TTL of 0 means immediately expired
         assert cache.get("key1") is None

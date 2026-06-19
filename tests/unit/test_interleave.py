@@ -2,10 +2,15 @@
 
 Spec traceability: TM-004 (Provider interleaving)
 """
+
 from __future__ import annotations
+
+import pytest
 
 from dragonlight_router.core.types import ModelScore
 from dragonlight_router.selection.interleave import interleave_providers
+
+pytestmark = pytest.mark.unit
 
 
 def _ms(model_id: str, provider: str, composite: float) -> ModelScore:

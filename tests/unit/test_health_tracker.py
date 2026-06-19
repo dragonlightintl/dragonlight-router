@@ -2,12 +2,15 @@
 
 Spec traceability: TM-014 (Health tracker per-model scoring)
 """
+
 from __future__ import annotations
 
 import pytest
 
 from dragonlight_router.core.types import Ok
 from dragonlight_router.health.tracker import HealthTracker
+
+pytestmark = pytest.mark.unit
 
 
 class TestHealthTrackerInit:
@@ -132,6 +135,7 @@ class TestRetirement:
     def test_retire_model_sets_timestamp(self):
         """[TM-008 AC-3] _retire_model stores a float timestamp in _retired."""
         import time
+
         ht = HealthTracker()
         before = time.time()
         ht._retire_model("m1")

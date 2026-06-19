@@ -2,12 +2,17 @@
 
 Spec traceability: TM-022 (Budget state persistence)
 """
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
+import pytest
+
 from dragonlight_router.budget.persistence import load_budget_state, save_budget_state
+
+pytestmark = pytest.mark.unit
 
 
 class TestSaveBudgetState:

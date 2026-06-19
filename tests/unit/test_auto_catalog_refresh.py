@@ -5,6 +5,7 @@ for automatic catalog refresh, preventing stale catalog routing.
 
 Spec traceability: HAZ-008 (Stale Catalog Routing to Deprecated Models)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -16,6 +17,8 @@ import pytest
 from dragonlight_router.core.state import BackendState
 from dragonlight_router.core.types import BackendStatus, LatencySLO
 from dragonlight_router.health.check_loop import HealthCheckLoop
+
+pytestmark = pytest.mark.unit
 
 
 def _make_stub_backend() -> MagicMock:

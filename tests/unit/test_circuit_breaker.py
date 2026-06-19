@@ -2,11 +2,16 @@
 
 Spec traceability: TM-013 (Circuit breaker state machine)
 """
+
 from __future__ import annotations
 
 import time
 
+import pytest
+
 from dragonlight_router.health.circuit_breaker import CircuitBreaker, CircuitState
+
+pytestmark = pytest.mark.unit
 
 
 class TestCircuitBreakerInit:
@@ -161,7 +166,7 @@ class TestStatePersistence:
         """[TM-013 AC-5] restore_state prunes error timestamps outside the window."""
         cb = CircuitBreaker(error_threshold=3, error_window_s=60.0)
         old_ts = time.time() - 120  # 120s ago, outside 60s window
-        recent_ts = time.time() - 5   # 5s ago, within window
+        recent_ts = time.time() - 5  # 5s ago, within window
         state = {
             "state": "closed",
             "opened_at": 0.0,

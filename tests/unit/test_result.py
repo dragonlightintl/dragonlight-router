@@ -2,12 +2,15 @@
 
 Spec traceability: TM-010 (Result type and explicit error handling)
 """
+
 from __future__ import annotations
 
 import pytest
 
 from dragonlight_router.core.types import Err, Ok
 from dragonlight_router.result import err, is_err, is_ok, ok, unwrap, unwrap_err
+
+pytestmark = pytest.mark.unit
 
 
 class TestOk:

@@ -3,13 +3,18 @@
 HAZ-006 mitigation: Prevents API keys from appearing in log output.
 Spec traceability: HAZ-006 (API Key Exposure in Logs)
 """
+
 from __future__ import annotations
+
+import pytest
 
 from dragonlight_router.server.logging import (
     _scrub_value,
     configure_logging,
     scrub_secrets,
 )
+
+pytestmark = pytest.mark.unit
 
 
 class TestScrubValue:

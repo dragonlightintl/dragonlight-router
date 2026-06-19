@@ -18,6 +18,9 @@ import pytest
 from dragonlight_router.adapters.groq import _GROQ_BASE_URL, GroqBackend
 from dragonlight_router.core.types import BackendStatus
 
+pytestmark = pytest.mark.unit
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

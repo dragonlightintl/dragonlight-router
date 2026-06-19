@@ -2,6 +2,7 @@
 
 Spec traceability: TM-015 (Catalog cache and refresh)
 """
+
 from __future__ import annotations
 
 import time
@@ -12,6 +13,8 @@ import pytest
 from dragonlight_router.catalog.cache import CatalogCache
 from dragonlight_router.core.types import CatalogEntry
 from dragonlight_router.result import Err, Ok
+
+pytestmark = pytest.mark.unit
 
 
 class TestCatalogCache:

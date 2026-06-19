@@ -3,11 +3,16 @@
 Covers MetricsCollector: per-endpoint stats, router-level dispatch
 counters, latency percentiles, memory/uptime reporting, and reset.
 """
+
 from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from dragonlight_router.server.metrics import MetricsCollector, _percentile
+
+pytestmark = pytest.mark.unit
 
 
 class TestPercentile:
@@ -175,6 +180,7 @@ class TestMetricsCollectorEdgeCases:
         mc = MetricsCollector()
         # Manually create an endpoint entry with empty latencies
         from dragonlight_router.server.metrics import _EndpointStats
+
         mc._endpoints["GET /edge"] = _EndpointStats(request_count=1, error_count=0)
         snap = mc.snapshot()
         lat = snap["endpoints"]["GET /edge"]["latency_ms"]

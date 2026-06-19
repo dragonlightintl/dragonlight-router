@@ -14,6 +14,8 @@ from src.dragonlight_router.selection.context_filter import (
     filter_context_for_provider,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def test_filter_by_trust_tier_local() -> None:
     """[TM-006 AC-1] LOCAL tier should trust all candidates."""
@@ -178,6 +180,7 @@ def test_filter_context_for_provider_does_not_mutate_input():
 def test_filter_context_for_provider_unknown_tier_returns_empty():
     """[TM-006 AC-4] Unknown ProviderTrustTier returns empty dict (lines 101-102)."""
     from unittest.mock import MagicMock
+
     context = {"system": {}, "task": "test"}
     unknown_tier = MagicMock(spec=ProviderTrustTier)
     unknown_tier.name = "BOGUS"
@@ -188,6 +191,7 @@ def test_filter_context_for_provider_unknown_tier_returns_empty():
 def test_redact_system_fields_removes_behavioral_rules():
     """[TM-006 AC-3] _redact_system_fields removes behavioral_rules key from system (line 143)."""
     from src.dragonlight_router.selection.context_filter import _redact_system_fields
+
     context = {"system": {"behavioral_rules": "BR1", "keep_me": "yes"}, "task": "test"}
     result = _redact_system_fields(context)
     assert "behavioral_rules" not in result.get("system", {})

@@ -5,6 +5,8 @@ Spec traceability: TM-002 (CBR cost-efficiency filtering)
 
 from __future__ import annotations
 
+import pytest
+
 from dragonlight_router.core.types import (
     BackendCapabilities,
     BackendConfig,
@@ -13,6 +15,8 @@ from dragonlight_router.core.types import (
     DispatchOrder,
 )
 from dragonlight_router.selection.cbr import filter_by_absolute_cost, filter_by_cost_efficiency
+
+pytestmark = pytest.mark.unit
 
 
 def make_backend_config(

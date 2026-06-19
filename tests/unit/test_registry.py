@@ -2,6 +2,7 @@
 
 Spec traceability: TM-021 (Backend registry)
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -18,6 +19,8 @@ from dragonlight_router.core.types import (
     BackendStatus,
     BackendTier,
 )
+
+pytestmark = pytest.mark.unit
 
 
 def _make_config(name: str = "test_backend", provider: str = "groq") -> BackendConfig:

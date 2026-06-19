@@ -2,6 +2,7 @@
 
 Spec traceability: TM-023 (Backend state tracking)
 """
+
 from __future__ import annotations
 
 import time
@@ -10,6 +11,8 @@ import pytest
 
 from dragonlight_router.core.state import BackendState
 from dragonlight_router.core.types import BackendStatus
+
+pytestmark = pytest.mark.unit
 
 
 class TestRPMCapacity:

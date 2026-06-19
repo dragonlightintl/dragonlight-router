@@ -5,6 +5,7 @@ synchronized recovery flapping when multiple breakers trip simultaneously.
 
 Spec traceability: HAZ-009 (Circuit Breaker Flapping)
 """
+
 from __future__ import annotations
 
 import time
@@ -12,6 +13,8 @@ import time
 import pytest
 
 from dragonlight_router.health.circuit_breaker import CircuitBreaker, CircuitState
+
+pytestmark = pytest.mark.unit
 
 
 class TestJitteredCooldown:

@@ -4,12 +4,14 @@ OpenAPI schema, and correlation ID + metrics middleware integration.
 Covers: /v1/ready, /metrics, /openapi.json, RequestCorrelationMiddleware
 with MetricsCollector integration.
 """
+
 from __future__ import annotations
 
 import json
 import uuid
 from pathlib import Path
 
+import pytest
 import yaml
 from starlette.testclient import TestClient
 
@@ -17,6 +19,8 @@ from dragonlight_router.server.app import create_app
 from dragonlight_router.server.metrics import MetricsCollector
 from dragonlight_router.server.middleware import RequestCorrelationMiddleware
 from dragonlight_router.server.routes import _build_openapi_schema
+
+pytestmark = pytest.mark.unit
 
 
 def _setup_test_env(tmp_path: Path) -> Path:
@@ -119,6 +123,7 @@ class TestReadyEndpoint:
 
         # Make catalog stale by writing with old timestamp
         import time
+
         catalog_path = engine._catalog._path
         data = json.loads(catalog_path.read_text())
         data["timestamp"] = time.time() - 200_000  # Very old

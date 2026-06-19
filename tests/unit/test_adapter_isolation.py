@@ -5,10 +5,13 @@ preventing concurrent adapter state mutation from affecting routing.
 
 Spec traceability: HAZ-014 (Concurrent Adapter State Mutation)
 """
+
 from __future__ import annotations
 
 import os
 from unittest.mock import patch
+
+import pytest
 
 from dragonlight_router.adapters import create_adapter
 from dragonlight_router.core.types import (
@@ -19,6 +22,8 @@ from dragonlight_router.core.types import (
     BackendStatus,
     BackendTier,
 )
+
+pytestmark = pytest.mark.unit
 
 
 def _make_config(provider: str = "groq") -> BackendConfig:

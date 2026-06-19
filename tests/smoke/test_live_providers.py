@@ -10,6 +10,7 @@ Run on-demand only:
 Spec traceability:
   - TM-012: Live provider validation (select, catalog, health)
 """
+
 from __future__ import annotations
 
 import os
@@ -21,6 +22,9 @@ import pytest
 from dragonlight_router.catalog.refresher import CatalogRefresher
 from dragonlight_router.result import Ok
 from dragonlight_router.router import RouterEngine
+
+pytestmark = pytest.mark.smoke
+
 
 # ---------------------------------------------------------------------------
 # Shared constants
@@ -88,8 +92,7 @@ class TestLiveSelectModels:
         # config load -> matrix -> catalog -> scoring -> interleave
         assert isinstance(models, list)
         assert len(models) >= 1, (
-            "select_models('coding') should return at least 1 model "
-            "when API keys are configured"
+            "select_models('coding') should return at least 1 model when API keys are configured"
         )
         # Every entry should be a non-empty string
         for model_id in models:
@@ -121,12 +124,9 @@ class TestLiveCatalogRefresh:
         auth_failures = refresh_result.auth_failures
 
         # At least one provider should return models
-        providers_with_models = {
-            name: len(entries) for name, entries in catalog.items() if entries
-        }
+        providers_with_models = {name: len(entries) for name, entries in catalog.items() if entries}
         assert len(providers_with_models) >= 1, (
-            f"Expected at least 1 provider with models, got 0. "
-            f"Auth failures: {auth_failures}"
+            f"Expected at least 1 provider with models, got 0. Auth failures: {auth_failures}"
         )
 
         # Auth failures should only contain providers whose keys are missing/invalid
@@ -162,9 +162,7 @@ class TestLiveHealthCheck:
             if is_healthy:
                 healthy_count += 1
 
-        assert checked_count >= 1, (
-            "Expected at least 1 backend with a valid API key to check"
-        )
+        assert checked_count >= 1, "Expected at least 1 backend with a valid API key to check"
         assert healthy_count >= 1, (
             f"Expected at least 1 healthy backend out of {checked_count} checked"
         )

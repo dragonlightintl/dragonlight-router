@@ -7,12 +7,14 @@ Spec traceability:
   - TM-010: Full cascade dispatch (MBR → CBR → LBR → adapter)
   - TM-011: HTTP API contract (status codes, JSON shapes)
 """
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 import yaml
 from starlette.testclient import TestClient
 
@@ -27,6 +29,9 @@ from dragonlight_router.core.types import (
     GenerativeBackend,
 )
 from dragonlight_router.server.app import create_app
+
+pytestmark = pytest.mark.integration
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -253,9 +258,7 @@ class TestDispatchReturnsResponse:
             or "Fibonacci" in data["content"]
             or "fibonacci" in data["content"]
         )
-        assert has_fib, (
-            "Content should contain the fibonacci code from the mock adapter"
-        )
+        assert has_fib, "Content should contain the fibonacci code from the mock adapter"
 
         # Verify numeric fields are reasonable
         assert isinstance(data["tokens_in"], int) and data["tokens_in"] >= 0
@@ -668,7 +671,10 @@ class TestMultiProviderDispatchE2E:
                 ),
                 cost=BackendCostProfile(input_per_mtok=0.10, output_per_mtok=0.30),
                 rate_limits=BackendRateLimits(
-                    rpm=60, rpd=14400, tpm=100000, daily_token_cap=500000,
+                    rpm=60,
+                    rpd=14400,
+                    tpm=100000,
+                    daily_token_cap=500000,
                 ),
                 priority=10,
             ),
@@ -688,7 +694,10 @@ class TestMultiProviderDispatchE2E:
                 ),
                 cost=BackendCostProfile(input_per_mtok=10.0, output_per_mtok=30.0),
                 rate_limits=BackendRateLimits(
-                    rpm=60, rpd=14400, tpm=100000, daily_token_cap=500000,
+                    rpm=60,
+                    rpd=14400,
+                    tpm=100000,
+                    daily_token_cap=500000,
                 ),
                 priority=5,
             ),
@@ -708,7 +717,10 @@ class TestMultiProviderDispatchE2E:
                 ),
                 cost=BackendCostProfile(input_per_mtok=3.0, output_per_mtok=15.0),
                 rate_limits=BackendRateLimits(
-                    rpm=60, rpd=14400, tpm=100000, daily_token_cap=500000,
+                    rpm=60,
+                    rpd=14400,
+                    tpm=100000,
+                    daily_token_cap=500000,
                 ),
                 priority=3,
             ),
@@ -839,9 +851,7 @@ class TestContextFilteringE2E:
             "specific_intent": "write_function",
             "operator_message": "Write a function to sort a list",
             "system_prompt": (
-                "You are a helpful assistant."
-                " BEHAVIORAL RULE: always be kind."
-                " PERSONA: Korrigon."
+                "You are a helpful assistant. BEHAVIORAL RULE: always be kind. PERSONA: Korrigon."
             ),
             "context_tokens": 100,
             "requires_tool_use": False,
@@ -980,9 +990,7 @@ class TestContextFilteringE2E:
 
         # LOCAL trust tier should pass the full system prompt through
         system_messages = [m for m in received if m.get("role") == "system"]
-        assert len(system_messages) >= 1, (
-            "LOCAL tier should receive the system prompt"
-        )
+        assert len(system_messages) >= 1, "LOCAL tier should receive the system prompt"
 
         # The system prompt content should be the full original text
         system_content = system_messages[0]["content"]

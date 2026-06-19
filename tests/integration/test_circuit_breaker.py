@@ -7,12 +7,14 @@ MBR excludes CIRCUIT_OPEN backends → fallback to healthy backend.
 Spec traceability:
   - TM-011 AC4: Circuit breaker opens after 3 consecutive errors
 """
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 import yaml
 from starlette.testclient import TestClient
 
@@ -29,6 +31,9 @@ from dragonlight_router.core.types import (
 )
 from dragonlight_router.health.circuit_breaker import CircuitBreaker, CircuitState
 from dragonlight_router.server.app import create_app
+
+pytestmark = pytest.mark.integration
+
 
 # ---------------------------------------------------------------------------
 # Helpers

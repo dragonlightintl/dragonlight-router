@@ -6,12 +6,14 @@ Mocks only at the adapter/network seam — no real API calls.
 Spec traceability:
   - TM-010: Fallback dispatch (cascade retries next candidate on adapter failure)
 """
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 import yaml
 from starlette.testclient import TestClient
 
@@ -26,6 +28,9 @@ from dragonlight_router.core.types import (
     GenerativeBackend,
 )
 from dragonlight_router.server.app import create_app
+
+pytestmark = pytest.mark.integration
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -80,11 +85,14 @@ def _make_mock_backend(config: BackendConfig, *, fail: bool = False) -> MagicMoc
     backend.status = BackendStatus.AVAILABLE
 
     if fail:
+
         async def _failing_generate(messages, *, max_tokens=4096, temperature=0.7, stream=True):
             raise RuntimeError(f"Adapter {config.name} failed: simulated network error")
             yield  # pragma: no cover — makes this an async generator for async-for compat
+
         backend.generate = _failing_generate
     else:
+
         async def _fake_generate(messages, *, max_tokens=4096, temperature=0.7, stream=True):
             chunks = [
                 f"Response from {config.name}: ",
@@ -96,6 +104,7 @@ def _make_mock_backend(config: BackendConfig, *, fail: bool = False) -> MagicMoc
             ]
             for chunk in chunks:
                 yield chunk
+
         backend.generate = _fake_generate
 
     backend.health_check = AsyncMock(return_value=True)
@@ -377,9 +386,7 @@ class TestFallbackChainE2E:
 
         # Both failed backends should appear in the chain
         for name in failing_names:
-            assert name in data["fallback_chain"], (
-                f"{name} should appear in fallback_chain"
-            )
+            assert name in data["fallback_chain"], f"{name} should appear in fallback_chain"
 
         # The successful backend should NOT be in the fallback chain
         assert backend_configs[2].name not in data["fallback_chain"]

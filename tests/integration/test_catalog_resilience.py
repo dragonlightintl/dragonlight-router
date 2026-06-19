@@ -6,6 +6,7 @@ continues serving from the stale/cached catalog without crashing.
 Spec traceability:
   - TM-011 AC6: Catalog refresh failure degrades gracefully
 """
+
 from __future__ import annotations
 
 import json
@@ -29,6 +30,9 @@ from dragonlight_router.core.types import (
     GenerativeBackend,
 )
 from dragonlight_router.server.app import create_app
+
+pytestmark = pytest.mark.integration
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -161,7 +165,8 @@ class TestCatalogRefreshFailureDegracefully:
     """
 
     def test_select_models_works_with_valid_cache_when_refresh_fails(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """When the catalog is fresh (not stale), select_models returns
         models from the cache even if the refresher would fail.
@@ -182,7 +187,8 @@ class TestCatalogRefreshFailureDegracefully:
         assert "groq_llama70b" in models
 
     def test_select_models_degrades_when_refresh_raises(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """When the catalog cache is stale and the refresher raises an
         exception, select_models should not crash. The _refresh_catalog
@@ -207,17 +213,16 @@ class TestCatalogRefreshFailureDegracefully:
                 side_effect=RuntimeError("Network unreachable"),
             ),
         ):
-                # select_models should NOT crash — _refresh_catalog catches
-                # the exception and select_models proceeds with stale cache
-                try:
-                    engine.select_models("coding", top_n=5)
-                except RuntimeError:
-                    pytest.fail(
-                        "select_models must not propagate catalog refresh errors"
-                    )
+            # select_models should NOT crash — _refresh_catalog catches
+            # the exception and select_models proceeds with stale cache
+            try:
+                engine.select_models("coding", top_n=5)
+            except RuntimeError:
+                pytest.fail("select_models must not propagate catalog refresh errors")
 
     def test_router_refresh_catalog_catches_exception(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """RouterEngine._refresh_catalog wraps the async refresher call in a
         try/except. When the refresher raises, the method logs a warning and
@@ -238,9 +243,7 @@ class TestCatalogRefreshFailureDegracefully:
             try:
                 engine._refresh_catalog()
             except ConnectionError:
-                pytest.fail(
-                    "_refresh_catalog must catch refresher exceptions"
-                )
+                pytest.fail("_refresh_catalog must catch refresher exceptions")
 
         # The stale catalog should still be readable
         result = engine._catalog.get()
@@ -251,7 +254,8 @@ class TestCatalogRefreshFailureDegracefully:
         )
 
     def test_dispatch_succeeds_when_catalog_refresh_fails(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Full E2E: dispatch through HTTP still succeeds when catalog
         refresh would fail, because the dispatch cascade works off the
@@ -272,6 +276,7 @@ class TestCatalogRefreshFailureDegracefully:
             new_callable=AsyncMock,
             side_effect=OSError("Connection refused"),
         ):
+
             def _fake_create_adapter(config):
                 return _make_mock_backend(config)
 
@@ -290,7 +295,8 @@ class TestCatalogRefreshFailureDegracefully:
         assert len(data["content"]) > 0
 
     def test_catalog_refresh_endpoint_returns_error_on_failure(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """POST /v1/catalog/refresh returns a 500 with error details when
         the refresher raises, but the server itself does not crash.
@@ -319,7 +325,8 @@ class TestCatalogRefreshFailureDegracefully:
         assert "error" in data or "status" in data
 
     def test_stale_catalog_still_serves_select_endpoint(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """POST /v1/select returns results from the stale catalog when
         the catalog is marked stale but refresh fails. The router should

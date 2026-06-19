@@ -15,6 +15,8 @@ from dragonlight_router.core.types import (
 from dragonlight_router.result import Err, Ok
 from dragonlight_router.router import RouterEngine
 
+pytestmark = pytest.mark.integration
+
 
 class TestCascadeDispatchIntegration:
     """Integration tests for the full MBR→CBR→LBR→dispatch→response path."""
@@ -48,17 +50,17 @@ class TestCascadeDispatchIntegration:
 
         # DEVIATION TEST-MOCK-002: mocks internal engine attributes
         # — RouterEngine lacks DI for health/budget subsystems.
-        with patch.object(router_engine._registry, 'get') as mock_get:
+        with patch.object(router_engine._registry, "get") as mock_get:
             mock_backend = AsyncMock()
             mock_backend.config.name = "test-provider/test-model"
             mock_backend.config.tier.value = "complex"
             mock_get.return_value = (mock_backend, None)
 
-            with patch.object(router_engine._health, 'score') as mock_health_score:
+            with patch.object(router_engine._health, "score") as mock_health_score:
                 mock_health_score.return_value.__class__.__name__ = "Ok"
                 mock_health_score.return_value.value = 95.0
 
-                with patch.object(router_engine._budget, 'score') as mock_budget_score:
+                with patch.object(router_engine._budget, "score") as mock_budget_score:
                     mock_budget_score.return_value.__class__.__name__ = "Ok"
                     mock_budget_score.return_value.value = 90.0
 
@@ -78,7 +80,7 @@ class TestCascadeDispatchIntegration:
         # Test fallback behavior when primary backend returns an error
         # This would verify the Err propagation and fallback logic in the cascade
 
-        with patch.object(router_engine._registry, 'get') as mock_get:
+        with patch.object(router_engine._registry, "get") as mock_get:
             # Backend lookup raises an exception
             mock_get.side_effect = Exception("Primary backend unavailable")
 
@@ -95,7 +97,7 @@ class TestCascadeDispatchIntegration:
         """[TM-011 AC-3] All backends failing returns DispatchFailure."""
         # Test the case where all backends in the cascade are exhausted/unavailable
 
-        with patch.object(router_engine._registry, 'get') as mock_get:
+        with patch.object(router_engine._registry, "get") as mock_get:
             mock_get.side_effect = Exception("All backends unavailable")
 
             result = await router_engine.dispatch(sample_dispatch_order)
@@ -133,9 +135,7 @@ class TestCascadeDispatchIntegration:
         if not registered_providers:
             # No providers configured — dispatch should still return Err gracefully
             result = await router_engine.dispatch(sample_dispatch_order)
-            assert isinstance(result, Err), (
-                "dispatch with no registered backends must return Err"
-            )
+            assert isinstance(result, Err), "dispatch with no registered backends must return Err"
             return
 
         provider = registered_providers[0]
@@ -157,7 +157,7 @@ class TestCascadeDispatchIntegration:
         """[TM-011 AC-6] System degrades gracefully when catalog refresh fails."""
         # Test graceful degradation when external dependencies fail
 
-        with patch.object(router_engine._catalog, 'get') as mock_catalog_get:
+        with patch.object(router_engine._catalog, "get") as mock_catalog_get:
             mock_catalog_get.side_effect = Exception("Catalog service unavailable")
 
             # Should still be able to dispatch (possibly with reduced functionality)

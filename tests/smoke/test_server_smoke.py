@@ -14,12 +14,14 @@ Spec traceability:
   - TM-010: Dispatch through full cascade
   - TM-011: HTTP contract verification
 """
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 import yaml
 from starlette.testclient import TestClient
 
@@ -34,6 +36,8 @@ from dragonlight_router.core.types import (
     GenerativeBackend,
 )
 from dragonlight_router.server.app import create_app
+
+pytestmark = pytest.mark.smoke
 
 
 def _build_smoke_env(tmp_path: Path) -> Path:
@@ -177,13 +181,16 @@ class TestDispatchSmoke:
             patch("dragonlight_router.adapters.create_adapter", side_effect=_fake_create_adapter),
             TestClient(app) as client,
         ):
-                resp = client.post("/v1/dispatch", json={
+            resp = client.post(
+                "/v1/dispatch",
+                json={
                     "intent_category": "general",
                     "specific_intent": "greeting",
                     "operator_message": "Say hello",
                     "system_prompt": "You are helpful",
                     "context_tokens": 50,
-                })
+                },
+            )
         assert resp.status_code == 200
         data = resp.json()
         assert "content" in data
@@ -221,13 +228,16 @@ class TestRecordSmoke:
         config_path = _build_smoke_env(tmp_path)
         app = create_app(config_path=config_path)
         with TestClient(app) as client:
-            resp = client.post("/v1/record", json={
-                "provider": "groq",
-                "model_id": "groq_llama70b",
-                "success": True,
-                "tokens_used": 100,
-                "latency_ms": 250.0,
-            })
+            resp = client.post(
+                "/v1/record",
+                json={
+                    "provider": "groq",
+                    "model_id": "groq_llama70b",
+                    "success": True,
+                    "tokens_used": 100,
+                    "latency_ms": 250.0,
+                },
+            )
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
 

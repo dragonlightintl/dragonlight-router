@@ -5,6 +5,7 @@ Uses real (non-mocked) RouterEngine instances with test configurations.
 
 Spec traceability: TS-002 (Acceptance tests)
 """
+
 from __future__ import annotations
 
 import json
@@ -23,6 +24,8 @@ from dragonlight_router.core.types import (
 )
 from dragonlight_router.result import Ok
 from dragonlight_router.router import RouterEngine
+
+pytestmark = pytest.mark.acceptance
 
 
 def _setup_acceptance_config(tmp_path: Path) -> Path:
@@ -165,20 +168,24 @@ class TestHealthEndpointShowsAllProviders:
         engine = RouterEngine(config_path=config_path)
 
         # Record some activity so providers appear in the health snapshot
-        engine.record_request(RequestOutcome(
-            provider="groq",
-            model_id="groq_llama70b",
-            success=True,
-            tokens_used=100,
-            latency_ms=50.0,
-        ))
-        engine.record_request(RequestOutcome(
-            provider="nvidia",
-            model_id="nvidia_nemotron",
-            success=True,
-            tokens_used=200,
-            latency_ms=80.0,
-        ))
+        engine.record_request(
+            RequestOutcome(
+                provider="groq",
+                model_id="groq_llama70b",
+                success=True,
+                tokens_used=100,
+                latency_ms=50.0,
+            )
+        )
+        engine.record_request(
+            RequestOutcome(
+                provider="nvidia",
+                model_id="nvidia_nemotron",
+                success=True,
+                tokens_used=200,
+                latency_ms=80.0,
+            )
+        )
 
         snapshot = engine.health_snapshot()
         assert isinstance(snapshot, dict)
@@ -306,7 +313,9 @@ class TestRegistryRetireAndReinstateWorkflow:
     """[TS-002 AC-5b] Registry-level retire/reinstate for admin-initiated retirement."""
 
     def test_registry_retire_reinstate(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Admin retires a backend via registry, confirms exclusion, then reinstates."""
         monkeypatch.setenv("GROQ_API_KEY", "test-key-groq")
@@ -382,13 +391,15 @@ class TestRecordAndObserveHealthDegradation:
         engine = RouterEngine(config_path=config_path)
 
         # Record initial success
-        engine.record_request(RequestOutcome(
-            provider="groq",
-            model_id="groq_llama70b",
-            success=True,
-            tokens_used=100,
-            latency_ms=50.0,
-        ))
+        engine.record_request(
+            RequestOutcome(
+                provider="groq",
+                model_id="groq_llama70b",
+                success=True,
+                tokens_used=100,
+                latency_ms=50.0,
+            )
+        )
 
         snapshot_before = engine.health_snapshot()
         score_before = snapshot_before["groq"]["groq_llama70b"]["score"]
@@ -396,11 +407,13 @@ class TestRecordAndObserveHealthDegradation:
 
         # Record multiple failures
         for _ in range(3):
-            engine.record_request(RequestOutcome(
-                provider="groq",
-                model_id="groq_llama70b",
-                success=False,
-            ))
+            engine.record_request(
+                RequestOutcome(
+                    provider="groq",
+                    model_id="groq_llama70b",
+                    success=False,
+                )
+            )
 
         snapshot_after = engine.health_snapshot()
         score_after = snapshot_after["groq"]["groq_llama70b"]["score"]

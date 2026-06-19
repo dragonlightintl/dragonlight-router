@@ -3,25 +3,30 @@
 Uses heuristics based on intent category, context size, tool use,
 and message characteristics to estimate which tier is needed.
 """
+
 from __future__ import annotations
 
 from dragonlight_router.core.types import BackendTier, ComplexityEstimate, DispatchOrder
 
 # Intent categories that require OPUS-tier reasoning
-_OPUS_INTENTS = frozenset({
-    "session_lifecycle",
-    "strategic_planning",
-    "complex_reasoning",
-})
+_OPUS_INTENTS = frozenset(
+    {
+        "session_lifecycle",
+        "strategic_planning",
+        "complex_reasoning",
+    }
+)
 
 # Intent categories that require at least SONNET-tier
-_SONNET_INTENTS = frozenset({
-    "engineering_build",
-    "code_review",
-    "architecture",
-    "debugging",
-    "spec_writing",
-})
+_SONNET_INTENTS = frozenset(
+    {
+        "engineering_build",
+        "code_review",
+        "architecture",
+        "debugging",
+        "spec_writing",
+    }
+)
 
 # Context token thresholds
 _LARGE_CONTEXT_THRESHOLD = 8000

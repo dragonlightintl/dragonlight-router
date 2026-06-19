@@ -6,6 +6,7 @@ into ModelFlavorProfile instances, and persists to JSON.
 
 Spec reference: intent-based-router-v0.1.0-spec.md section 3.2, Method 3.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -41,6 +42,7 @@ _PROFILE_SCHEMA_VERSION: int = 1
 # ---------------------------------------------------------------------------
 # Decay logic (IBR-FLV-06)
 # ---------------------------------------------------------------------------
+
 
 def apply_decay(
     profile: ModelFlavorProfile,
@@ -128,6 +130,7 @@ def _decay_single_score(score: float, decay_days: float) -> float:
 # Response collection helper
 # ---------------------------------------------------------------------------
 
+
 async def _collect_model_response(
     adapter: GenerativeBackend,
     prompt: EvalPrompt,
@@ -142,7 +145,10 @@ async def _collect_model_response(
     try:
         chunks: list[str] = []
         async for chunk in adapter.generate(
-            messages, max_tokens=512, temperature=0.7, stream=True,
+            messages,
+            max_tokens=512,
+            temperature=0.7,
+            stream=True,
         ):
             chunks.append(chunk)
         return "".join(chunks)
@@ -158,6 +164,7 @@ async def _collect_model_response(
 # ---------------------------------------------------------------------------
 # Score aggregation
 # ---------------------------------------------------------------------------
+
 
 def _aggregate_scores(
     scored_prompts: list[tuple[EvalPrompt, float]],
@@ -216,7 +223,8 @@ def _build_flavor_scores(
 
 
 def _finalize_profile(
-    model_id: str, profile: ModelFlavorProfile,
+    model_id: str,
+    profile: ModelFlavorProfile,
 ) -> ModelFlavorProfile:
     """Replace the placeholder model_id in an aggregated profile."""
     assert isinstance(model_id, str) and model_id, "model_id must be non-empty"
@@ -235,6 +243,7 @@ def _finalize_profile(
 # ---------------------------------------------------------------------------
 # BenchmarkRunner
 # ---------------------------------------------------------------------------
+
 
 class BenchmarkRunner:
     """Orchestrate benchmark evaluation across multiple models.
@@ -286,9 +295,7 @@ class BenchmarkRunner:
         adapter: GenerativeBackend,
     ) -> ModelFlavorProfile:
         """Run all eval prompts against a single model and return its profile."""
-        assert isinstance(model_id, str) and model_id, (
-            "model_id must be a non-empty string"
-        )
+        assert isinstance(model_id, str) and model_id, "model_id must be a non-empty string"
 
         scored = await self._score_all_prompts(model_id, adapter)
         profile = _finalize_profile(model_id, _aggregate_scores(scored))
@@ -323,7 +330,8 @@ class BenchmarkRunner:
         return profiles
 
     def _save_profiles(
-        self, profiles: dict[str, ModelFlavorProfile],
+        self,
+        profiles: dict[str, ModelFlavorProfile],
     ) -> None:
         """Serialize profiles to JSON at the configured output path."""
         assert isinstance(profiles, dict), "profiles must be a dict"
@@ -344,6 +352,7 @@ class BenchmarkRunner:
 # ---------------------------------------------------------------------------
 # Serialization / deserialization
 # ---------------------------------------------------------------------------
+
 
 def _serialize_profiles(
     profiles: dict[str, ModelFlavorProfile],
@@ -428,7 +437,8 @@ def _deserialize_profiles(
 
 
 def _deserialize_single_profile(
-    model_id: str, data: dict[str, Any],
+    model_id: str,
+    data: dict[str, Any],
 ) -> ModelFlavorProfile | None:
     """Deserialize a single profile. Returns None on bad data."""
     assert isinstance(model_id, str), "model_id must be a string"
@@ -442,13 +452,16 @@ def _deserialize_single_profile(
             version=int(data.get("version", 1)),
             updated_at=str(data.get("updated_at", "")),
             task_scores=_deserialize_scores(
-                data.get("task_scores", {}), IBR_TASK_TYPES,
+                data.get("task_scores", {}),
+                IBR_TASK_TYPES,
             ),
             domain_scores=_deserialize_scores(
-                data.get("domain_scores", {}), IBR_DOMAINS,
+                data.get("domain_scores", {}),
+                IBR_DOMAINS,
             ),
             qs_scores=_deserialize_scores(
-                data.get("qs_scores", {}), IBR_QUALITY_SPEED,
+                data.get("qs_scores", {}),
+                IBR_QUALITY_SPEED,
             ),
         )
     except (TypeError, ValueError, KeyError) as exc:
@@ -490,6 +503,7 @@ def _deserialize_scores(
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
+
 
 def _resolve_available_models(
     engine: Any,
@@ -577,19 +591,24 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         prog="dragonlight-router benchmark-flavors",
     )
     parser.add_argument(
-        "--config", required=True,
+        "--config",
+        required=True,
         help="Path to router.yaml config file.",
     )
     parser.add_argument(
-        "--output", required=True,
+        "--output",
+        required=True,
         help="Output directory for benchmark_profiles.json.",
     )
     parser.add_argument(
-        "--models", nargs="*", default=None,
+        "--models",
+        nargs="*",
+        default=None,
         help="Subset of model IDs to benchmark (default: all).",
     )
     parser.add_argument(
-        "--judge-model", default=None,
+        "--judge-model",
+        default=None,
         help="Model ID to use as the judge (default: auto-resolve).",
     )
     return parser
@@ -610,5 +629,5 @@ def main() -> None:
     )
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

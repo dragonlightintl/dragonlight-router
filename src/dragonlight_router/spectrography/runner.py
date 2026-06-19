@@ -6,6 +6,7 @@ flavor fingerprints, calibration deltas, and ranked summaries.
 
 Spec reference: model-spectrography-v0.1.0-spec.md
 """
+
 from __future__ import annotations
 
 import argparse
@@ -72,6 +73,7 @@ _MAX_RETRIES = 3
 # Result types
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class RunState:
     """Mutable state for a spectrography run."""
@@ -88,11 +90,15 @@ class RunState:
 # Provider pacing
 # ---------------------------------------------------------------------------
 
+
 class ProviderPacer:
     """Track per-provider last-request timestamps and enforce delays."""
 
     _DEFAULT_DELAYS: dict[str, float] = {
-        "gemini": 1.0, "groq": 1.5, "nvidia_nim": 1.0, "openrouter": 2.0,
+        "gemini": 1.0,
+        "groq": 1.5,
+        "nvidia_nim": 1.0,
+        "openrouter": 2.0,
     }
 
     def __init__(self, overrides: dict[str, float] | None = None) -> None:
@@ -113,6 +119,7 @@ class ProviderPacer:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _extract_provider(model_id: str) -> str:
     """Extract provider prefix from model_id (e.g. 'gemini/...' -> 'gemini')."""
@@ -163,7 +170,9 @@ def _get_providers() -> dict[str, dict[str, Any]]:
 
 
 def _build_backend_config(
-    model_id: str, provider_cfg: dict[str, Any], adapter_key: str,
+    model_id: str,
+    provider_cfg: dict[str, Any],
+    adapter_key: str,
 ) -> BackendConfig:
     """Build a BackendConfig dataclass from provider config and model ID."""
     assert isinstance(model_id, str) and model_id, "model_id must be non-empty"
@@ -171,24 +180,31 @@ def _build_backend_config(
 
     provider_prefix = _extract_provider(model_id)
     prefix = provider_cfg.get("model_prefix", f"{provider_prefix}/")
-    bare_model = model_id[len(prefix):] if model_id.startswith(prefix) else model_id
+    bare_model = model_id[len(prefix) :] if model_id.startswith(prefix) else model_id
     env_key = provider_cfg.get("env_key")
     rl = provider_cfg.get("rate_limits", {})
 
     caps = BackendCapabilities(
-        max_context_tokens=131072, supports_tool_use=True,
-        supports_streaming=True, supports_json_mode=True,
+        max_context_tokens=131072,
+        supports_tool_use=True,
+        supports_streaming=True,
+        supports_json_mode=True,
         supports_system_prompts=True,
     )
     limits = BackendRateLimits(
-        rpm=rl.get("rpm", 30), rpd=rl.get("rpd") or 999999,
+        rpm=rl.get("rpm", 30),
+        rpd=rl.get("rpd") or 999999,
         tpm=rl.get("tpm") or 9999999,
         daily_token_cap=rl.get("daily_token_cap") or 9999999,
     )
     config = BackendConfig(
-        name=model_id, provider=adapter_key, model=bare_model,
-        tier=BackendTier.MODERATE, base_url=provider_cfg.get("base_url", ""),
-        env_key=env_key, capabilities=caps,
+        name=model_id,
+        provider=adapter_key,
+        model=bare_model,
+        tier=BackendTier.MODERATE,
+        base_url=provider_cfg.get("base_url", ""),
+        env_key=env_key,
+        capabilities=caps,
         cost=BackendCostProfile(input_per_mtok=0.0, output_per_mtok=0.0),
         rate_limits=limits,
     )
@@ -232,6 +248,7 @@ def _create_adapter(model_id: str) -> GenerativeBackend | None:
 # Streaming response collector
 # ---------------------------------------------------------------------------
 
+
 async def _collect_streaming_response(
     adapter: GenerativeBackend,
     messages: list[dict[str, str]],
@@ -246,7 +263,10 @@ async def _collect_streaming_response(
     try:
         chunks: list[str] = []
         async for chunk in adapter.generate(
-            messages, max_tokens=max_tokens, temperature=temperature, stream=True,
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            stream=True,
         ):
             chunks.append(chunk)
         return "".join(chunks) if chunks else None
@@ -258,6 +278,7 @@ async def _collect_streaming_response(
 # ---------------------------------------------------------------------------
 # Core evaluation
 # ---------------------------------------------------------------------------
+
 
 async def _call_model_adapter(
     model_adapter: GenerativeBackend,
@@ -272,7 +293,10 @@ async def _call_model_adapter(
 
     model_messages = [{"role": "user", "content": probe.prompt}]
     response = await _collect_streaming_response(
-        model_adapter, model_messages, max_tokens=512, temperature=0.7,
+        model_adapter,
+        model_messages,
+        max_tokens=512,
+        temperature=0.7,
     )
 
     assert response is None or isinstance(response, str), "response must be str or None"
@@ -305,7 +329,10 @@ async def _call_judge_adapter(
     ]
 
     judge_raw = await _collect_streaming_response(
-        judge_adapter, judge_messages, max_tokens=256, temperature=0.0,
+        judge_adapter,
+        judge_messages,
+        max_tokens=256,
+        temperature=0.0,
     )
 
     if judge_raw is None:
@@ -320,7 +347,8 @@ async def _call_judge_adapter(
 
 
 def _make_error_result(
-    model_id: str, probe: SpectrographyProbe,
+    model_id: str,
+    probe: SpectrographyProbe,
     error_info: tuple[bool, float, str],
 ) -> ProbeResult:
     """Build a ProbeResult for an error case.
@@ -331,25 +359,32 @@ def _make_error_result(
     is_self_eval, score, error = error_info
     assert isinstance(error, str) and error, "error must be non-empty"
     return ProbeResult(
-        model_id=model_id, probe_id=probe.id, task_type=probe.task_type,
-        domain=probe.domain, quality_speed=probe.quality_speed,
-        judge_scores=None, normalized_score=score,
-        is_self_eval=is_self_eval, error=error,
+        model_id=model_id,
+        probe_id=probe.id,
+        task_type=probe.task_type,
+        domain=probe.domain,
+        quality_speed=probe.quality_speed,
+        judge_scores=None,
+        normalized_score=score,
+        is_self_eval=is_self_eval,
+        error=error,
     )
 
 
 # DEVIATION CS-PARAM-001: _evaluate_probe takes 5 params
 # -- dataclass grouping would break API.
 async def _evaluate_probe(
-    model_id: str, probe: SpectrographyProbe,
-    model_adapter: GenerativeBackend, judge_adapter: GenerativeBackend,
+    model_id: str,
+    probe: SpectrographyProbe,
+    model_adapter: GenerativeBackend,
+    judge_adapter: GenerativeBackend,
     judge_model_id: str,
 ) -> ProbeResult:
     """Evaluate a single (model, probe) pair: call model, judge, build result."""
     assert isinstance(model_id, str), "model_id must be a string"
     assert isinstance(probe, SpectrographyProbe), "probe must be a SpectrographyProbe"
 
-    is_self_eval = (model_id == judge_model_id)
+    is_self_eval = model_id == judge_model_id
     model_response = await _call_model_adapter(model_adapter, probe)
 
     if not model_response or not model_response.strip():
@@ -366,10 +401,15 @@ async def _evaluate_probe(
         logger.info("self_evaluation_detected", model_id=model_id, probe_id=probe.id)
 
     return ProbeResult(
-        model_id=model_id, probe_id=probe.id, task_type=probe.task_type,
-        domain=probe.domain, quality_speed=probe.quality_speed,
-        judge_scores=scores, normalized_score=normalized,
-        is_self_eval=is_self_eval, error=None,
+        model_id=model_id,
+        probe_id=probe.id,
+        task_type=probe.task_type,
+        domain=probe.domain,
+        quality_speed=probe.quality_speed,
+        judge_scores=scores,
+        normalized_score=normalized,
+        is_self_eval=is_self_eval,
+        error=None,
     )
 
 
@@ -377,8 +417,10 @@ async def _evaluate_probe(
 # Interleaved scheduling
 # ---------------------------------------------------------------------------
 
+
 def _interleaved_schedule(
-    models: list[str], probes: list[SpectrographyProbe],
+    models: list[str],
+    probes: list[SpectrographyProbe],
 ) -> list[tuple[str, SpectrographyProbe]]:
     """Build provider-interleaved (model, probe) schedule.
 
@@ -392,6 +434,7 @@ def _interleaved_schedule(
 # ---------------------------------------------------------------------------
 # Checkpoint (JSONL resume support)
 # ---------------------------------------------------------------------------
+
 
 def _cp_path(output_dir: Path, run_id: str) -> Path:
     """Checkpoint file path for a run."""
@@ -419,17 +462,19 @@ def _load_checkpoint(path: Path) -> set[tuple[str, str]]:
 def _append_checkpoint(path: Path, result: ProbeResult) -> None:
     """Append one result to checkpoint JSONL."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    line = json.dumps({
-        "model_id": result.model_id,
-        "probe_id": result.probe_id,
-        "task_type": result.task_type,
-        "domain": result.domain,
-        "quality_speed": result.quality_speed,
-        "judge_scores": result.judge_scores,
-        "normalized_score": result.normalized_score,
-        "is_self_eval": result.is_self_eval,
-        "error": result.error,
-    })
+    line = json.dumps(
+        {
+            "model_id": result.model_id,
+            "probe_id": result.probe_id,
+            "task_type": result.task_type,
+            "domain": result.domain,
+            "quality_speed": result.quality_speed,
+            "judge_scores": result.judge_scores,
+            "normalized_score": result.normalized_score,
+            "is_self_eval": result.is_self_eval,
+            "error": result.error,
+        }
+    )
     with open(path, "a") as f:
         f.write(line + "\n")
 
@@ -437,6 +482,7 @@ def _append_checkpoint(path: Path, result: ProbeResult) -> None:
 # ---------------------------------------------------------------------------
 # Report generation
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ReportContext:
@@ -466,18 +512,15 @@ def _serialize_profiles(
             "version": profile.version,
             "updated_at": profile.updated_at,
             "task_scores": {
-                k: {"score": v.score, "confidence": v.confidence,
-                     "sample_count": v.sample_count}
+                k: {"score": v.score, "confidence": v.confidence, "sample_count": v.sample_count}
                 for k, v in profile.task_scores.items()
             },
             "domain_scores": {
-                k: {"score": v.score, "confidence": v.confidence,
-                     "sample_count": v.sample_count}
+                k: {"score": v.score, "confidence": v.confidence, "sample_count": v.sample_count}
                 for k, v in profile.domain_scores.items()
             },
             "qs_scores": {
-                k: {"score": v.score, "confidence": v.confidence,
-                     "sample_count": v.sample_count}
+                k: {"score": v.score, "confidence": v.confidence, "sample_count": v.sample_count}
                 for k, v in profile.qs_scores.items()
             },
         }
@@ -505,12 +548,15 @@ def _build_json_report_data(ctx: ReportContext) -> dict[str, Any]:
         "rankings": ctx.rankings,
         "per_probe_results": [
             {
-                "model_id": r.model_id, "probe_id": r.probe_id,
-                "task_type": r.task_type, "domain": r.domain,
+                "model_id": r.model_id,
+                "probe_id": r.probe_id,
+                "task_type": r.task_type,
+                "domain": r.domain,
                 "quality_speed": r.quality_speed,
                 "judge_scores": r.judge_scores,
                 "normalized_score": r.normalized_score,
-                "is_self_eval": r.is_self_eval, "error": r.error,
+                "is_self_eval": r.is_self_eval,
+                "error": r.error,
             }
             for r in ctx.results
         ],
@@ -543,7 +589,8 @@ def _md_header_section(ctx: ReportContext) -> list[str]:
     error_count = sum(1 for r in ctx.results if r.error)
 
     lines = [
-        "# Model Spectrography Report", "",
+        "# Model Spectrography Report",
+        "",
         f"- **Run ID:** {ctx.run_id}",
         f"- **Started:** {ctx.started_at}",
         f"- **Completed:** {ctx.completed_at}",
@@ -567,8 +614,12 @@ def _md_rankings_section(
     assert isinstance(profiles, dict), "profiles must be a dict"
     assert isinstance(rankings, dict), "rankings must be a dict"
 
-    lines = ["## Model Rankings (Overall Average)", "",
-             "| Rank | Model | Avg Score |", "|------|-------|-----------|"]
+    lines = [
+        "## Model Rankings (Overall Average)",
+        "",
+        "| Rank | Model | Avg Score |",
+        "|------|-------|-----------|",
+    ]
     model_avgs: list[tuple[str, float]] = []
     for mid, profile in profiles.items():
         all_scores = (
@@ -629,7 +680,8 @@ def _md_calibration_section(
         return []
 
     lines = [
-        "## Calibration Deltas", "",
+        "## Calibration Deltas",
+        "",
         "| Model | Dimension | Delta |",
         "|-------|-----------|-------|",
     ]
@@ -669,6 +721,7 @@ def _write_markdown_summary(ctx: ReportContext) -> None:
 # Main orchestrator
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _SpectrographySetup:
     """Return bundle from _setup_spectrography (keeps param count <= 4)."""
@@ -694,7 +747,8 @@ class _SpectrographyConfig:
 
 
 def _create_all_adapters(
-    models: list[str], judge_model: str,
+    models: list[str],
+    judge_model: str,
 ) -> tuple[dict[str, GenerativeBackend], GenerativeBackend]:
     """Create model + judge adapters. Raises SystemExit on fatal failures."""
     assert isinstance(models, list) and models, "models must be non-empty"
@@ -718,7 +772,8 @@ def _create_all_adapters(
         raise SystemExit("No model adapters could be created -- aborting")
 
     logger.info(
-        "adapters_created", reachable=len(model_adapters),
+        "adapters_created",
+        reachable=len(model_adapters),
         skipped=len(models) - len(model_adapters),
     )
     return model_adapters, judge_adapter
@@ -734,8 +789,11 @@ def _setup_spectrography(cfg: _SpectrographyConfig) -> _SpectrographySetup:
     assert len(probes) > 0, "No spectrography probes found"
 
     logger.info(
-        "spectrography_starting", run_id=run_id, model_count=len(cfg.models),
-        probe_count=len(probes), judge_model=cfg.judge_model,
+        "spectrography_starting",
+        run_id=run_id,
+        model_count=len(cfg.models),
+        probe_count=len(probes),
+        judge_model=cfg.judge_model,
     )
 
     model_adapters, judge_adapter = _create_all_adapters(cfg.models, cfg.judge_model)
@@ -759,9 +817,12 @@ def _setup_spectrography(cfg: _SpectrographyConfig) -> _SpectrographySetup:
 
     assert len(schedule) > 0, "schedule must not be empty"
     return _SpectrographySetup(
-        state=state, model_adapters=model_adapters,
-        judge_adapter=judge_adapter, schedule=schedule,
-        pacer=pacer, checkpoint_path=cp,
+        state=state,
+        model_adapters=model_adapters,
+        judge_adapter=judge_adapter,
+        schedule=schedule,
+        pacer=pacer,
+        checkpoint_path=cp,
     )
 
 
@@ -783,7 +844,9 @@ async def _run_probe_loop(
             continue
 
         logger.info(
-            "evaluating", model_id=model_id, probe_id=probe.id,
+            "evaluating",
+            model_id=model_id,
+            probe_id=probe.id,
             progress=f"{idx + 1}/{len(setup.schedule)}",
         )
 
@@ -791,8 +854,11 @@ async def _run_probe_loop(
         await setup.pacer.wait(provider)
 
         result = await _evaluate_probe(
-            model_id, probe, setup.model_adapters[model_id],
-            setup.judge_adapter, judge_model_id=judge_model,
+            model_id,
+            probe,
+            setup.model_adapters[model_id],
+            setup.judge_adapter,
+            judge_model_id=judge_model,
         )
 
         if result.error:
@@ -812,8 +878,12 @@ def _serialize_deltas(
     result: dict[str, dict[str, Any]] = {}
     for mid, dim_deltas in deltas.items():
         result[mid] = {
-            dk: {"declared": dv.declared, "empirical": dv.empirical,
-                 "delta": dv.delta, "recommendation": dv.recommendation}
+            dk: {
+                "declared": dv.declared,
+                "empirical": dv.empirical,
+                "delta": dv.delta,
+                "recommendation": dv.recommendation,
+            }
             for dk, dv in dim_deltas.items()
         }
 
@@ -822,7 +892,8 @@ def _serialize_deltas(
 
 
 def _write_config_profiles(
-    profiles: dict[str, ModelFlavorProfile], run_id: str,
+    profiles: dict[str, ModelFlavorProfile],
+    run_id: str,
 ) -> None:
     """Merge and write discovered profiles to the config directory."""
     assert isinstance(profiles, dict), "profiles must be a dict"
@@ -841,7 +912,8 @@ def _write_config_profiles(
 
 
 def _generate_spectrography_reports(
-    setup: _SpectrographySetup, cfg: _SpectrographyConfig,
+    setup: _SpectrographySetup,
+    cfg: _SpectrographyConfig,
 ) -> None:
     """Aggregate results, compute deltas, and write all reports."""
     assert isinstance(setup, _SpectrographySetup), "setup must be a _SpectrographySetup"
@@ -849,8 +921,9 @@ def _generate_spectrography_reports(
 
     state = setup.state
     completed_at = datetime.now(UTC).isoformat()
-    logger.info("aggregation_starting", total_results=len(state.results),
-                total_errors=state.total_errors)
+    logger.info(
+        "aggregation_starting", total_results=len(state.results), total_errors=state.total_errors
+    )
 
     raw_scores = aggregate_scores(state.results)
     profiles = rank_normalize(raw_scores)
@@ -859,10 +932,15 @@ def _generate_spectrography_reports(
     rankings = build_model_rankings(profiles)
 
     ctx = ReportContext(
-        run_id=state.run_id, started_at=state.started_at,
-        completed_at=completed_at, judge_model=cfg.judge_model,
-        results=state.results, profiles=profiles,
-        deltas=deltas_json, rankings=rankings, output_dir=cfg.output_dir,
+        run_id=state.run_id,
+        started_at=state.started_at,
+        completed_at=completed_at,
+        judge_model=cfg.judge_model,
+        results=state.results,
+        profiles=profiles,
+        deltas=deltas_json,
+        rankings=rankings,
+        output_dir=cfg.output_dir,
     )
     _write_json_report(ctx)
     _write_markdown_summary(ctx)
@@ -876,10 +954,14 @@ def _generate_spectrography_reports(
     if cfg.write_profiles:
         _write_config_profiles(profiles, state.run_id)
 
-    logger.info("spectrography_complete", run_id=state.run_id,
-                models_evaluated=len(setup.model_adapters),
-                total_probes=len(state.results),
-                total_errors=state.total_errors, partial=state.shutdown_requested)
+    logger.info(
+        "spectrography_complete",
+        run_id=state.run_id,
+        models_evaluated=len(setup.model_adapters),
+        total_probes=len(state.results),
+        total_errors=state.total_errors,
+        partial=state.shutdown_requested,
+    )
 
 
 # DEVIATION CS-PARAM-001: run_spectrography takes 6 params —
@@ -897,8 +979,11 @@ async def run_spectrography(
     Orchestrates: setup -> probe loop -> report generation.
     """
     cfg = _SpectrographyConfig(
-        models=models, judge_model=judge_model, output_dir=output_dir,
-        provider_delays=provider_delays, write_profiles=write_profiles,
+        models=models,
+        judge_model=judge_model,
+        output_dir=output_dir,
+        provider_delays=provider_delays,
+        write_profiles=write_profiles,
         resume=resume,
     )
     setup = _setup_spectrography(cfg)
@@ -909,6 +994,7 @@ async def run_spectrography(
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def _parse_delays(raw: list[str] | None) -> dict[str, float] | None:
     """Parse --provider-delay key=value pairs into a dict."""
@@ -932,31 +1018,39 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         prog="dragonlight-router-spectrography",
     )
     parser.add_argument(
-        "--judge-model", default=_DEFAULT_JUDGE,
+        "--judge-model",
+        default=_DEFAULT_JUDGE,
         help=f"Model to use as judge (default: {_DEFAULT_JUDGE})",
     )
     parser.add_argument(
-        "--output-dir", default=_DEFAULT_OUTPUT_DIR,
+        "--output-dir",
+        default=_DEFAULT_OUTPUT_DIR,
         help=f"Output directory for reports (default: {_DEFAULT_OUTPUT_DIR})",
     )
     parser.add_argument(
-        "--models", nargs="*",
+        "--models",
+        nargs="*",
         help="Subset of model IDs to evaluate (default: all from role matrix)",
     )
     parser.add_argument(
-        "--provider-delay", nargs="*", metavar="K=V",
+        "--provider-delay",
+        nargs="*",
+        metavar="K=V",
         help="Per-provider delay overrides (e.g. groq=2.0)",
     )
     parser.add_argument(
-        "--write-profiles", action="store_true",
+        "--write-profiles",
+        action="store_true",
         help="Write discovered profiles to config/ after completion",
     )
     parser.add_argument(
-        "--resume", action="store_true",
+        "--resume",
+        action="store_true",
         help="Resume from checkpoint (skip already-completed pairs)",
     )
     parser.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Resolve targets and probes, then exit without evaluating",
     )
 
@@ -977,18 +1071,25 @@ def main() -> None:
     if args.dry_run:
         probes = get_all_probes()
         logger.info(
-            "dry_run_complete", model_count=len(model_targets),
-            probe_count=len(probes), judge_model=args.judge_model,
+            "dry_run_complete",
+            model_count=len(model_targets),
+            probe_count=len(probes),
+            judge_model=args.judge_model,
             total_pairs=len(model_targets) * len(probes),
         )
         return
 
-    asyncio.run(run_spectrography(
-        models=model_targets, judge_model=args.judge_model,
-        output_dir=Path(args.output_dir), provider_delays=provider_delays,
-        write_profiles=args.write_profiles, resume=args.resume,
-    ))
+    asyncio.run(
+        run_spectrography(
+            models=model_targets,
+            judge_model=args.judge_model,
+            output_dir=Path(args.output_dir),
+            provider_delays=provider_delays,
+            write_profiles=args.write_profiles,
+            resume=args.resume,
+        )
+    )
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

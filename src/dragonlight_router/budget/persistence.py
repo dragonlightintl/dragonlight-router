@@ -3,6 +3,7 @@
 Writes state via .tmp → rename pattern to prevent corruption.
 Reads return None for missing or corrupt files (fresh start).
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -48,11 +49,11 @@ def save_budget_state(state: dict[str, Any], path: Path) -> Result[None, StatePe
         with contextlib.suppress(OSError):
             os.unlink(tmp_path)
         logger.error("budget_state_save_failed", path=str(path), error=str(exc))
-        return Err(StatePersistenceError(
-            path=str(path),
-            message=f"Failed to save budget state: {exc}",
-            operation="write"
-        ))
+        return Err(
+            StatePersistenceError(
+                path=str(path), message=f"Failed to save budget state: {exc}", operation="write"
+            )
+        )
 
 
 def load_budget_state(path: Path) -> Result[dict[str, Any] | None, StatePersistenceError]:
@@ -77,8 +78,8 @@ def load_budget_state(path: Path) -> Result[dict[str, Any] | None, StatePersiste
         return Ok(None)
     except OSError as exc:
         logger.warning("budget_state_load_failed", path=str(path), error=str(exc))
-        return Err(StatePersistenceError(
-            path=str(path),
-            message=f"Failed to load budget state: {exc}",
-            operation="read"
-        ))
+        return Err(
+            StatePersistenceError(
+                path=str(path), message=f"Failed to load budget state: {exc}", operation="read"
+            )
+        )

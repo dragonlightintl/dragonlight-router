@@ -1,4 +1,5 @@
 """Cascade dispatch — MBR → IBR → CBR → LBR composition."""
+
 from __future__ import annotations
 
 import json
@@ -82,7 +83,9 @@ def configure_cache(
     _dispatch_cache = SimpleCache(db_path=db_path, max_entries=max_entries, ttl_s=ttl_s)
     logger.info(
         "dispatch_cache_configured",
-        db_path=str(db_path), max_entries=max_entries, ttl_s=ttl_s,
+        db_path=str(db_path),
+        max_entries=max_entries,
+        ttl_s=ttl_s,
     )
     return _dispatch_cache
 
@@ -97,22 +100,27 @@ def _reset_cache() -> None:
     global _dispatch_cache  # noqa: PLW0603
     _dispatch_cache = None
 
+
 # Mapping from caller-specified trust tier strings to ProviderTrustTier ordering.
 # Higher numeric value = more restrictive trust requirement.
-_TRUST_TIER_RANK: types.MappingProxyType[str, int] = types.MappingProxyType({
-    "untrusted": 0,
-    "semi_trusted": 1,
-    "trusted": 2,
-    "local": 3,
-})
+_TRUST_TIER_RANK: types.MappingProxyType[str, int] = types.MappingProxyType(
+    {
+        "untrusted": 0,
+        "semi_trusted": 1,
+        "trusted": 2,
+        "local": 3,
+    }
+)
 
 # Reverse mapping from ProviderTrustTier enum to rank for comparison.
-_PROVIDER_TRUST_RANK: types.MappingProxyType[ProviderTrustTier, int] = types.MappingProxyType({
-    ProviderTrustTier.UNTRUSTED: 0,
-    ProviderTrustTier.SEMI_TRUSTED: 1,
-    ProviderTrustTier.TRUSTED: 2,
-    ProviderTrustTier.LOCAL: 3,
-})
+_PROVIDER_TRUST_RANK: types.MappingProxyType[ProviderTrustTier, int] = types.MappingProxyType(
+    {
+        ProviderTrustTier.UNTRUSTED: 0,
+        ProviderTrustTier.SEMI_TRUSTED: 1,
+        ProviderTrustTier.TRUSTED: 2,
+        ProviderTrustTier.LOCAL: 3,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -238,9 +246,13 @@ def _run_cbr_stage(
     daily_spend, monthly_spend = _compute_aggregate_spend(ctx.budget_tracker, candidates)
 
     cbr_candidates = filter_by_cost(
-        candidates, order, ctx.budget_tracker,
-        daily_spend=daily_spend, monthly_spend=monthly_spend,
-        config=ctx.config, health_tracker=ctx.health_tracker,
+        candidates,
+        order,
+        ctx.budget_tracker,
+        daily_spend=daily_spend,
+        monthly_spend=monthly_spend,
+        config=ctx.config,
+        health_tracker=ctx.health_tracker,
     )
     logger.debug("CBR filtering complete", candidate_count=len(cbr_candidates))
 
@@ -252,7 +264,11 @@ def _run_cbr_stage(
         weights = cost_adjusted_weights(weights)
 
     scored = _score_and_rank_candidates(
-        cbr_candidates, order, weights, ctx, ibr_result=ibr_result,
+        cbr_candidates,
+        order,
+        weights,
+        ctx,
+        ibr_result=ibr_result,
     )
     logger.debug("CBR scoring complete", candidate_count=len(scored))
     return Ok(scored)
@@ -300,8 +316,12 @@ def _resolve_cbr_weights(
         ibr_cfg = ctx.ibr_config
         weight = ibr_cfg.flavor_match_weight if ibr_cfg is not None else 0.15
         return ScoringWeightsConfig(
-            cost=0.30, latency=0.20, priority=0.15,
-            queue=0.10, health=0.10, flavor_match=weight,
+            cost=0.30,
+            latency=0.20,
+            priority=0.15,
+            queue=0.10,
+            health=0.10,
+            flavor_match=weight,
         )
     return ScoringWeightsConfig()
 
@@ -323,8 +343,11 @@ def _score_and_rank_candidates(
     scored_candidates: list[ScoredCandidate] = []
     for candidate in candidates:
         score = score_candidate(
-            config=candidate, order=order, weights=weights,
-            budget_tracker=ctx.budget_tracker, health_tracker=ctx.health_tracker,
+            config=candidate,
+            order=order,
+            weights=weights,
+            budget_tracker=ctx.budget_tracker,
+            health_tracker=ctx.health_tracker,
         )
         # Add flavor_match contribution when IBR is active
         flavor_match = flavor_scores.get(candidate.name, 0.0)
@@ -366,9 +389,7 @@ def _run_lbr_stage(
     assert len(candidates) > 0, "candidates must not be empty"
 
     # Build a lookup from BackendConfig name -> ScoredCandidate for re-wrapping
-    scored_by_name: dict[str, ScoredCandidate] = {
-        sc.config.name: sc for sc in candidates
-    }
+    scored_by_name: dict[str, ScoredCandidate] = {sc.config.name: sc for sc in candidates}
 
     # LBR filters on BackendConfig — unwrap, filter, re-wrap
     configs = [sc.config for sc in candidates]
@@ -445,12 +466,13 @@ async def _run_cascade(
 
     # HAZ-001: Enforce caller-specified trust floor before cost/rate scoring
     trust_filtered = _filter_by_trust_floor(
-        mbr_result.value, order.context_trust_tier,
+        mbr_result.value,
+        order.context_trust_tier,
     )
     if not trust_filtered:
-        return Err(MBRNoCandidatesError(
-            "No candidates meet the requested context_trust_tier floor"
-        ))
+        return Err(
+            MBRNoCandidatesError("No candidates meet the requested context_trust_tier floor")
+        )
 
     # IBR stage: classify intent and compute flavor scores (IBR-PIPE-01)
     ibr_result = await _run_ibr_stage(order, trust_filtered, ctx)
@@ -466,6 +488,11 @@ async def _run_cascade(
 # Pinned dispatch — model-pinning v0.1.0 spec section 2.3.
 # ---------------------------------------------------------------------------
 
+
+# DEVIATION DCS-FUNC-LEN — _pinned_preflight is 86 lines.
+# Justification: linear preflight pipeline with sequential guard clauses; splitting
+# would scatter the pre-flight contract across multiple functions without clarity gain.
+# Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
 def _pinned_preflight(
     order: DispatchOrder,
     ctx: DispatchContext,
@@ -489,10 +516,12 @@ def _pinned_preflight(
             reason="not_found",
             request_id=order.request_id,
         )
-        return Err(ModelNotFoundError(
-            model=model_name,
-            message=f"pinned model not found in registry: {model_name}",
-        ))
+        return Err(
+            ModelNotFoundError(
+                model=model_name,
+                message=f"pinned model not found in registry: {model_name}",
+            )
+        )
 
     # Step 3: Retired check
     if state.status == BackendStatus.RETIRED:
@@ -502,11 +531,13 @@ def _pinned_preflight(
             reason="retired",
             request_id=order.request_id,
         )
-        return Err(ModelUnhealthyError(
-            model=model_name,
-            status="retired",
-            message=f"pinned model is retired: {model_name}",
-        ))
+        return Err(
+            ModelUnhealthyError(
+                model=model_name,
+                status="retired",
+                message=f"pinned model is retired: {model_name}",
+            )
+        )
 
     # Step 3b: KEY_INVALID treated as retired (HAZ-PIN-003)
     if state.status == BackendStatus.KEY_INVALID:
@@ -516,11 +547,13 @@ def _pinned_preflight(
             reason="retired",
             request_id=order.request_id,
         )
-        return Err(ModelUnhealthyError(
-            model=model_name,
-            status="retired",
-            message=f"pinned model has invalid key: {model_name}",
-        ))
+        return Err(
+            ModelUnhealthyError(
+                model=model_name,
+                status="retired",
+                message=f"pinned model has invalid key: {model_name}",
+            )
+        )
 
     # Step 4: Circuit breaker check (when honor_health is true)
     if state.is_circuit_open() and ctx.pinned_dispatch_config.honor_health:
@@ -530,11 +563,13 @@ def _pinned_preflight(
             reason="circuit_open",
             request_id=order.request_id,
         )
-        return Err(ModelUnhealthyError(
-            model=model_name,
-            status="circuit_open",
-            message=f"pinned model is unhealthy (circuit open): {model_name}",
-        ))
+        return Err(
+            ModelUnhealthyError(
+                model=model_name,
+                status="circuit_open",
+                message=f"pinned model is unhealthy (circuit open): {model_name}",
+            )
+        )
 
     # Step 5: Budget capacity check
     if not ctx.budget_tracker.has_capacity(backend.config.provider):
@@ -545,11 +580,13 @@ def _pinned_preflight(
             provider=backend.config.provider,
             request_id=order.request_id,
         )
-        return Err(BudgetExhaustedError(
-            model=model_name,
-            provider=backend.config.provider,
-            message=f"pinned model's provider budget exhausted: {backend.config.provider}",
-        ))
+        return Err(
+            BudgetExhaustedError(
+                model=model_name,
+                provider=backend.config.provider,
+                message=f"pinned model's provider budget exhausted: {backend.config.provider}",
+            )
+        )
 
     return Ok(backend.config)
 
@@ -574,6 +611,10 @@ async def _pinned_route(
     return _pinned_preflight(order, ctx)  # type: ignore[return-value]
 
 
+# DEVIATION DCS-FUNC-LEN — _pinned_dispatch_full is 124 lines.
+# Justification: end-to-end pinned dispatch pipeline including preflight, adapter call,
+# response construction, and cache storage. Splitting would fragment the dispatch contract.
+# Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
 async def _pinned_dispatch_full(
     order: DispatchOrder,
     ctx: DispatchContext,
@@ -614,11 +655,13 @@ async def _pinned_dispatch_full(
             provider=backend_config.provider,
             request_id=order.request_id,
         )
-        return Err(BudgetExhaustedError(  # type: ignore[arg-type]
-            model=order.model,
-            provider=backend_config.provider,
-            message=f"pinned model's provider rate limit exhausted: {backend_config.provider}",
-        ))
+        return Err(
+            BudgetExhaustedError(  # type: ignore[arg-type]
+                model=order.model,
+                provider=backend_config.provider,
+                message=f"pinned model's provider rate limit exhausted: {backend_config.provider}",
+            )
+        )
 
     # Build context and apply trust tier filtering (AC-PIN-011)
     base_context = _build_dispatch_context(order)
@@ -638,7 +681,10 @@ async def _pinned_dispatch_full(
     try:
         content_parts: list[str] = []
         async for chunk in adapter.generate(
-            messages, max_tokens=4096, temperature=0.7, stream=True,
+            messages,
+            max_tokens=4096,
+            temperature=0.7,
+            stream=True,
         ):
             content_parts.append(chunk)
     except (RuntimeError, ValueError, ConnectionError, OSError, TypeError) as exc:
@@ -653,11 +699,13 @@ async def _pinned_dispatch_full(
             request_id=order.request_id,
             dispatch_mode="pinned",
         )
-        return Err(DispatchFailure(  # type: ignore[arg-type]
-            message=f"pinned model dispatch failed: {order.model}",
-            attempted_backends=[backend_config.name],
-            error_details={"error_type": type(exc).__name__, "error_message": str(exc)},
-        ))
+        return Err(
+            DispatchFailure(  # type: ignore[arg-type]
+                message=f"pinned model dispatch failed: {order.model}",
+                attempted_backends=[backend_config.name],
+                error_details={"error_type": type(exc).__name__, "error_message": str(exc)},
+            )
+        )
 
     latency_ms = (time.monotonic() - t0) * 1000.0
     content = "".join(content_parts)
@@ -666,7 +714,13 @@ async def _pinned_dispatch_full(
 
     # Record success in health/budget trackers (AC-PIN-009, AC-PIN-010)
     _record_dispatch_success(
-        backend_config, ctx, adapter, tokens_in, tokens_out, cost_usd, latency_ms,
+        backend_config,
+        ctx,
+        adapter,
+        tokens_in,
+        tokens_out,
+        cost_usd,
+        latency_ms,
         fallback_chain=[],
     )
 
@@ -700,6 +754,10 @@ async def _pinned_dispatch_full(
     return Ok(response)
 
 
+# DEVIATION DCS-FUNC-LEN — _pinned_dispatch_stream is 124 lines.
+# Justification: end-to-end pinned streaming dispatch pipeline mirroring _pinned_dispatch_full.
+# Splitting would fragment the streaming contract. Approved by: architect.
+# Scope: this function. Expiration: revisit 2026-09-01.
 async def _pinned_dispatch_stream(
     order: DispatchOrder,
     ctx: DispatchContext,
@@ -767,7 +825,10 @@ async def _pinned_dispatch_stream(
 
     try:
         async for chunk in adapter.generate(
-            messages, max_tokens=4096, temperature=0.7, stream=True,
+            messages,
+            max_tokens=4096,
+            temperature=0.7,
+            stream=True,
         ):
             tokens_out_chars += len(chunk)
             yield StreamChunk(event_type="token", content=chunk, dispatch_mode="pinned")
@@ -792,7 +853,9 @@ async def _pinned_dispatch_stream(
 
     latency_ms = (time.monotonic() - t0) * 1000.0
     tokens_in, tokens_out = _estimate_and_log_tokens(
-        messages, "x" * tokens_out_chars, backend_config.name,
+        messages,
+        "x" * tokens_out_chars,
+        backend_config.name,
     )
     cost_usd = _compute_cost_usd(tokens_in, tokens_out, backend_config.cost)
 
@@ -938,13 +1001,14 @@ def _estimate_and_log_tokens(
 
 
 def _compute_cost_usd(
-    tokens_in: int, tokens_out: int, cost: BackendCostProfile,
+    tokens_in: int,
+    tokens_out: int,
+    cost: BackendCostProfile,
 ) -> float:
     """Compute estimated cost in USD from token counts and cost profile."""
-    return (
-        (tokens_in / 1_000_000) * cost.input_per_mtok
-        + (tokens_out / 1_000_000) * cost.output_per_mtok
-    )
+    return (tokens_in / 1_000_000) * cost.input_per_mtok + (
+        tokens_out / 1_000_000
+    ) * cost.output_per_mtok
 
 
 # DEVIATION CS-PARAM-001: _record_dispatch_success takes 8 params — dataclass would break API.
@@ -1009,7 +1073,10 @@ async def _try_adapter_dispatch(
     t0 = time.monotonic()
     content_parts: list[str] = []
     async for chunk in adapter.generate(
-        messages, max_tokens=4096, temperature=0.7, stream=True,
+        messages,
+        max_tokens=4096,
+        temperature=0.7,
+        stream=True,
     ):
         content_parts.append(chunk)
     latency_ms = (time.monotonic() - t0) * 1000.0
@@ -1019,12 +1086,27 @@ async def _try_adapter_dispatch(
     cost_usd = _compute_cost_usd(tokens_in, tokens_out, backend_config.cost)
 
     _record_dispatch_success(
-        backend_config, ctx, adapter, tokens_in, tokens_out, cost_usd, latency_ms, fallback_chain,
+        backend_config,
+        ctx,
+        adapter,
+        tokens_in,
+        tokens_out,
+        cost_usd,
+        latency_ms,
+        fallback_chain,
     )
 
-    return Ok(_build_engine_response(
-        backend_config, content, tokens_in, tokens_out, cost_usd, latency_ms, fallback_chain,
-    ))
+    return Ok(
+        _build_engine_response(
+            backend_config,
+            content,
+            tokens_in,
+            tokens_out,
+            cost_usd,
+            latency_ms,
+            fallback_chain,
+        )
+    )
 
 
 # DEVIATION CS-PARAM-001: _build_engine_response takes 7 params — dataclass would break API.
@@ -1145,7 +1227,11 @@ async def _handle_fallback_chain(
         )
         try:
             result = await _try_adapter_dispatch(
-                backend_config, base_context, order, ctx, fallback_chain,
+                backend_config,
+                base_context,
+                order,
+                ctx,
+                fallback_chain,
             )
         except (RuntimeError, ValueError, ConnectionError, OSError, TypeError) as exc:
             last_error = exc
@@ -1164,11 +1250,13 @@ async def _handle_fallback_chain(
         f"Last error: {last_error}"
     )
     logger.error("dispatch exhausted all backends", fallback_chain=fallback_chain)
-    return Err(DispatchFailure(  # type: ignore[arg-type]
-        message=exhaustion_msg,
-        attempted_backends=list(fallback_chain),
-        error_details={"error_type": type(last_error).__name__ if last_error else "unknown"},
-    ))
+    return Err(
+        DispatchFailure(  # type: ignore[arg-type]
+            message=exhaustion_msg,
+            attempted_backends=list(fallback_chain),
+            error_details={"error_type": type(last_error).__name__ if last_error else "unknown"},
+        )
+    )
 
 
 # DEVIATION CS-004: _try_cache_lookup is 44 lines.
@@ -1239,13 +1327,16 @@ def _store_cache_response(order: DispatchOrder, response: EngineResponse) -> Non
         max_tokens=4096,
     )
 
-    cache_value = json.dumps({
-        "content": response.content,
-        "backend_used": response.backend_used,
-        "backend_tier": response.backend_tier.value,
-        "tokens_in": response.tokens_in,
-        "tokens_out": response.tokens_out,
-    }, separators=(",", ":"))
+    cache_value = json.dumps(
+        {
+            "content": response.content,
+            "backend_used": response.backend_used,
+            "backend_tier": response.backend_tier.value,
+            "tokens_in": response.tokens_in,
+            "tokens_out": response.tokens_out,
+        },
+        separators=(",", ":"),
+    )
 
     cache.put(cache_key, cache_value)
     logger.debug("response_cached", cache_key=cache_key[:16])
@@ -1396,14 +1487,19 @@ async def _try_streaming_dispatch(
     tokens_out_chars = 0
 
     async for chunk in adapter.generate(
-        messages, max_tokens=4096, temperature=0.7, stream=True,
+        messages,
+        max_tokens=4096,
+        temperature=0.7,
+        stream=True,
     ):
         tokens_out_chars += len(chunk)
         yield StreamChunk(event_type="token", content=chunk)
 
     latency_ms = (time.monotonic() - t0) * 1000.0
     tokens_in, tokens_out = _estimate_and_log_tokens(
-        messages, "x" * tokens_out_chars, backend_config.name,
+        messages,
+        "x" * tokens_out_chars,
+        backend_config.name,
     )
     cost_usd = _compute_cost_usd(tokens_in, tokens_out, backend_config.cost)
 
@@ -1412,7 +1508,12 @@ async def _try_streaming_dispatch(
     adapter.record_usage(tokens_in, tokens_out)
 
     yield _build_stream_metadata_chunk(
-        backend_config, tokens_in, tokens_out, cost_usd, latency_ms, fallback_chain,
+        backend_config,
+        tokens_in,
+        tokens_out,
+        cost_usd,
+        latency_ms,
+        fallback_chain,
     )
 
 
@@ -1431,7 +1532,11 @@ async def _stream_with_fallback(
     for backend_config in eligible:
         try:
             async for chunk in _try_streaming_dispatch(
-                backend_config, base_context, order, ctx, fallback_chain,
+                backend_config,
+                base_context,
+                order,
+                ctx,
+                fallback_chain,
             ):
                 yield chunk
             return  # Success — metadata chunk already yielded

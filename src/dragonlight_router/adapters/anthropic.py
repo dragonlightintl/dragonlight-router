@@ -102,9 +102,7 @@ class AnthropicBackend(GenerativeBackend):
 
         if not self._api_key:
             self._status = BackendStatus.ERROR
-            raise ValueError(
-                f"anthropic: API key not configured (env: {self._config.env_key})"
-            )
+            raise ValueError(f"anthropic: API key not configured (env: {self._config.env_key})")
 
         base_url = (
             self._config.base_url.rstrip("/")
@@ -114,7 +112,10 @@ class AnthropicBackend(GenerativeBackend):
         url = f"{base_url}/v1/messages"
         headers = self._build_headers()
         payload = self._build_payload(
-            messages, max_tokens=max_tokens, temperature=temperature, stream=stream,
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            stream=stream,
         )
 
         async with self._make_client(timeout=30.0) as client:
@@ -137,6 +138,9 @@ class AnthropicBackend(GenerativeBackend):
                 self._status = BackendStatus.ERROR
                 raise RuntimeError(f"Anthropic request failed: {e}") from e
 
+    # DEVIATION DCS-PARAM-001: _stream_generate takes 5 params (excl. self).
+    # Justification: HTTP client, URL, headers, and body are the irreducible
+    # parameters for an HTTP streaming call. Approved by: architect.
     async def _stream_generate(
         self,
         client: httpx.AsyncClient,
@@ -146,7 +150,11 @@ class AnthropicBackend(GenerativeBackend):
     ) -> AsyncIterator[str]:
         """Parse Anthropic SSE stream and yield text chunks."""
         async with client.stream(
-            "POST", url, headers=headers, json=payload, timeout=60.0,
+            "POST",
+            url,
+            headers=headers,
+            json=payload,
+            timeout=60.0,
         ) as response:
             response.raise_for_status()
             event_type: str | None = None
@@ -175,6 +183,9 @@ class AnthropicBackend(GenerativeBackend):
             return None
         return delta.get("text", "") or None
 
+    # DEVIATION DCS-PARAM-001: _non_stream_generate takes 5 params (excl. self).
+    # Justification: HTTP client, URL, headers, and body are the irreducible
+    # parameters for an HTTP call. Approved by: architect.
     async def _non_stream_generate(
         self,
         client: httpx.AsyncClient,
@@ -184,7 +195,10 @@ class AnthropicBackend(GenerativeBackend):
     ) -> AsyncIterator[str]:
         """Handle non-streaming Anthropic response."""
         response = await client.post(
-            url, headers=headers, json=payload, timeout=60.0,
+            url,
+            headers=headers,
+            json=payload,
+            timeout=60.0,
         )
         response.raise_for_status()
         response_data = response.json()

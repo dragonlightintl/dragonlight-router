@@ -3,6 +3,7 @@
 Loaded from a JSON file. Supports hot-reload via mtime check.
 Returns ranked tuples of (model_id, rank) for a given role.
 """
+
 from __future__ import annotations
 
 import json
@@ -36,9 +37,9 @@ class RoleMatrix:
         role_data = self._matrix.get(role, {})
         ranked = [(model_id, rank) for model_id, rank in role_data.items()]
         ranked.sort(key=lambda x: x[1], reverse=True)
-        assert all(
-            isinstance(r, tuple) and len(r) == 2 for r in ranked
-        ), "ranked items must be 2-tuples"
+        assert all(isinstance(r, tuple) and len(r) == 2 for r in ranked), (
+            "ranked items must be 2-tuples"
+        )
         return ranked
 
     def get_rank(self, model_id: str, role: str) -> int:
@@ -101,9 +102,7 @@ class RoleMatrix:
         matrix: dict[str, dict[str, int]] = {}
         for role, entries in roles_raw.items():
             if isinstance(entries, list):
-                matrix[role] = {
-                    e["model_id"]: e["rank"] for e in entries
-                }
+                matrix[role] = {e["model_id"]: e["rank"] for e in entries}
             elif isinstance(entries, dict):
                 matrix[role] = entries
         return matrix

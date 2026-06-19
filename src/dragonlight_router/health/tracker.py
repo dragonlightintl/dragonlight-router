@@ -3,6 +3,7 @@
 Uses CircuitBreaker for each tracked model. Provides health scores
 based on error count and circuit state. Handles model retirement on 404.
 """
+
 from __future__ import annotations
 
 import time
@@ -56,30 +57,30 @@ class HealthTracker:
         if model_id in self._retired:
             score = 0.0
             # Assertions for coding standard (>=2 assertions)
-            assert 0.0 <= score <= 100.0, f'health score {score} must be between 0 and 100'
-            assert isinstance(score, float), f'health score must be float, got {type(score)}'
+            assert 0.0 <= score <= 100.0, f"health score {score} must be between 0 and 100"
+            assert isinstance(score, float), f"health score must be float, got {type(score)}"
             return Ok(score)
         breaker = self._breakers[model_id]
         if not breaker.allow_request():
             score = 0.0
-            assert 0.0 <= score <= 100.0, f'health score {score} must be between 0 and 100'
-            assert isinstance(score, float), f'health score must be float, got {type(score)}'
+            assert 0.0 <= score <= 100.0, f"health score {score} must be between 0 and 100"
+            assert isinstance(score, float), f"health score must be float, got {type(score)}"
             return Ok(score)
 
         error_count = self._error_counts.get(model_id, 0)
         if error_count >= 3:
             score = 30.0
-            assert 0.0 <= score <= 100.0, f'health score {score} must be between 0 and 100'
-            assert isinstance(score, float), f'health score must be float, got {type(score)}'
+            assert 0.0 <= score <= 100.0, f"health score {score} must be between 0 and 100"
+            assert isinstance(score, float), f"health score must be float, got {type(score)}"
             return Ok(score)
         if error_count >= 1:
             score = 70.0
-            assert 0.0 <= score <= 100.0, f'health score {score} must be between 0 and 100'
-            assert isinstance(score, float), f'health score must be float, got {type(score)}'
+            assert 0.0 <= score <= 100.0, f"health score {score} must be between 0 and 100"
+            assert isinstance(score, float), f"health score must be float, got {type(score)}"
             return Ok(score)
         score = 100.0
-        assert 0.0 <= score <= 100.0, f'health score {score} must be between 0 and 100'
-        assert isinstance(score, float), f'health score must be float, got {type(score)}'
+        assert 0.0 <= score <= 100.0, f"health score {score} must be between 0 and 100"
+        assert isinstance(score, float), f"health score must be float, got {type(score)}"
         return Ok(score)
 
     def record_success(self, model_id: str, latency_ms: float) -> None:
@@ -98,7 +99,10 @@ class HealthTracker:
             )
 
     def record_error(
-        self, model_id: str, *, http_status: int | None = None,
+        self,
+        model_id: str,
+        *,
+        http_status: int | None = None,
     ) -> None:
         """Record a failed request — may trip circuit breaker or retire model.
 

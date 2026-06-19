@@ -6,6 +6,7 @@ operator-declared profiles.
 
 Spec reference: model-spectrography-v0.1.0-spec.md
 """
+
 from __future__ import annotations
 
 import math
@@ -33,9 +34,11 @@ logger = structlog.get_logger()
 # Data structures — probe results and intermediate representations
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class ProbeResult:
     """Single probe evaluation result from a spectrography run."""
+
     model_id: str
     probe_id: str
     task_type: str
@@ -50,6 +53,7 @@ class ProbeResult:
 @dataclass(frozen=True)
 class DimensionStats:
     """Aggregated statistics for a single (model, dimension) pair."""
+
     mean: float
     stddev: float
     count: int
@@ -58,6 +62,7 @@ class DimensionStats:
 @dataclass(frozen=True)
 class RawFingerprint:
     """Raw aggregated fingerprint for one model before rank normalization."""
+
     model_id: str
     task_scores: dict[str, DimensionStats]
     domain_scores: dict[str, DimensionStats]
@@ -67,10 +72,11 @@ class RawFingerprint:
 @dataclass(frozen=True)
 class CalibrationDelta:
     """Delta between empirical and operator-declared scores for one dimension."""
-    dimension: str      # e.g. "task/generation", "domain/code", "qs/speed"
+
+    dimension: str  # e.g. "task/generation", "domain/code", "qs/speed"
     declared: float
     empirical: float
-    delta: float        # abs(empirical - declared)
+    delta: float  # abs(empirical - declared)
     recommendation: str  # "confirm" | "review" | "update"
 
 
@@ -86,6 +92,7 @@ _PROFILE_SCHEMA_VERSION: int = 1
 # ---------------------------------------------------------------------------
 # 1. aggregate_scores — group probes into raw fingerprints
 # ---------------------------------------------------------------------------
+
 
 def aggregate_scores(
     results: list[ProbeResult],
@@ -173,6 +180,11 @@ def _compute_dimension_stats(
 # 2. rank_normalize — cross-model rank normalization
 # ---------------------------------------------------------------------------
 
+
+# DEVIATION DCS-FUNC-LEN — rank_normalize is 56 lines.
+# Justification: cross-model normalization pipeline iterating over all dimension
+# categories; splitting would scatter the normalization contract.
+# Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
 def rank_normalize(
     raw: dict[str, RawFingerprint],
 ) -> dict[str, ModelFlavorProfile]:
@@ -209,13 +221,22 @@ def rank_normalize(
         fp = raw[model_id]
 
         task_scores = _build_flavor_scores_from_ranked(
-            fp.task_scores, task_ranked, model_id, IBR_TASK_TYPES,
+            fp.task_scores,
+            task_ranked,
+            model_id,
+            IBR_TASK_TYPES,
         )
         domain_scores = _build_flavor_scores_from_ranked(
-            fp.domain_scores, domain_ranked, model_id, IBR_DOMAINS,
+            fp.domain_scores,
+            domain_ranked,
+            model_id,
+            IBR_DOMAINS,
         )
         qs_scores = _build_flavor_scores_from_ranked(
-            fp.qs_scores, qs_ranked, model_id, IBR_QUALITY_SPEED,
+            fp.qs_scores,
+            qs_ranked,
+            model_id,
+            IBR_QUALITY_SPEED,
         )
 
         profiles[model_id] = ModelFlavorProfile(
@@ -242,6 +263,9 @@ def _collect_all_dimension_keys(
     return keys
 
 
+# DEVIATION DCS-FUNC-LEN — _rank_normalize_dimension is 41 lines.
+# Justification: per-dimension rank normalization with scoring and tie-handling;
+# tightly coupled logic. Approved by: architect. Scope: this function.
 def _rank_normalize_dimension(
     raw: dict[str, RawFingerprint],
     attr: str,
@@ -321,6 +345,11 @@ def _build_flavor_scores_from_ranked(
 # 3. compute_calibration_deltas — compare empirical vs declared
 # ---------------------------------------------------------------------------
 
+
+# DEVIATION DCS-FUNC-LEN — compute_calibration_deltas is 57 lines.
+# Justification: loads declared profiles, iterates all dimensions, and computes
+# per-dimension deltas; splitting would scatter the comparison contract.
+# Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
 def compute_calibration_deltas(
     empirical: dict[str, ModelFlavorProfile],
     declared_path: Path,
@@ -357,16 +386,22 @@ def compute_calibration_deltas(
         model_deltas: dict[str, CalibrationDelta] = {}
 
         _compute_dimension_deltas(
-            model_deltas, "task",
-            emp_profile.task_scores, decl_profile.task_scores,
+            model_deltas,
+            "task",
+            emp_profile.task_scores,
+            decl_profile.task_scores,
         )
         _compute_dimension_deltas(
-            model_deltas, "domain",
-            emp_profile.domain_scores, decl_profile.domain_scores,
+            model_deltas,
+            "domain",
+            emp_profile.domain_scores,
+            decl_profile.domain_scores,
         )
         _compute_dimension_deltas(
-            model_deltas, "qs",
-            emp_profile.qs_scores, decl_profile.qs_scores,
+            model_deltas,
+            "qs",
+            emp_profile.qs_scores,
+            decl_profile.qs_scores,
         )
 
         if model_deltas:
@@ -432,13 +467,16 @@ def _parse_declared_profile(
         return None
 
     task_scores = _parse_declared_dimension(
-        raw.get("task_scores", {}), IBR_TASK_TYPES,
+        raw.get("task_scores", {}),
+        IBR_TASK_TYPES,
     )
     domain_scores = _parse_declared_dimension(
-        raw.get("domain_scores", {}), IBR_DOMAINS,
+        raw.get("domain_scores", {}),
+        IBR_DOMAINS,
     )
     qs_scores = _parse_declared_dimension(
-        raw.get("qs_scores", {}), IBR_QUALITY_SPEED,
+        raw.get("qs_scores", {}),
+        IBR_QUALITY_SPEED,
     )
 
     return ModelFlavorProfile(
@@ -467,7 +505,9 @@ def _parse_declared_dimension(
         if key in parsed:
             value = max(0.0, min(1.0, float(parsed[key])))
             scores[key] = FlavorScore(
-                score=value, confidence=1.0, sample_count=0,
+                score=value,
+                confidence=1.0,
+                sample_count=0,
             )
         else:
             scores[key] = IBR_NEUTRAL_FLAVOR
@@ -518,6 +558,7 @@ def _delta_recommendation(delta: float) -> str:
 # 4. build_fingerprints_yaml — serialize profiles to YAML
 # ---------------------------------------------------------------------------
 
+
 def build_fingerprints_yaml(
     profiles: dict[str, ModelFlavorProfile],
     run_id: str,
@@ -562,16 +603,17 @@ def _serialize_scores_for_yaml(
 ) -> dict[str, float]:
     """Serialize FlavorScore dict to simple key->score mapping for YAML."""
     assert isinstance(scores, dict), "scores must be a dict"
-    return {
-        key: round(fs.score, 4)
-        for key, fs in sorted(scores.items())
-    }
+    return {key: round(fs.score, 4) for key, fs in sorted(scores.items())}
 
 
 # ---------------------------------------------------------------------------
 # 5. build_model_rankings — per-dimension model rankings
 # ---------------------------------------------------------------------------
 
+
+# DEVIATION DCS-FUNC-LEN — build_model_rankings is 42 lines.
+# Justification: iterates all dimension categories to build per-dimension rankings;
+# tightly coupled aggregation logic. Approved by: architect. Scope: this function.
 def build_model_rankings(
     profiles: dict[str, ModelFlavorProfile],
 ) -> dict[str, list[str]]:
@@ -591,21 +633,27 @@ def build_model_rankings(
     for dim_key in IBR_TASK_TYPES:
         full_key = f"task/{dim_key}"
         rankings[full_key] = _rank_models_by_dimension(
-            profiles, "task_scores", dim_key,
+            profiles,
+            "task_scores",
+            dim_key,
         )
 
     # Domain dimensions
     for dim_key in IBR_DOMAINS:
         full_key = f"domain/{dim_key}"
         rankings[full_key] = _rank_models_by_dimension(
-            profiles, "domain_scores", dim_key,
+            profiles,
+            "domain_scores",
+            dim_key,
         )
 
     # Quality/speed dimensions
     for dim_key in IBR_QUALITY_SPEED:
         full_key = f"qs/{dim_key}"
         rankings[full_key] = _rank_models_by_dimension(
-            profiles, "qs_scores", dim_key,
+            profiles,
+            "qs_scores",
+            dim_key,
         )
 
     logger.info(

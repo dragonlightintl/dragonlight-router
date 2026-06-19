@@ -135,16 +135,11 @@ class GoogleBackend(GenerativeBackend):
 
         if not api_key and self._config.env_key:
             self._status = BackendStatus.ERROR
-            raise ValueError(
-                f"google: API key not configured "
-                f"(env: {self._config.env_key})"
-            )
+            raise ValueError(f"google: API key not configured (env: {self._config.env_key})")
 
         if not api_key and not self._config.env_key:
             self._status = BackendStatus.ERROR
-            raise ValueError(
-                f"google: No API key configured for backend {self._config.name}"
-            )
+            raise ValueError(f"google: No API key configured for backend {self._config.name}")
 
         body = self._build_request_body(messages, max_tokens=max_tokens, temperature=temperature)
         url = self._build_url(self._config.model)
@@ -183,7 +178,10 @@ class GoogleBackend(GenerativeBackend):
         return body
 
     async def _execute_stream(
-        self, url: str, headers: dict[str, str], body: dict[str, Any],
+        self,
+        url: str,
+        headers: dict[str, str],
+        body: dict[str, Any],
     ) -> AsyncIterator[str]:
         """Execute the streaming request and yield text chunks."""
         async with (
@@ -198,9 +196,7 @@ class GoogleBackend(GenerativeBackend):
                     status=response.status_code,
                     body_length=len(error_body),
                 )
-                raise RuntimeError(
-                    f"Google API error {response.status_code}"
-                )
+                raise RuntimeError(f"Google API error {response.status_code}")
 
             async for line in response.aiter_lines():
                 text = self._parse_sse_line(line.strip())
@@ -213,7 +209,7 @@ class GoogleBackend(GenerativeBackend):
         """Parse a Gemini SSE line, returning text, __DONE__, or None."""
         if not line or not line.startswith("data: "):
             return None
-        json_str = line[len("data: "):]
+        json_str = line[len("data: ") :]
         if json_str == "[DONE]":
             return "__DONE__"
         try:

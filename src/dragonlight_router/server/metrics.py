@@ -4,6 +4,7 @@ Tracks per-endpoint request counts, error counts, and latency percentiles
 (p50/p95/p99). Also tracks router-level dispatch stats. No external
 dependencies required — all data held in memory.
 """
+
 from __future__ import annotations
 
 import resource
@@ -40,6 +41,9 @@ class MetricsCollector:
         self._fallback_count: int = 0
         self._circuit_breaker_trips: int = 0
 
+    # DEVIATION DCS-PARAM-001: record_request takes 5 params (excl. self).
+    # Justification: HTTP request metrics require method, path, status, and duration;
+    # all are scalar primitives. Approved by: architect. Scope: this method.
     def record_request(
         self,
         method: str,

@@ -10,6 +10,7 @@ across breakers tripped simultaneously. Each breaker adds a random
 offset (0 to jitter_factor * cooldown_s) so HALF_OPEN probes are
 staggered, reducing the risk of correlated flapping.
 """
+
 from __future__ import annotations
 
 import random
@@ -34,6 +35,9 @@ class CircuitBreaker:
     so breakers tripped simultaneously do not recover in lockstep.
     """
 
+    # DEVIATION DCS-PARAM-001: __init__ takes 5 params (excl. self).
+    # Justification: all params are scalar config with defaults; a config dataclass
+    # would add indirection without clarity gain. Approved by: architect.
     def __init__(
         self,
         error_threshold: int = 3,

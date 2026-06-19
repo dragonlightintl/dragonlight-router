@@ -4,6 +4,7 @@ HAZ-006 mitigation: Prevents API keys from appearing in log output
 by scrubbing known secret patterns from all log event dicts before
 they reach any sink.
 """
+
 from __future__ import annotations
 
 import re

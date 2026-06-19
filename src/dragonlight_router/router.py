@@ -6,6 +6,7 @@ Provides dual interface:
 
 Wires together: config, budget, health, catalog, matrix, scoring, interleaving.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -93,73 +94,93 @@ class RouterEngine:
     _MODEL_COSTS: dict[str, BackendCostProfile] = {
         # NVIDIA NIM — free-tier API pricing
         "nvidia_nim/moonshotai/kimi-k2.6": BackendCostProfile(
-            input_per_mtok=0.0, output_per_mtok=0.0,
+            input_per_mtok=0.0,
+            output_per_mtok=0.0,
         ),
         "nvidia_nim/deepseek-ai/deepseek-v4-pro": BackendCostProfile(
-            input_per_mtok=0.0, output_per_mtok=0.0,
+            input_per_mtok=0.0,
+            output_per_mtok=0.0,
         ),
         "nvidia_nim/mistralai/codestral-22b-instruct-v0.1": BackendCostProfile(
-            input_per_mtok=0.0, output_per_mtok=0.0,
+            input_per_mtok=0.0,
+            output_per_mtok=0.0,
         ),
         "nvidia_nim/qwen/qwen3.5-397b-a17b": BackendCostProfile(
-            input_per_mtok=0.0, output_per_mtok=0.0,
+            input_per_mtok=0.0,
+            output_per_mtok=0.0,
         ),
         # Groq — free-tier for most models
         "groq/llama-3.3-70b-versatile": BackendCostProfile(
-            input_per_mtok=0.59, output_per_mtok=0.79,
+            input_per_mtok=0.59,
+            output_per_mtok=0.79,
         ),
         "groq/deepseek-r1-distill-llama-70b": BackendCostProfile(
-            input_per_mtok=0.59, output_per_mtok=0.79,
+            input_per_mtok=0.59,
+            output_per_mtok=0.79,
         ),
         # Gemini
         "gemini/gemini-2.5-pro": BackendCostProfile(
-            input_per_mtok=1.25, output_per_mtok=10.00,
+            input_per_mtok=1.25,
+            output_per_mtok=10.00,
         ),
         "gemini/gemini-2.5-flash": BackendCostProfile(
-            input_per_mtok=0.15, output_per_mtok=0.60,
+            input_per_mtok=0.15,
+            output_per_mtok=0.60,
         ),
         # OpenRouter — free tier models
         "openrouter/qwen/qwen3-coder:free": BackendCostProfile(
-            input_per_mtok=0.0, output_per_mtok=0.0,
+            input_per_mtok=0.0,
+            output_per_mtok=0.0,
         ),
         "openrouter/poolside/laguna-m.1:free": BackendCostProfile(
-            input_per_mtok=0.0, output_per_mtok=0.0,
+            input_per_mtok=0.0,
+            output_per_mtok=0.0,
         ),
         # Cerebras
         "cerebras/llama-3.3-70b": BackendCostProfile(
-            input_per_mtok=0.60, output_per_mtok=0.60,
+            input_per_mtok=0.60,
+            output_per_mtok=0.60,
         ),
         # Mistral
         "mistral/codestral-latest": BackendCostProfile(
-            input_per_mtok=0.30, output_per_mtok=0.90,
+            input_per_mtok=0.30,
+            output_per_mtok=0.90,
         ),
         "mistral/mistral-large-latest": BackendCostProfile(
-            input_per_mtok=2.00, output_per_mtok=6.00,
+            input_per_mtok=2.00,
+            output_per_mtok=6.00,
         ),
         # Anthropic
         "anthropic/claude-sonnet-4-20250514": BackendCostProfile(
-            input_per_mtok=3.00, output_per_mtok=15.00,
+            input_per_mtok=3.00,
+            output_per_mtok=15.00,
         ),
         "anthropic/claude-haiku-3-5-20241022": BackendCostProfile(
-            input_per_mtok=0.80, output_per_mtok=4.00,
+            input_per_mtok=0.80,
+            output_per_mtok=4.00,
         ),
         # OpenAI
         "openai/gpt-4o": BackendCostProfile(
-            input_per_mtok=2.50, output_per_mtok=10.00,
+            input_per_mtok=2.50,
+            output_per_mtok=10.00,
         ),
         "openai/gpt-4o-mini": BackendCostProfile(
-            input_per_mtok=0.15, output_per_mtok=0.60,
+            input_per_mtok=0.15,
+            output_per_mtok=0.60,
         ),
         # Cohere
         "cohere/command-r-plus": BackendCostProfile(
-            input_per_mtok=2.50, output_per_mtok=10.00,
+            input_per_mtok=2.50,
+            output_per_mtok=10.00,
         ),
         "cohere/command-r": BackendCostProfile(
-            input_per_mtok=0.15, output_per_mtok=0.60,
+            input_per_mtok=0.15,
+            output_per_mtok=0.60,
         ),
         # Together
         "together/meta-llama/Llama-3.3-70B-Instruct-Turbo": BackendCostProfile(
-            input_per_mtok=0.88, output_per_mtok=0.88,
+            input_per_mtok=0.88,
+            output_per_mtok=0.88,
         ),
     }
 
@@ -204,7 +225,9 @@ class RouterEngine:
         return BackendCostProfile(input_per_mtok=0.0, output_per_mtok=0.0)
 
     def __init__(
-        self, config_path: Path | None = None, **overrides: Any,
+        self,
+        config_path: Path | None = None,
+        **overrides: Any,
     ) -> None:
         assert config_path is None or isinstance(config_path, Path), (
             "config_path must be a Path or None"
@@ -220,15 +243,9 @@ class RouterEngine:
         self._init_health_check()
         self._init_ibr()
 
-        assert isinstance(self._budget, BudgetTracker), (
-            "_budget must be a BudgetTracker instance"
-        )
-        assert isinstance(self._health, HealthTracker), (
-            "_health must be a HealthTracker instance"
-        )
-        assert isinstance(self._config, RouterConfig), (
-            "_config must be a RouterConfig instance"
-        )
+        assert isinstance(self._budget, BudgetTracker), "_budget must be a BudgetTracker instance"
+        assert isinstance(self._health, HealthTracker), "_health must be a HealthTracker instance"
+        assert isinstance(self._config, RouterConfig), "_config must be a RouterConfig instance"
 
     @staticmethod
     def _load_config(config_path: Path | None, overrides: dict[str, Any]) -> RouterConfig:
@@ -253,10 +270,15 @@ class RouterEngine:
         state_dir = self._config.state_dir
         provider_configs = [
             ProviderConfig(
-                name=p.name, base_url=p.base_url, catalog_url=p.catalog_url,
-                env_key=p.env_key, model_prefix=p.model_prefix,
-                rpm_limit=p.rate_limits.rpm, rpd_limit=p.rate_limits.rpd,
-                tpm_limit=p.rate_limits.tpm, daily_token_cap=p.rate_limits.daily_token_cap,
+                name=p.name,
+                base_url=p.base_url,
+                catalog_url=p.catalog_url,
+                env_key=p.env_key,
+                model_prefix=p.model_prefix,
+                rpm_limit=p.rate_limits.rpm,
+                rpd_limit=p.rate_limits.rpd,
+                tpm_limit=p.rate_limits.tpm,
+                daily_token_cap=p.rate_limits.daily_token_cap,
             )
             for p in self._config.providers
         ]
@@ -309,8 +331,11 @@ class RouterEngine:
         )
 
         self._health_check_loop = HealthCheckLoop(
-            backends=backends_dict, states=states_dict,
-            latency_slos=latency_slos_dict, interval_s=30.0, timeout_s=10.0,
+            backends=backends_dict,
+            states=states_dict,
+            latency_slos=latency_slos_dict,
+            interval_s=30.0,
+            timeout_s=10.0,
             on_cycle=self._async_refresh_catalog,
             on_cycle_interval=catalog_refresh_interval,
         )
@@ -374,9 +399,7 @@ class RouterEngine:
 
         for model_id, _rank in ranked:
             backend, state = self._registry.get(model_id)
-            if backend is not None and (
-                state is None or state.status == BackendStatus.AVAILABLE
-            ):
+            if backend is not None and (state is None or state.status == BackendStatus.AVAILABLE):
                 logger.info(
                     "ibr_classification_adapter_resolved",
                     model_id=model_id,
@@ -524,13 +547,15 @@ class RouterEngine:
         return all_model_ids
 
     def _resolve_backend_config(
-        self, model_id: str, matched_provider: Any,
+        self,
+        model_id: str,
+        matched_provider: Any,
     ) -> BackendConfig:
         """Build a BackendConfig for a single model given its resolved provider."""
         assert isinstance(model_id, str) and model_id, "model_id must be non-empty string"
         assert matched_provider is not None, "matched_provider must not be None"
 
-        bare_model = model_id[len(matched_provider.model_prefix):]
+        bare_model = model_id[len(matched_provider.model_prefix) :]
         adapter_key = self._PROVIDER_ADAPTER_KEY[matched_provider.name]
         tier = self._assign_tier(model_id)
         normalized_base_url = self._normalize_base_url(matched_provider.base_url, adapter_key)
@@ -570,14 +595,16 @@ class RouterEngine:
 
         adapter_key = self._PROVIDER_ADAPTER_KEY.get(matched_provider.name)
         if adapter_key is None:
-            logger.warning("provider_no_adapter_key",
-                           provider=matched_provider.name, model_id=model_id)
+            logger.warning(
+                "provider_no_adapter_key", provider=matched_provider.name, model_id=model_id
+            )
             return False
 
         tier = self._assign_tier(model_id)
         if matched_provider.env_key is None and tier != BackendTier.LOCAL:
-            logger.debug("backend_skipped_no_env_key",
-                         model_id=model_id, provider=matched_provider.name)
+            logger.debug(
+                "backend_skipped_no_env_key", model_id=model_id, provider=matched_provider.name
+            )
             return False
 
         try:
@@ -585,13 +612,20 @@ class RouterEngine:
             adapter = create_adapter(config)
             self._registry.register(adapter)
             self._mark_missing_key(model_id, matched_provider)
-            logger.info("backend_registered_from_matrix",
-                        model_id=model_id, provider=matched_provider.name,
-                        adapter_key=adapter_key, tier=tier.value)
+            logger.info(
+                "backend_registered_from_matrix",
+                model_id=model_id,
+                provider=matched_provider.name,
+                adapter_key=adapter_key,
+                tier=tier.value,
+            )
             return True
-        except Exception as exc:  # noqa: BLE001 — skip bad configs gracefully
-            logger.warning("backend_registration_failed",
-                           model_id=model_id, error=str(exc))
+        except Exception as exc:  # noqa: BLE001 — DEVIATION DCS-EXC-001: except Exception
+            # at I/O boundary. Justification: create_adapter may raise heterogeneous
+            # provider SDK errors (ImportError, ValueError, KeyError, httpx errors).
+            # Approved by: architect. Mitigations: logged, never silenced. Scope: this
+            # try block only. Expiration: revisit when adapters adopt Result returns.
+            logger.warning("backend_registration_failed", model_id=model_id, error=str(exc))
             return False
 
     def _mark_missing_key(self, model_id: str, matched_provider: Any) -> None:
@@ -603,9 +637,9 @@ class RouterEngine:
         _backend, state = self._registry.get(model_id)
         if state is not None:
             state.status = BackendStatus.KEY_INVALID
-            logger.warning("backend_key_missing",
-                           model_id=model_id,
-                           env_key=matched_provider.env_key)
+            logger.warning(
+                "backend_key_missing", model_id=model_id, env_key=matched_provider.env_key
+            )
 
     def _register_backends_from_matrix(self) -> None:
         """Populate BackendRegistry from the role matrix + provider config."""
@@ -651,14 +685,11 @@ class RouterEngine:
         top_n: int = 12,
         exclude_providers: frozenset[str] | None = None,
     ) -> list[str]:
-        assert isinstance(role, str) and len(role) > 0, (
-            "role must be a non-empty string"
-        )
-        assert isinstance(top_n, int) and top_n >= 0, (
-            "top_n must be a non-negative integer"
-        )
+        assert isinstance(role, str) and len(role) > 0, "role must be a non-empty string"
+        assert isinstance(top_n, int) and top_n >= 0, "top_n must be a non-negative integer"
         assert exclude_providers is None or isinstance(
-            exclude_providers, frozenset,
+            exclude_providers,
+            frozenset,
         ), "exclude_providers must be a frozenset or None"
         """Return ranked model IDs for a role. Factory's primary entry point."""
         self._matrix.reload_if_changed()
@@ -713,9 +744,9 @@ class RouterEngine:
             - Returns list of (model_id, rank, provider) tuples that passed filters
         """
         assert isinstance(candidates, list), "candidates must be a list"
-        assert all(
-            isinstance(item, tuple) and len(item) == 2 for item in candidates
-        ), "each candidate must be a (model_id, rank) tuple"
+        assert all(isinstance(item, tuple) and len(item) == 2 for item in candidates), (
+            "each candidate must be a (model_id, rank) tuple"
+        )
         assert isinstance(live_models, set), "live_models must be a set"
         assert isinstance(fetched_providers, set), "fetched_providers must be a set"
 
@@ -760,9 +791,9 @@ class RouterEngine:
             - Returns list of ModelScore objects sorted by composite score descending
         """
         assert isinstance(filtered, list), "filtered must be a list"
-        assert all(
-            isinstance(item, tuple) and len(item) == 3 for item in filtered
-        ), "each item must be a (model_id, rank, provider) tuple"
+        assert all(isinstance(item, tuple) and len(item) == 3 for item in filtered), (
+            "each item must be a (model_id, rank, provider) tuple"
+        )
 
         scored: list[ModelScore] = []
         for model_id, rank, provider in filtered:
@@ -792,9 +823,7 @@ class RouterEngine:
         scored.sort(key=lambda m: m.composite, reverse=True)
         return scored
 
-    def _build_ranked_list(
-        self, scored: list[ModelScore], top_n: int
-    ) -> list[str]:
+    def _build_ranked_list(self, scored: list[ModelScore], top_n: int) -> list[str]:
         """Interleave scored candidates and return top_n model IDs.
 
         Precondition:
@@ -804,9 +833,9 @@ class RouterEngine:
             - Returns list of model_id strings of length min(top_n, len(scored))
         """
         assert isinstance(scored, list), "scored must be a list"
-        assert all(
-            isinstance(item, ModelScore) for item in scored
-        ), "each item must be a ModelScore"
+        assert all(isinstance(item, ModelScore) for item in scored), (
+            "each item must be a ModelScore"
+        )
         assert isinstance(top_n, int) and top_n >= 0, "top_n must be a non-negative integer"
 
         # Interleave providers
@@ -818,18 +847,14 @@ class RouterEngine:
         return [m.model_id for m in interleaved[:top_n]]
 
     def record_request(self, outcome: RequestOutcome) -> None:
-        assert isinstance(outcome, RequestOutcome), (
-            "outcome must be a RequestOutcome"
-        )
+        assert isinstance(outcome, RequestOutcome), "outcome must be a RequestOutcome"
         assert isinstance(outcome.provider, str) and len(outcome.provider) > 0, (
             "outcome.provider must be a non-empty string"
         )
         assert isinstance(outcome.model_id, str) and len(outcome.model_id) > 0, (
             "outcome.model_id must be a non-empty string"
         )
-        assert isinstance(outcome.success, bool), (
-            "outcome.success must be a boolean"
-        )
+        assert isinstance(outcome.success, bool), "outcome.success must be a boolean"
         assert isinstance(outcome.tokens_used, int) and outcome.tokens_used >= 0, (
             "outcome.tokens_used must be a non-negative integer"
         )
@@ -854,9 +879,7 @@ class RouterEngine:
         Delegates to FeedbackStore, passing the operator-declared profile
         (if any) so floor enforcement (IBR-FLV-03) can be applied.
         """
-        assert isinstance(model_id, str) and model_id, (
-            "model_id must be a non-empty string"
-        )
+        assert isinstance(model_id, str) and model_id, "model_id must be a non-empty string"
         assert isinstance(classified_intent, ClassifiedIntent), (
             "classified_intent must be a ClassifiedIntent"
         )
@@ -888,9 +911,8 @@ class RouterEngine:
         # Build a provider → {model_id → {score, ...}} snapshot from HealthTracker
         snapshot: dict[str, Any] = {}
         # Collect all model_ids that HealthTracker knows about (error counts + latency)
-        tracked_models = (
-            set(self._health._error_counts.keys())
-            | set(self._health._avg_latency.keys())
+        tracked_models = set(self._health._error_counts.keys()) | set(
+            self._health._avg_latency.keys()
         )
         for model_id in tracked_models:
             # Resolve provider via prefix matching
@@ -907,6 +929,7 @@ class RouterEngine:
             }
         assert isinstance(snapshot, dict), "health_snapshot must return a dict"
         return snapshot
+
     def budget_snapshot(self) -> dict[str, Any]:
         """Return budget state of all providers."""
         snapshot: dict[str, Any] = {}
@@ -924,6 +947,7 @@ class RouterEngine:
                 f"budget snapshot for {provider_name} must be a dict"
             )
         return snapshot
+
     def _refresh_catalog(self) -> None:
         """Trigger catalog refresh — works in both sync and async contexts.
 
@@ -938,9 +962,7 @@ class RouterEngine:
         Approved by: architect. Mitigations: exception is logged, never silenced.
         Scope: _refresh_catalog / _async_refresh_catalog only.
         """
-        assert isinstance(self._config, RouterConfig), (
-            "_config must be a RouterConfig instance"
-        )
+        assert isinstance(self._config, RouterConfig), "_config must be a RouterConfig instance"
         assert isinstance(self._refresher, CatalogRefresher), (
             "_refresher must be a CatalogRefresher instance"
         )

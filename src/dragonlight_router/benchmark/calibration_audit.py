@@ -6,6 +6,7 @@ empirical scores against operator-declared flavor profiles.
 
 Spec reference: calibration-audit-v0.1.0-spec.md
 """
+
 from __future__ import annotations
 
 import argparse
@@ -41,9 +42,14 @@ _DEFAULT_JUDGE = "gemini/gemini-2.5-pro"
 _FALLBACK_JUDGE = "nvidia_nim/qwen/qwen3.5-397b-a17b"
 _DEFAULT_OUTPUT_DIR = "benchmark_results"
 _CTX_TOKENS = 100
-_DEFAULT_PROVIDER_DELAYS: types.MappingProxyType[str, float] = types.MappingProxyType({
-    "gemini": 1.0, "groq": 1.5, "nvidia_nim": 1.0, "openrouter": 2.0,
-})
+_DEFAULT_PROVIDER_DELAYS: types.MappingProxyType[str, float] = types.MappingProxyType(
+    {
+        "gemini": 1.0,
+        "groq": 1.5,
+        "nvidia_nim": 1.0,
+        "openrouter": 2.0,
+    }
+)
 _BACKOFF_SCHEDULE = [5.0, 10.0, 20.0, 40.0]
 _MAX_RETRIES = 3
 _DELTA_THRESHOLD = 0.15
@@ -51,6 +57,7 @@ _CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
 
 
 # --- Result types ---
+
 
 @dataclass(frozen=True)
 class PromptResult:
@@ -91,14 +98,21 @@ def _extract_provider(model_id: str) -> str:
 
 # --- HTTP helpers ---
 
+
 # DEVIATION CS-PARAM-001: 6 params — dataclass would break API.
 async def _dispatch_pinned(
-    client: httpx.AsyncClient, url: str, model: str,
-    prompt_text: str, run_id: str, prompt_id: str,
+    client: httpx.AsyncClient,
+    url: str,
+    model: str,
+    prompt_text: str,
+    run_id: str,
+    prompt_id: str,
 ) -> dict[str, Any]:
     """POST /v1/dispatch with model pinned."""
     body: dict[str, Any] = {
-        "model": model, "operator_message": prompt_text, "context_tokens": _CTX_TOKENS,
+        "model": model,
+        "operator_message": prompt_text,
+        "context_tokens": _CTX_TOKENS,
     }
     if prompt_id:
         body["metadata"] = {"benchmark_run_id": run_id, "prompt_id": prompt_id}
@@ -115,7 +129,9 @@ async def _check_health(client: httpx.AsyncClient, url: str) -> bool:
 
 
 async def _check_model_reachable(
-    client: httpx.AsyncClient, url: str, model: str,
+    client: httpx.AsyncClient,
+    url: str,
+    model: str,
 ) -> bool:
     """Send a trivial pinned dispatch to verify model reachability."""
     try:
@@ -131,9 +147,12 @@ async def _check_model_reachable(
 
 # --- Pre-flight (spec 3.1) ---
 
+
 async def run_preflight(
-    client: httpx.AsyncClient, url: str,
-    requested: list[str], judge_model: str,
+    client: httpx.AsyncClient,
+    url: str,
+    requested: list[str],
+    judge_model: str,
 ) -> tuple[list[str], str]:
     """Run pre-flight checks. Returns (reachable_models, resolved_judge)."""
     if not await _check_health(client, url):
@@ -160,6 +179,7 @@ async def run_preflight(
 
 # --- Pacing (spec section 4) ---
 
+
 class ProviderPacer:
     """Track per-provider last-request timestamps and enforce delays."""
 
@@ -177,7 +197,8 @@ class ProviderPacer:
 
 
 def _interleaved_schedule(
-    models: list[str], prompts: list[EvalPrompt],
+    models: list[str],
+    prompts: list[EvalPrompt],
 ) -> list[tuple[str, EvalPrompt]]:
     """Build provider-interleaved (model, prompt) schedule."""
     return [(m, p) for p in prompts for m in models]
@@ -185,11 +206,17 @@ def _interleaved_schedule(
 
 # --- Retry with backoff (spec 4.3) ---
 
+
 # DEVIATION CS-PARAM-001: 8 params — dataclass would break API.
 async def _dispatch_with_retry(
-    client: httpx.AsyncClient, url: str, model: str,
-    text: str, run_id: str, prompt_id: str,
-    pacer: ProviderPacer, state: RunState,
+    client: httpx.AsyncClient,
+    url: str,
+    model: str,
+    text: str,
+    run_id: str,
+    prompt_id: str,
+    pacer: ProviderPacer,
+    state: RunState,
 ) -> dict[str, Any]:
     """Dispatch with 429 backoff retry."""
     provider = _extract_provider(model)
@@ -206,28 +233,48 @@ async def _dispatch_with_retry(
         backoff = _BACKOFF_SCHEDULE[min(attempt, len(_BACKOFF_SCHEDULE) - 1)]
         wait = float(last["body"].get("retry_after", backoff))
         await asyncio.sleep(min(wait, 60.0))
-    return last
+    return last  # pragma: no cover — loop always returns via early exit or retry exhaustion
 
 
 # --- Model evaluation (spec 3.2) ---
 
+
 # DEVIATION CS-PARAM-001: 7 params — dataclass would break API.
 async def evaluate_prompt(
-    client: httpx.AsyncClient, url: str, model: str,
-    prompt: EvalPrompt, run_id: str,
-    pacer: ProviderPacer, state: RunState,
+    client: httpx.AsyncClient,
+    url: str,
+    model: str,
+    prompt: EvalPrompt,
+    run_id: str,
+    pacer: ProviderPacer,
+    state: RunState,
 ) -> PromptResult | None:
     """Evaluate a single (model, prompt) pair."""
     try:
         resp = await _dispatch_with_retry(
-            client, url, model, prompt.prompt, run_id, prompt.id, pacer, state,
+            client,
+            url,
+            model,
+            prompt.prompt,
+            run_id,
+            prompt.id,
+            pacer,
+            state,
         )
     except httpx.HTTPError as exc:
         state.total_errors += 1
         return PromptResult(
-            model=model, prompt_id=prompt.id, http_status=0, latency_ms=0.0,
-            tokens_in=0, tokens_out=0, cost_usd=0.0, content="",
-            judge_scores=None, normalized_score=0.0, error=str(exc),
+            model=model,
+            prompt_id=prompt.id,
+            http_status=0,
+            latency_ms=0.0,
+            tokens_in=0,
+            tokens_out=0,
+            cost_usd=0.0,
+            content="",
+            judge_scores=None,
+            normalized_score=0.0,
+            error=str(exc),
         )
     status = resp["status"]
     if status == 429:
@@ -237,42 +284,65 @@ async def evaluate_prompt(
     if status >= 400:
         state.total_errors += 1
         return PromptResult(
-            model=model, prompt_id=prompt.id, http_status=status, latency_ms=0.0,
-            tokens_in=0, tokens_out=0, cost_usd=0.0, content="",
-            judge_scores=None, normalized_score=0.0,
+            model=model,
+            prompt_id=prompt.id,
+            http_status=status,
+            latency_ms=0.0,
+            tokens_in=0,
+            tokens_out=0,
+            cost_usd=0.0,
+            content="",
+            judge_scores=None,
+            normalized_score=0.0,
             error=resp["body"].get("error", "dispatch_failed"),
         )
     body = resp["body"]
     return PromptResult(
-        model=model, prompt_id=prompt.id, http_status=status,
+        model=model,
+        prompt_id=prompt.id,
+        http_status=status,
         latency_ms=body.get("latency_ms", 0.0),
-        tokens_in=body.get("tokens_in", 0), tokens_out=body.get("tokens_out", 0),
+        tokens_in=body.get("tokens_in", 0),
+        tokens_out=body.get("tokens_out", 0),
         cost_usd=body.get("estimated_cost_usd", 0.0),
-        content=body.get("content", ""), judge_scores=None,
-        normalized_score=0.0, error=None,
+        content=body.get("content", ""),
+        judge_scores=None,
+        normalized_score=0.0,
+        error=None,
     )
 
 
 # --- Judge evaluation (spec 3.3) ---
 
+
 # DEVIATION CS-PARAM-001: 8 params — dataclass would break API.
 async def judge_single(
-    client: httpx.AsyncClient, url: str, judge_model: str,
-    prompt: EvalPrompt, model_response: str, run_id: str,
-    pacer: ProviderPacer, state: RunState,
+    client: httpx.AsyncClient,
+    url: str,
+    judge_model: str,
+    prompt: EvalPrompt,
+    model_response: str,
+    run_id: str,
+    pacer: ProviderPacer,
+    state: RunState,
 ) -> tuple[dict[str, int] | None, float]:
     """Judge a single response. Returns (raw_scores, normalized_score)."""
-    judge_text = (
-        f"[SYSTEM] {_JUDGE_SYSTEM_PROMPT}\n\n"
-        + _JUDGE_USER_TEMPLATE.format(
-            original_prompt=prompt.prompt, judge_criteria=prompt.judge_criteria,
-            quality_speed=prompt.quality_speed, model_response=model_response,
-        )
+    judge_text = f"[SYSTEM] {_JUDGE_SYSTEM_PROMPT}\n\n" + _JUDGE_USER_TEMPLATE.format(
+        original_prompt=prompt.prompt,
+        judge_criteria=prompt.judge_criteria,
+        quality_speed=prompt.quality_speed,
+        model_response=model_response,
     )
     try:
         resp = await _dispatch_with_retry(
-            client, url, judge_model, judge_text, run_id,
-            f"judge-{prompt.id}", pacer, state,
+            client,
+            url,
+            judge_model,
+            judge_text,
+            run_id,
+            f"judge-{prompt.id}",
+            pacer,
+            state,
         )
     except httpx.HTTPError as exc:
         logger.warning("judge_dispatch_failed", prompt_id=prompt.id, error=str(exc))
@@ -289,6 +359,7 @@ async def judge_single(
 
 # --- Checkpoint (spec 6.1) ---
 
+
 def _cp_path(output_dir: Path, run_id: str) -> Path:
     """Checkpoint file path for a run."""
     return output_dir / run_id / "checkpoint.jsonl"
@@ -297,13 +368,20 @@ def _cp_path(output_dir: Path, run_id: str) -> Path:
 def _append_checkpoint(path: Path, r: PromptResult) -> None:
     """Append a single result to the checkpoint JSONL file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    line = json.dumps({
-        "model": r.model, "prompt_id": r.prompt_id, "http_status": r.http_status,
-        "latency_ms": r.latency_ms, "tokens_in": r.tokens_in,
-        "tokens_out": r.tokens_out, "cost_usd": r.cost_usd,
-        "judge_scores": r.judge_scores, "normalized_score": r.normalized_score,
-        "error": r.error,
-    })
+    line = json.dumps(
+        {
+            "model": r.model,
+            "prompt_id": r.prompt_id,
+            "http_status": r.http_status,
+            "latency_ms": r.latency_ms,
+            "tokens_in": r.tokens_in,
+            "tokens_out": r.tokens_out,
+            "cost_usd": r.cost_usd,
+            "judge_scores": r.judge_scores,
+            "normalized_score": r.normalized_score,
+            "error": r.error,
+        }
+    )
     with open(path, "a") as f:
         f.write(line + "\n")
 
@@ -318,13 +396,21 @@ def _load_checkpoint(path: Path) -> tuple[list[PromptResult], set[tuple[str, str
         if not line.strip():
             continue
         d = json.loads(line)
-        results.append(PromptResult(
-            model=d["model"], prompt_id=d["prompt_id"], http_status=d["http_status"],
-            latency_ms=d["latency_ms"], tokens_in=d["tokens_in"],
-            tokens_out=d["tokens_out"], cost_usd=d["cost_usd"], content="",
-            judge_scores=d.get("judge_scores"), normalized_score=d["normalized_score"],
-            error=d.get("error"),
-        ))
+        results.append(
+            PromptResult(
+                model=d["model"],
+                prompt_id=d["prompt_id"],
+                http_status=d["http_status"],
+                latency_ms=d["latency_ms"],
+                tokens_in=d["tokens_in"],
+                tokens_out=d["tokens_out"],
+                cost_usd=d["cost_usd"],
+                content="",
+                judge_scores=d.get("judge_scores"),
+                normalized_score=d["normalized_score"],
+                error=d.get("error"),
+            )
+        )
         completed.add((d["model"], d["prompt_id"]))
     logger.info("checkpoint_loaded", count=len(results))
     return results, completed
@@ -332,8 +418,10 @@ def _load_checkpoint(path: Path) -> tuple[list[PromptResult], set[tuple[str, str
 
 # --- Aggregation (spec 3.4) ---
 
+
 def _aggregate_model_scores(
-    results: list[PromptResult], prompts_by_id: dict[str, EvalPrompt],
+    results: list[PromptResult],
+    prompts_by_id: dict[str, EvalPrompt],
 ) -> dict[str, dict[str, Any]]:
     """Aggregate per-model scores into FlavorScore-format profiles."""
     from dragonlight_router.core.types import IBR_DOMAINS, IBR_QUALITY_SPEED, IBR_TASK_TYPES
@@ -367,15 +455,18 @@ def _flavor_dict(accum: dict[str, list[float]]) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
     for k, vs in accum.items():
         if vs:
-            out[k] = {"score": round(sum(vs) / len(vs), 4),
-                       "confidence": round(min(1.0, len(vs) / 50.0), 4),
-                       "sample_count": len(vs)}
+            out[k] = {
+                "score": round(sum(vs) / len(vs), 4),
+                "confidence": round(min(1.0, len(vs) / 50.0), 4),
+                "sample_count": len(vs),
+            }
         else:
             out[k] = {"score": 0.5, "confidence": 0.0, "sample_count": 0}
     return out
 
 
 # --- Calibration delta (spec 3.4, 5.1) ---
+
 
 def _load_declared_profiles(cfg: Path) -> dict[str, dict[str, Any]]:
     """Load operator-declared profiles from model_flavor_profiles.yaml."""
@@ -397,7 +488,8 @@ def _score_val(v: Any) -> float:
 
 
 def _calibration_deltas(
-    empirical: dict[str, dict[str, Any]], declared: dict[str, dict[str, Any]],
+    empirical: dict[str, dict[str, Any]],
+    declared: dict[str, dict[str, Any]],
 ) -> dict[str, dict[str, dict[str, float]]]:
     """Compare empirical vs declared profiles, flag deltas > threshold."""
     deltas: dict[str, dict[str, dict[str, float]]] = {}
@@ -413,7 +505,8 @@ def _calibration_deltas(
                 d = ev - dv
                 if abs(d) > _DELTA_THRESHOLD:
                     md[f"{dim}/{k}"] = {
-                        "declared": round(dv, 4), "measured": round(ev, 4),
+                        "declared": round(dv, 4),
+                        "measured": round(ev, 4),
                         "delta": round(d, 4),
                     }
         if md:
@@ -423,27 +516,44 @@ def _calibration_deltas(
 
 # --- Report generation (spec section 5) ---
 
+
 # DEVIATION CS-PARAM-001: 8 params — dataclass would break API.
 def _json_report(
-    state: RunState, models: list[str], judge: str,
-    prompts: list[EvalPrompt], profiles: dict[str, dict[str, Any]],
+    state: RunState,
+    models: list[str],
+    judge: str,
+    prompts: list[EvalPrompt],
+    profiles: dict[str, dict[str, Any]],
     deltas: dict[str, dict[str, dict[str, float]]],
-    done_at: str, partial: bool = False,
+    done_at: str,
+    partial: bool = False,
 ) -> dict[str, Any]:
     """Build the JSON report (spec 5.1)."""
     return {
-        "run_id": state.run_id, "started_at": state.started_at,
-        "completed_at": done_at, "partial": partial, "judge_model": judge,
-        "models_benchmarked": models, "prompts_per_model": len(prompts),
+        "run_id": state.run_id,
+        "started_at": state.started_at,
+        "completed_at": done_at,
+        "partial": partial,
+        "judge_model": judge,
+        "models_benchmarked": models,
+        "prompts_per_model": len(prompts),
         "total_dispatch_calls": len(state.results),
         "total_cost_usd": round(sum(r.cost_usd for r in state.results), 6),
-        "profiles": profiles, "calibration_deltas": deltas,
+        "profiles": profiles,
+        "calibration_deltas": deltas,
         "per_prompt_results": [
-            {"model": r.model, "prompt_id": r.prompt_id, "latency_ms": r.latency_ms,
-             "tokens_in": r.tokens_in, "tokens_out": r.tokens_out,
-             "cost_usd": r.cost_usd, "judge_scores": r.judge_scores,
-             "normalized_score": r.normalized_score, "http_status": r.http_status,
-             "error": r.error}
+            {
+                "model": r.model,
+                "prompt_id": r.prompt_id,
+                "latency_ms": r.latency_ms,
+                "tokens_in": r.tokens_in,
+                "tokens_out": r.tokens_out,
+                "cost_usd": r.cost_usd,
+                "judge_scores": r.judge_scores,
+                "normalized_score": r.normalized_score,
+                "http_status": r.http_status,
+                "error": r.error,
+            }
             for r in state.results
         ],
         "router_stats": {
@@ -463,8 +573,10 @@ def _md_results_table(profiles: dict[str, dict[str, Any]]) -> list[str]:
     assert isinstance(profiles, dict), "profiles must be a dict"
     assert all(isinstance(v, dict) for v in profiles.values()), "profile values must be dicts"
     lines: list[str] = [
-        "## Per-Model Scores", "",
-        "| Model | Avg Score |", "|-------|-----------|",
+        "## Per-Model Scores",
+        "",
+        "| Model | Avg Score |",
+        "|-------|-----------|",
     ]
     rows: list[tuple[str, float]] = []
     for mid, prof in profiles.items():
@@ -503,15 +615,15 @@ def _md_calibration_section(
     if not deltas:
         return []
     lines: list[str] = [
-        "## Calibration Deltas (|delta| > 0.15)", "",
+        "## Calibration Deltas (|delta| > 0.15)",
+        "",
         "| Model | Dimension | Declared | Measured | Delta |",
         "|-------|-----------|----------|----------|-------|",
     ]
     for mid, dims in sorted(deltas.items()):
         for dk, v in sorted(dims.items()):
             lines.append(
-                f"| {mid} | {dk} | {v['declared']:.4f} "
-                f"| {v['measured']:.4f} | {v['delta']:+.4f} |"
+                f"| {mid} | {dk} | {v['declared']:.4f} | {v['measured']:.4f} | {v['delta']:+.4f} |"
             )
     lines.append("")
     return lines
@@ -521,31 +633,40 @@ def _md_summary(report: dict[str, Any]) -> str:
     """Build the markdown summary (spec 5.2)."""
     tag = " (PARTIAL)" if report.get("partial") else ""
     lines = [
-        f"# Calibration Audit Report{tag}", "",
+        f"# Calibration Audit Report{tag}",
+        "",
         f"- **Run ID:** {report['run_id']}",
         f"- **Started:** {report['started_at']}",
         f"- **Completed:** {report['completed_at']}",
         f"- **Judge model:** {report['judge_model']}",
         f"- **Total dispatch calls:** {report['total_dispatch_calls']}",
-        f"- **Total cost:** ${report['total_cost_usd']:.4f}", "",
+        f"- **Total cost:** ${report['total_cost_usd']:.4f}",
+        "",
     ]
     lines += _md_results_table(report["profiles"])
     lines += _md_calibration_section(report["calibration_deltas"])
     s = report["router_stats"]
     lines += [
-        "## Router Operational Stats", "",
+        "## Router Operational Stats",
+        "",
         f"- Rate limit hits (429): {s['rate_limit_hits']}",
         f"- Budget exhaustions: {s['budget_exhaustions']}",
         f"- Circuit breaker trips: {s['circuit_breaker_trips']}",
-        f"- Total errors: {s['total_errors']}", "",
+        f"- Total errors: {s['total_errors']}",
+        "",
     ]
     return "\n".join(lines)
 
 
 # DEVIATION CS-PARAM-001: 7 params — dataclass would break API.
 def _write_reports(
-    out: Path, run_id: str, state: RunState, models: list[str],
-    judge: str, prompts: list[EvalPrompt], partial: bool = False,
+    out: Path,
+    run_id: str,
+    state: RunState,
+    models: list[str],
+    judge: str,
+    prompts: list[EvalPrompt],
+    partial: bool = False,
 ) -> None:
     """Aggregate results, compute deltas, write JSON + markdown reports."""
     pbi = {p.id: p for p in prompts}
@@ -576,8 +697,10 @@ class _CalibrationSetup:
 
 
 def _setup_calibration(
-    output_dir: Path, resume: bool,
-    model_filter: list[str] | None, provider_delays: dict[str, float],
+    output_dir: Path,
+    resume: bool,
+    model_filter: list[str] | None,
+    provider_delays: dict[str, float],
 ) -> _CalibrationSetup:
     """Build initial run state, checkpoint path, pacer, and signal handlers.
 
@@ -595,19 +718,29 @@ def _setup_calibration(
     def _on_signal(signum: int, frame: Any) -> None:
         logger.info("signal_received", signal=signum)
         state.shutdown_requested = True
+
     signal.signal(signal.SIGINT, _on_signal)
     signal.signal(signal.SIGTERM, _on_signal)
 
     pacer = ProviderPacer(provider_delays)
     return _CalibrationSetup(
-        run_id=run_id, prompts=prompts, state=state, cp=cp, pacer=pacer,
+        run_id=run_id,
+        prompts=prompts,
+        state=state,
+        cp=cp,
+        pacer=pacer,
     )
 
 
 # DEVIATION CS-PARAM-001: 7 params — dataclass would break API.
 async def run_calibration_audit(
-    router_url: str, judge_model: str, output_dir: Path, resume: bool,
-    provider_delays: dict[str, float], model_filter: list[str] | None, dry_run: bool,
+    router_url: str,
+    judge_model: str,
+    output_dir: Path,
+    resume: bool,
+    provider_delays: dict[str, float],
+    model_filter: list[str] | None,
+    dry_run: bool,
 ) -> None:
     """Run the full calibration audit pipeline."""
     requested = model_filter if model_filter else _get_all_model_ids()
@@ -616,8 +749,9 @@ async def run_calibration_audit(
     async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
         reachable, judge = await run_preflight(client, router_url, requested, judge_model)
         if dry_run:
-            logger.info("dry_run_complete", reachable=reachable,
-                        judge=judge, prompt_count=len(prompts))
+            logger.info(
+                "dry_run_complete", reachable=reachable, judge=judge, prompt_count=len(prompts)
+            )
             return
         pairs = _interleaved_schedule(reachable, prompts)
         for idx, (model, prompt) in enumerate(pairs):
@@ -625,33 +759,53 @@ async def run_calibration_audit(
                 break
             if (model, prompt.id) in state.completed_pairs:
                 continue
-            logger.info("evaluating", model=model, prompt_id=prompt.id,
-                        progress=f"{idx + 1}/{len(pairs)}")
+            logger.info(
+                "evaluating", model=model, prompt_id=prompt.id, progress=f"{idx + 1}/{len(pairs)}"
+            )
             result = await evaluate_prompt(
-                client, router_url, model, prompt, setup.run_id, setup.pacer, state)
+                client, router_url, model, prompt, setup.run_id, setup.pacer, state
+            )
             if result is None:
                 continue
             if result.error is None and result.content:
                 scores, norm = await judge_single(
-                    client, router_url, judge, prompt,
-                    result.content, setup.run_id, setup.pacer, state)
+                    client,
+                    router_url,
+                    judge,
+                    prompt,
+                    result.content,
+                    setup.run_id,
+                    setup.pacer,
+                    state,
+                )
                 result = dataclasses.replace(
-                    result, judge_scores=scores, normalized_score=norm, error=None)
+                    result, judge_scores=scores, normalized_score=norm, error=None
+                )
             state.results.append(result)
             state.completed_pairs.add((model, prompt.id))
             _append_checkpoint(setup.cp, result)
-    _write_reports(output_dir, setup.run_id, state, reachable, judge, prompts,
-                   partial=state.shutdown_requested)
-    logger.info("calibration_audit_complete", run_id=setup.run_id, results=len(state.results),
-                errors=state.total_errors)
+    _write_reports(
+        output_dir, setup.run_id, state, reachable, judge, prompts, partial=state.shutdown_requested
+    )
+    logger.info(
+        "calibration_audit_complete",
+        run_id=setup.run_id,
+        results=len(state.results),
+        errors=state.total_errors,
+    )
 
 
 # --- Model discovery ---
 
 # Provider priority: prefer native/direct > high-RPM inference > meta-proxy.
-_PROVIDER_PRIORITY: types.MappingProxyType[str, int] = types.MappingProxyType({
-    "gemini": 1, "groq": 2, "nvidia_nim": 3, "openrouter": 4,
-})
+_PROVIDER_PRIORITY: types.MappingProxyType[str, int] = types.MappingProxyType(
+    {
+        "gemini": 1,
+        "groq": 2,
+        "nvidia_nim": 3,
+        "openrouter": 4,
+    }
+)
 
 
 def _base_model_name(model_id: str) -> str:
@@ -710,6 +864,7 @@ def _get_all_model_ids() -> list[str]:
 
 # --- CLI (spec section 9) ---
 
+
 def _parse_delays(raw: list[str] | None) -> dict[str, float]:
     """Parse --provider-delay key=value pairs."""
     delays = dict(_DEFAULT_PROVIDER_DELAYS)
@@ -729,15 +884,28 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         description="Calibration audit -- LLM-as-judge calibration through the router API.",
         prog="dragonlight-router-calibration-audit",
     )
-    p.add_argument("--router-url", default=_DEFAULT_ROUTER_URL,
-                   help=f"Router base URL (default: {_DEFAULT_ROUTER_URL})")
-    p.add_argument("--judge-model", default=_DEFAULT_JUDGE,
-                   help=f"Model for judging (default: {_DEFAULT_JUDGE})")
-    p.add_argument("--output-dir", default=_DEFAULT_OUTPUT_DIR,
-                   help=f"Output directory (default: {_DEFAULT_OUTPUT_DIR})")
+    p.add_argument(
+        "--router-url",
+        default=_DEFAULT_ROUTER_URL,
+        help=f"Router base URL (default: {_DEFAULT_ROUTER_URL})",
+    )
+    p.add_argument(
+        "--judge-model",
+        default=_DEFAULT_JUDGE,
+        help=f"Model for judging (default: {_DEFAULT_JUDGE})",
+    )
+    p.add_argument(
+        "--output-dir",
+        default=_DEFAULT_OUTPUT_DIR,
+        help=f"Output directory (default: {_DEFAULT_OUTPUT_DIR})",
+    )
     p.add_argument("--resume", action="store_true", help="Resume from checkpoint")
-    p.add_argument("--provider-delay", nargs="*", metavar="K=V",
-                   help="Per-provider delay overrides (e.g. groq=2.0)")
+    p.add_argument(
+        "--provider-delay",
+        nargs="*",
+        metavar="K=V",
+        help="Per-provider delay overrides (e.g. groq=2.0)",
+    )
     p.add_argument("--models", nargs="*", help="Subset of models to benchmark")
     p.add_argument("--dry-run", action="store_true", help="Pre-flight only")
     return p
@@ -746,13 +914,18 @@ def _build_cli_parser() -> argparse.ArgumentParser:
 def main() -> None:
     """CLI entry point for python -m dragonlight_router.benchmark.calibration_audit."""
     args = _build_cli_parser().parse_args()
-    asyncio.run(run_calibration_audit(
-        router_url=args.router_url, judge_model=args.judge_model,
-        output_dir=Path(args.output_dir), resume=args.resume,
-        provider_delays=_parse_delays(args.provider_delay),
-        model_filter=args.models, dry_run=args.dry_run,
-    ))
+    asyncio.run(
+        run_calibration_audit(
+            router_url=args.router_url,
+            judge_model=args.judge_model,
+            output_dir=Path(args.output_dir),
+            resume=args.resume,
+            provider_delays=_parse_delays(args.provider_delay),
+            model_filter=args.models,
+            dry_run=args.dry_run,
+        )
+    )
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

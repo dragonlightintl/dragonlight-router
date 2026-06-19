@@ -29,8 +29,10 @@ __all__ = [
 
 # Canonical tier ordering — index position defines rank (0 = lowest).
 TIER_ORDER: tuple[BackendTier, ...] = (
-    BackendTier.LOCAL, BackendTier.SIMPLE,
-    BackendTier.MODERATE, BackendTier.COMPLEX,
+    BackendTier.LOCAL,
+    BackendTier.SIMPLE,
+    BackendTier.MODERATE,
+    BackendTier.COMPLEX,
 )
 _TIER_RANK = {tier: idx for idx, tier in enumerate(TIER_ORDER)}
 
@@ -135,10 +137,12 @@ def _try_tiers(
         "no candidates found after trying tiers",
         tried_tiers=[t.value for t in tiers_to_try],
     )
-    return Err(MBRNoCandidatesError(
-        f"No candidates meet the required capability tier (requested: {requested_tier.value}) "
-        f"and health after trying tiers: {[t.value for t in tiers_to_try]}"
-    ))
+    return Err(
+        MBRNoCandidatesError(
+            f"No candidates meet the required capability tier (requested: {requested_tier.value}) "
+            f"and health after trying tiers: {[t.value for t in tiers_to_try]}"
+        )
+    )
 
 
 def _candidates_for_tier(
@@ -197,9 +201,9 @@ def _filter_healthy(
         if _is_backend_healthy(registry, candidate, tier):
             healthy.append(candidate)
 
-    assert all(
-        isinstance(c, BackendConfig) for c in healthy
-    ), "all healthy candidates must be BackendConfig"
+    assert all(isinstance(c, BackendConfig) for c in healthy), (
+        "all healthy candidates must be BackendConfig"
+    )
     return healthy
 
 
@@ -324,12 +328,10 @@ def _filter_by_capabilities(
 ) -> list[BackendConfig]:
     """Filter candidates based on capability requirements from the dispatch order."""
     assert isinstance(candidates, list), "candidates must be a list"
-    assert all(
-        isinstance(c, BackendConfig) for c in candidates
-    ), "all candidates must be BackendConfig instances"
-    assert isinstance(order, DispatchOrder), (
-        "order must be DispatchOrder instance"
+    assert all(isinstance(c, BackendConfig) for c in candidates), (
+        "all candidates must be BackendConfig instances"
     )
+    assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
 
     _log_capability_filter_details(len(candidates), order)
 

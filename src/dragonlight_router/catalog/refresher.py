@@ -3,6 +3,7 @@
 Calls GET /v1/models on each provider's catalog_url (or base_url + /models).
 Returns a unified catalog dict keyed by provider name.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -60,9 +61,9 @@ class CatalogRefresher:
         auth_failures: dict[str, int] = {}
         for provider, result in zip(providers, results, strict=True):
             if isinstance(result, BaseException):
-                if (
-                    isinstance(result, httpx.HTTPStatusError)
-                    and result.response.status_code in (401, 403)
+                if isinstance(result, httpx.HTTPStatusError) and result.response.status_code in (
+                    401,
+                    403,
                 ):
                     auth_failures[provider.name] = result.response.status_code
                     logger.warning(

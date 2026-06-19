@@ -31,9 +31,9 @@ class BudgetTracker:
 
     def __init__(self, providers: list[ProviderConfig]) -> None:
         assert isinstance(providers, list), "providers must be a list"
-        assert all(
-            isinstance(p, ProviderConfig) for p in providers
-        ), "all providers must be ProviderConfig instances"
+        assert all(isinstance(p, ProviderConfig) for p in providers), (
+            "all providers must be ProviderConfig instances"
+        )
         self._providers: dict[str, ProviderConfig] = {p.name: p for p in providers}
         self._rpm_windows: dict[str, deque[float]] = defaultdict(deque)
         self._rpd_counts: dict[str, int] = defaultdict(int)
@@ -60,9 +60,7 @@ class BudgetTracker:
         assert 0.0 <= score_value <= 100.0, f"score must be in [0, 100], got {score_value}"
         return Ok(score_value)
 
-    def _compute_budget_ratios(
-        self, provider_name: str, provider: ProviderConfig
-    ) -> list[float]:
+    def _compute_budget_ratios(self, provider_name: str, provider: ProviderConfig) -> list[float]:
         """Compute budget utilization ratios for all limit dimensions."""
         rpm_ratio = self._rpm_ratio(provider_name, provider)
         rpd_ratio = self._rpd_ratio(provider_name, provider)
@@ -228,7 +226,10 @@ class BudgetTracker:
     def _next_day_boundary() -> float:
         """Compute the next UTC midnight timestamp."""
         tomorrow = dt.datetime.now(dt.UTC).replace(
-            hour=0, minute=0, second=0, microsecond=0,
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
         ) + dt.timedelta(days=1)
         result = tomorrow.timestamp()
         assert result > time.time(), f"Next day boundary must be in the future, got {result}"

@@ -2,6 +2,7 @@
 
 All routes operate on a shared RouterEngine instance.
 """
+
 from __future__ import annotations
 
 import hmac
@@ -45,25 +46,45 @@ _MAX_STRING_LENGTH = 100_000
 _MAX_RESPONSE_LENGTH = 500_000
 _SELECT_MAX_TOP_N = 500
 _DISPATCH_REQUIRED_FIELDS = (
-    "intent_category", "specific_intent",
-    "operator_message", "context_tokens",
+    "intent_category",
+    "specific_intent",
+    "operator_message",
+    "context_tokens",
 )
 
 # HAZ-007: Allowed intent_category values — rejects unknown values to prevent
 # adversarial intent injection affecting routing decisions.
-_ALLOWED_INTENT_CATEGORIES: frozenset[str] = frozenset({
-    "code_generation", "code_review", "debugging", "architecture",
-    "engineering_build", "spec_writing", "documentation",
-    "session_lifecycle", "strategic_planning", "complex_reasoning",
-    "casual_chat", "creative_writing", "data_analysis",
-    "summarization", "translation", "search", "general",
-    "test",  # For test/development usage
-})
+_ALLOWED_INTENT_CATEGORIES: frozenset[str] = frozenset(
+    {
+        "code_generation",
+        "code_review",
+        "debugging",
+        "architecture",
+        "engineering_build",
+        "spec_writing",
+        "documentation",
+        "session_lifecycle",
+        "strategic_planning",
+        "complex_reasoning",
+        "casual_chat",
+        "creative_writing",
+        "data_analysis",
+        "summarization",
+        "translation",
+        "search",
+        "general",
+        "test",  # For test/development usage
+    }
+)
 
 # HAZ-004: Allowed fallback_policy values.
-_ALLOWED_FALLBACK_POLICIES: frozenset[str] = frozenset({
-    "allow", "deny", "same_tier",
-})
+_ALLOWED_FALLBACK_POLICIES: frozenset[str] = frozenset(
+    {
+        "allow",
+        "deny",
+        "same_tier",
+    }
+)
 
 # Matches control characters EXCEPT newline (\n), carriage return (\r), and tab (\t)
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -71,10 +92,14 @@ _CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 # --- Admin endpoint paths requiring auth (HAZ-011) ---
 
-_ADMIN_PATHS = frozenset({
-    "/v1/retire", "/v1/reinstate", "/v1/catalog/refresh",
-    # Flavor profile POST endpoints are admin-gated per-handler (path-param routes).
-})
+_ADMIN_PATHS = frozenset(
+    {
+        "/v1/retire",
+        "/v1/reinstate",
+        "/v1/catalog/refresh",
+        # Flavor profile POST endpoints are admin-gated per-handler (path-param routes).
+    }
+)
 
 # SEC-005: In-memory tracker for failed admin auth attempts per IP.
 _ADMIN_AUTH_FAIL_WINDOW = 60  # seconds
@@ -151,10 +176,13 @@ def _check_admin_auth(request: Request) -> JSONResponse | None:
     # SEC-005: Check rate limit before processing auth
     if _is_admin_auth_rate_limited(client_ip):
         logger.warning(
-            "admin_auth_rate_limited", client_ip=client_ip, path=request.url.path,
+            "admin_auth_rate_limited",
+            client_ip=client_ip,
+            path=request.url.path,
         )
         return _format_error_response(
-            "Too many failed authentication attempts. Try again later.", 429,
+            "Too many failed authentication attempts. Try again later.",
+            429,
         )
 
     engine: RouterEngine = request.app.state.engine
@@ -257,13 +285,15 @@ def _build_select_scores(
         budget_score = budget_result.value if isinstance(budget_result, Ok) else 100.0
 
         backend_tier = tier_lookup.get(model_id, BackendTier.SIMPLE)
-        scores.append({
-            "model_id": model_id,
-            "health_score": round(health_score, 1),
-            "budget_score": round(budget_score, 1),
-            "complexity_tier": backend_tier.value,
-            "trust_tier": _backend_tier_to_trust(backend_tier),
-        })
+        scores.append(
+            {
+                "model_id": model_id,
+                "health_score": round(health_score, 1),
+                "budget_score": round(budget_score, 1),
+                "complexity_tier": backend_tier.value,
+                "trust_tier": _backend_tier_to_trust(backend_tier),
+            }
+        )
     return scores
 
 
@@ -332,7 +362,8 @@ def _validate_quality_rating(body: dict[str, Any]) -> tuple[int | None, str | No
 
 
 def _build_request_outcome(
-    body: dict[str, Any], quality_rating: int | None,
+    body: dict[str, Any],
+    quality_rating: int | None,
 ) -> RequestOutcome:
     """Construct a RequestOutcome from a validated /v1/record body."""
     assert isinstance(body, dict), "body must be a dict"
@@ -360,7 +391,8 @@ async def record_handler(request: Request) -> JSONResponse:
 
     if not body.get("provider") or not body.get("model_id") or body.get("success") is None:
         return _format_error_response(
-            "missing required fields: provider, model_id, success", 400,
+            "missing required fields: provider, model_id, success",
+            400,
         )
 
     quality_rating, rating_error = _validate_quality_rating(body)
@@ -398,13 +430,15 @@ async def health_handler(request: Request) -> JSONResponse:
         if state.status == BackendStatus.KEY_INVALID
     )
 
-    return JSONResponse({
-        "status": engine._health.availability_status(),
-        "version": __version__,
-        "key_invalid_count": key_invalid_count,
-        "budget": engine.budget_snapshot(),
-        "health": engine.health_snapshot(),
-    })
+    return JSONResponse(
+        {
+            "status": engine._health.availability_status(),
+            "version": __version__,
+            "key_invalid_count": key_invalid_count,
+            "budget": engine.budget_snapshot(),
+            "health": engine.health_snapshot(),
+        }
+    )
 
 
 async def catalog_handler(request: Request) -> JSONResponse:
@@ -421,11 +455,13 @@ async def catalog_handler(request: Request) -> JSONResponse:
         providers = list(catalog.keys())
         model_count = sum(len(entries) for entries in catalog.values())
 
-    return JSONResponse({
-        "stale": stale,
-        "providers": providers,
-        "model_count": model_count,
-    })
+    return JSONResponse(
+        {
+            "stale": stale,
+            "providers": providers,
+            "model_count": model_count,
+        }
+    )
 
 
 # DEVIATION CS-004: _execute_catalog_refresh is 44 lines.
@@ -445,10 +481,13 @@ async def _execute_catalog_refresh(engine: RouterEngine) -> JSONResponse:
         elif isinstance(refresh_result, dict):
             catalog = refresh_result
         else:
-            return JSONResponse({
-                "status": "error",
-                "error": "Catalog refresh returned unexpected type",
-            }, status_code=500)
+            return JSONResponse(
+                {
+                    "status": "error",
+                    "error": "Catalog refresh returned unexpected type",
+                },
+                status_code=500,
+            )
         engine._catalog.set(catalog)
         model_count = sum(len(entries) for entries in catalog.values())
 
@@ -473,10 +512,13 @@ async def _execute_catalog_refresh(engine: RouterEngine) -> JSONResponse:
         if auth_failures:
             response["auth_failures"] = auth_failures
         return JSONResponse(response)
-    return JSONResponse({
-        "status": "error",
-        "error": "Catalog refresh failed",
-    }, status_code=500)
+    return JSONResponse(
+        {
+            "status": "error",
+            "error": "Catalog refresh failed",
+        },
+        status_code=500,
+    )
 
 
 async def catalog_refresh_handler(request: Request) -> JSONResponse:
@@ -494,15 +536,22 @@ async def catalog_refresh_handler(request: Request) -> JSONResponse:
         return await _execute_catalog_refresh(engine)
     except (OSError, ValueError, LookupError) as exc:
         logger.error("catalog_refresh_failed", error=str(exc), exc_info=True)
-        return JSONResponse({
-            "status": "error",
-            "error": "Catalog refresh failed",
-        }, status_code=500)
+        return JSONResponse(
+            {
+                "status": "error",
+                "error": "Catalog refresh failed",
+            },
+            status_code=500,
+        )
 
 
 # --- Dispatch endpoint ---
 
 
+# DEVIATION DCS-FUNC-LEN — _validate_dispatch_request is 58 lines.
+# Justification: linear chain of field validations with early returns; splitting
+# would scatter the validation contract across multiple functions.
+# Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
 def _validate_dispatch_request(body: dict[str, Any]) -> str | None:
     """Validate /v1/dispatch request body. Returns error message or None.
 
@@ -628,6 +677,10 @@ def _format_dispatch_response(engine_response: EngineResponse) -> JSONResponse:
     return JSONResponse(payload)
 
 
+# DEVIATION DCS-FUNC-LEN — _format_dispatch_failure is 41 lines.
+# Justification: type-dispatching error formatter with one branch per error kind;
+# splitting would fragment HTTP status mapping. Approved by: architect.
+# Scope: this function. Expiration: revisit 2026-09-01.
 def _format_dispatch_failure(error: object) -> JSONResponse:
     """Serialize a dispatch failure (Err branch) to a JSON HTTP response.
 
@@ -638,37 +691,52 @@ def _format_dispatch_failure(error: object) -> JSONResponse:
     """
     # Pinned dispatch error types
     if isinstance(error, ModelNotFoundError):
-        return JSONResponse({
-            "error": error.message,
-            "model": error.model,
-        }, status_code=400)
+        return JSONResponse(
+            {
+                "error": error.message,
+                "model": error.model,
+            },
+            status_code=400,
+        )
 
     if isinstance(error, ModelUnhealthyError):
-        return JSONResponse({
-            "error": error.message,
-            "model": error.model,
-            "status": error.status,
-        }, status_code=503)
+        return JSONResponse(
+            {
+                "error": error.message,
+                "model": error.model,
+                "status": error.status,
+            },
+            status_code=503,
+        )
 
     if isinstance(error, BudgetExhaustedError):
-        return JSONResponse({
-            "error": error.message,
-            "model": error.model,
-            "provider": error.provider,
-        }, status_code=429)
+        return JSONResponse(
+            {
+                "error": error.message,
+                "model": error.model,
+                "provider": error.provider,
+            },
+            status_code=429,
+        )
 
     # Cascade dispatch failures
     if isinstance(error, DispatchFailure):
-        return JSONResponse({
-            "message": error.message,
-            "attempted_backends": error.attempted_backends,
-            "error_details": error.error_details,
-        }, status_code=500)
-    return JSONResponse({
-        "message": "Dispatch failed",
-        "attempted_backends": [],
-        "error_details": {"error_type": type(error).__name__},
-    }, status_code=500)
+        return JSONResponse(
+            {
+                "message": error.message,
+                "attempted_backends": error.attempted_backends,
+                "error_details": error.error_details,
+            },
+            status_code=500,
+        )
+    return JSONResponse(
+        {
+            "message": "Dispatch failed",
+            "attempted_backends": [],
+            "error_details": {"error_type": type(error).__name__},
+        },
+        status_code=500,
+    )
 
 
 def _format_stream_chunk(chunk: StreamChunk) -> str:
@@ -686,17 +754,19 @@ def _format_stream_chunk(chunk: StreamChunk) -> str:
     if chunk.event_type == "token":
         payload["content"] = chunk.content
     elif chunk.event_type == "metadata":
-        payload.update({
-            "backend_used": chunk.backend_used,
-            "backend_tier": chunk.backend_tier,
-            "dispatch_mode": chunk.dispatch_mode,
-            "tokens_in": chunk.tokens_in,
-            "tokens_out": chunk.tokens_out,
-            "estimated_cost_usd": chunk.estimated_cost_usd,
-            "latency_ms": chunk.latency_ms,
-            "was_fallback": chunk.was_fallback,
-            "fallback_chain": chunk.fallback_chain or [],
-        })
+        payload.update(
+            {
+                "backend_used": chunk.backend_used,
+                "backend_tier": chunk.backend_tier,
+                "dispatch_mode": chunk.dispatch_mode,
+                "tokens_in": chunk.tokens_in,
+                "tokens_out": chunk.tokens_out,
+                "estimated_cost_usd": chunk.estimated_cost_usd,
+                "latency_ms": chunk.latency_ms,
+                "was_fallback": chunk.was_fallback,
+                "fallback_chain": chunk.fallback_chain or [],
+            }
+        )
     elif chunk.event_type == "error":
         payload["error_message"] = chunk.error_message
 
@@ -905,7 +975,8 @@ async def flavor_profile_detail_handler(request: Request) -> JSONResponse:
     loader = _get_flavor_loader(request)
     if loader is None or model_id not in loader.profiles:
         return _format_error_response(
-            f"flavor profile not found: {model_id}", 404,
+            f"flavor profile not found: {model_id}",
+            404,
         )
 
     profile = loader.profiles[model_id]
@@ -961,7 +1032,8 @@ async def flavor_profile_upsert_handler(request: Request) -> JSONResponse:
 
 
 def _build_profile_from_body(
-    model_id: str, body: dict[str, Any],
+    model_id: str,
+    body: dict[str, Any],
 ) -> ModelFlavorProfile:
     """Construct a ModelFlavorProfile from a validated upsert request body."""
     from datetime import UTC, datetime
@@ -1055,8 +1127,7 @@ def _build_openapi_schema() -> dict[str, Any]:
         "info": {
             "title": "Dragonlight Router API",
             "description": (
-                "Multi-provider intelligent LLM routing"
-                " — model selection + cascade dispatch."
+                "Multi-provider intelligent LLM routing — model selection + cascade dispatch."
             ),
             "version": "0.2.6",
         },
@@ -1134,7 +1205,8 @@ def _build_openapi_schema() -> dict[str, Any]:
                                 "schema": {
                                     "type": "object",
                                     "required": [
-                                        "operator_message", "context_tokens",
+                                        "operator_message",
+                                        "context_tokens",
                                     ],
                                     "properties": {
                                         "model": {
@@ -1154,7 +1226,8 @@ def _build_openapi_schema() -> dict[str, Any]:
                                         "system_prompt": {"type": "string"},
                                         "requires_tool_use": {"type": "boolean", "default": False},
                                         "requires_long_context": {
-                                            "type": "boolean", "default": False,
+                                            "type": "boolean",
+                                            "default": False,
                                         },
                                         "persona": {"type": "string"},
                                         "stream": {"type": "boolean", "default": False},
@@ -1219,9 +1292,7 @@ def _build_openapi_schema() -> dict[str, Any]:
                         },
                         "500": {"description": "Dispatch failure."},
                         "503": {
-                            "description": (
-                                "Pinned model is unhealthy (circuit open)."
-                            ),
+                            "description": ("Pinned model is unhealthy (circuit open)."),
                         },
                     },
                 },
@@ -1261,8 +1332,7 @@ def _build_openapi_schema() -> dict[str, Any]:
                     "responses": {
                         "200": {
                             "description": (
-                                "Always returns 200 with status,"
-                                " budget, and health data."
+                                "Always returns 200 with status, budget, and health data."
                             ),
                             "content": {
                                 "application/json": {

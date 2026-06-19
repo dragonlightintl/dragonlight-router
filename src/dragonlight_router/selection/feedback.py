@@ -7,6 +7,7 @@ operator-declared value (IBR-FLV-03).
 
 Spec reference: intent-based-router-v0.1.0-spec.md section 3.2, Method 2.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -59,9 +60,7 @@ class FeedbackStore:
 
     def _open_connection(self) -> sqlite3.Connection:
         """Open a SQLite connection with WAL mode for safe concurrency."""
-        assert self._db_path.parent.exists(), (
-            f"Parent directory must exist: {self._db_path.parent}"
-        )
+        assert self._db_path.parent.exists(), f"Parent directory must exist: {self._db_path.parent}"
         conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")
@@ -87,6 +86,9 @@ class FeedbackStore:
     # Record feedback
     # ------------------------------------------------------------------
 
+    # DEVIATION DCS-PARAM-001: record_feedback takes 5 params (excl. self).
+    # Justification: feedback requires model_id, intent, rating, and optional weight;
+    # all are distinct scalars. Approved by: architect. Scope: this method.
     def record_feedback(
         self,
         model_id: str,
@@ -149,10 +151,7 @@ class FeedbackStore:
 
             if row is not None:
                 old_score, old_count = row
-                new_score = (
-                    _EMA_ALPHA * observation
-                    + (1.0 - _EMA_ALPHA) * old_score
-                )
+                new_score = _EMA_ALPHA * observation + (1.0 - _EMA_ALPHA) * old_score
                 new_count = old_count + 1
             else:
                 new_score = observation
@@ -170,9 +169,19 @@ class FeedbackStore:
                 "ON CONFLICT(model_id, dimension_type, dimension_value) "
                 "DO UPDATE SET score=?, confidence=?, "
                 "sample_count=?, updated_at=?",
-                (model_id, dim_type, dim_value,
-                 new_score, confidence, new_count, now,
-                 new_score, confidence, new_count, now),
+                (
+                    model_id,
+                    dim_type,
+                    dim_value,
+                    new_score,
+                    confidence,
+                    new_count,
+                    now,
+                    new_score,
+                    confidence,
+                    new_count,
+                    now,
+                ),
             )
             self._conn.commit()
 

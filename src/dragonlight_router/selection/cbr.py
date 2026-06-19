@@ -2,6 +2,7 @@
 
 Filters model candidates based on cost-effectiveness and budget constraints.
 """
+
 from __future__ import annotations
 
 import statistics
@@ -34,6 +35,7 @@ __all__ = [
 @dataclass(frozen=True)
 class CostFilterParams:
     """Grouped parameters for cost filtering beyond core (candidates, order, budget_tracker)."""
+
     daily_spend: float = 0.0
     monthly_spend: float = 0.0
     config: dict[str, Any] | None = None
@@ -71,9 +73,9 @@ def filter_by_cost(
         health_tracker: Optional health tracker for candidate scoring.
     """
     assert isinstance(candidates, list), "candidates must be a list"
-    assert all(
-        isinstance(c, BackendConfig) for c in candidates
-    ), "all candidates must be BackendConfig instances"
+    assert all(isinstance(c, BackendConfig) for c in candidates), (
+        "all candidates must be BackendConfig instances"
+    )
     assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
     assert isinstance(budget_tracker, BudgetTracker), (
         "budget_tracker must be BudgetTracker instance"
@@ -132,7 +134,7 @@ def _hard_budget_filter(
     for candidate in candidates:
         provider = candidate.provider
         budget_result = budget_tracker.score(provider)
-        budget_score = budget_result.value if hasattr(budget_result, 'value') else 50.0
+        budget_score = budget_result.value if hasattr(budget_result, "value") else 50.0
         budget_scores[provider] = budget_score
         if budget_score > 0.0:
             filtered.append(candidate)
@@ -293,9 +295,7 @@ def _apply_median_filter(
     )
 
     filtered = [
-        candidate
-        for eff, candidate in candidate_efficiencies
-        if eff is None or eff >= median_eff
+        candidate for eff, candidate in candidate_efficiencies if eff is None or eff >= median_eff
     ]
 
     logger.debug(
@@ -314,9 +314,9 @@ def filter_by_absolute_cost(
 ) -> list[BackendConfig]:
     """Filter candidates that exceed an absolute cost threshold."""
     assert isinstance(candidates, list), "candidates must be a list"
-    assert all(
-        isinstance(c, BackendConfig) for c in candidates
-    ), "all candidates must be BackendConfig instances"
+    assert all(isinstance(c, BackendConfig) for c in candidates), (
+        "all candidates must be BackendConfig instances"
+    )
     assert isinstance(max_cost_per_mtok, (int, float)) and max_cost_per_mtok >= 0, (
         "max_cost_per_mtok must be a non-negative number"
     )

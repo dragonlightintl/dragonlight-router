@@ -10,6 +10,7 @@ HAZ-008 mitigation: Supports an optional on_cycle callback that fires every
 N cycles (default: every cycle). This enables automatic periodic catalog
 refresh without coupling the health check loop to catalog internals.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -52,6 +53,10 @@ class HealthCheckLoop:
     checks transition to degraded state.
     """
 
+    # DEVIATION DCS-PARAM-001: __init__ takes 8 params (excl. self).
+    # Justification: health loop requires injected backends, states, SLOs, and tuning
+    # knobs at construction. A config dataclass would separate tightly-coupled init state.
+    # Approved by: architect. Scope: this constructor.
     def __init__(
         self,
         backends: dict[str, GenerativeBackend],
@@ -84,9 +89,7 @@ class HealthCheckLoop:
         self._interval = interval_s
         self._timeout = timeout_s
         self._task: asyncio.Task[None] | None = None
-        self._breakers: dict[str, CircuitBreaker] = {
-            name: CircuitBreaker() for name in backends
-        }
+        self._breakers: dict[str, CircuitBreaker] = {name: CircuitBreaker() for name in backends}
         self._slo_violation_counts: dict[str, int] = dict.fromkeys(backends, 0)
         # HAZ-008: on-cycle callback for periodic tasks (e.g., catalog refresh)
         self._on_cycle = on_cycle
@@ -250,9 +253,7 @@ class HealthCheckLoop:
         )
         return ProbeResult(success=False, latency_ms=latency_ms, error=error)
 
-    def _make_failure_result(
-        self, name: str, exc: BaseException, start_time: float
-    ) -> ProbeResult:
+    def _make_failure_result(self, name: str, exc: BaseException, start_time: float) -> ProbeResult:
         """Create a failure ProbeResult from an exception."""
         latency_ms = (time.time() - start_time) * 1000
         logger.warning(
@@ -263,6 +264,9 @@ class HealthCheckLoop:
         )
         return ProbeResult(success=False, latency_ms=latency_ms, error=exc)
 
+    # DEVIATION DCS-PARAM-001: _update_breaker_and_errors takes 5 params (excl. self).
+    # Justification: tightly coupled state update requiring name, state, breaker, and result.
+    # Approved by: architect. Scope: this method.
     def _update_breaker_and_errors(
         self, name: str, state: BackendState, breaker: CircuitBreaker, result: ProbeResult
     ) -> None:
@@ -274,9 +278,7 @@ class HealthCheckLoop:
             breaker.record_error()
             state.consecutive_errors += 1
 
-    def _evaluate_slo(
-        self, name: str, slo: LatencySLO | None, result: ProbeResult
-    ) -> None:
+    def _evaluate_slo(self, name: str, slo: LatencySLO | None, result: ProbeResult) -> None:
         """Update SLO violation tracking based on probe result."""
         if result.success and slo and result.latency_ms > slo.latency_ms:
             self._slo_violation_counts[name] += 1

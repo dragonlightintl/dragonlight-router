@@ -3,6 +3,7 @@
 Stores the unified catalog as JSON with a timestamp.
 Returns None when stale or missing (triggering a refresh).
 """
+
 from __future__ import annotations
 
 import contextlib

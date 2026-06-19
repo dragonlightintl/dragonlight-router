@@ -5,6 +5,7 @@ Contains ~50 standardized evaluation prompts organized by intent dimension
 
 Spec reference: intent-based-router-v0.1.0-spec.md section 3.2, Method 3.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -34,12 +35,8 @@ class EvalPrompt:
 
 def _validate_prompt(p: EvalPrompt) -> None:
     """Assert that an EvalPrompt references valid IBR dimensions."""
-    assert p.task_type in IBR_TASK_TYPES, (
-        f"Invalid task_type '{p.task_type}' in prompt {p.id}"
-    )
-    assert p.domain in IBR_DOMAINS, (
-        f"Invalid domain '{p.domain}' in prompt {p.id}"
-    )
+    assert p.task_type in IBR_TASK_TYPES, f"Invalid task_type '{p.task_type}' in prompt {p.id}"
+    assert p.domain in IBR_DOMAINS, f"Invalid domain '{p.domain}' in prompt {p.id}"
     assert p.quality_speed in {"quality", "balanced", "speed"}, (
         f"Invalid quality_speed '{p.quality_speed}' in prompt {p.id}"
     )
@@ -494,8 +491,7 @@ _SUMMARIZATION_PROMPTS: list[EvalPrompt] = [
             "patent protection. Give one example of each. Under 150 words."
         ),
         judge_criteria=(
-            "Correct distinction between the three IP types, relevant "
-            "examples, brevity."
+            "Correct distinction between the three IP types, relevant examples, brevity."
         ),
     ),
 ]
@@ -515,8 +511,7 @@ _CREATIVE_PROMPTS: list[EvalPrompt] = [
             "words 'death,' 'died,' 'lost,' or 'gone.' Explain your choice."
         ),
         judge_criteria=(
-            "Emotional impact, constraint adherence, originality, "
-            "quality of the explanation."
+            "Emotional impact, constraint adherence, originality, quality of the explanation."
         ),
     ),
     EvalPrompt(
@@ -567,12 +562,10 @@ _CREATIVE_PROMPTS: list[EvalPrompt] = [
         domain="creative_writing",
         quality_speed="speed",
         prompt=(
-            "Generate five creative names for a coffee shop that also "
-            "serves as a coworking space."
+            "Generate five creative names for a coffee shop that also serves as a coworking space."
         ),
         judge_criteria=(
-            "Creativity, memorability, relevance to dual concept "
-            "(coffee + coworking), variety."
+            "Creativity, memorability, relevance to dual concept (coffee + coworking), variety."
         ),
     ),
 ]
@@ -726,10 +719,7 @@ _LOOKUP_PROMPTS: list[EvalPrompt] = [
         task_type="lookup",
         domain="general",
         quality_speed="speed",
-        prompt=(
-            "What is the difference between UTC and GMT? Are they "
-            "interchangeable?"
-        ),
+        prompt=("What is the difference between UTC and GMT? Are they interchangeable?"),
         judge_criteria=(
             "Accuracy of the distinction (UTC is atomic, GMT is "
             "astronomical), practical interchangeability note, conciseness."
@@ -834,8 +824,7 @@ _TRANSLATION_PROMPTS: list[EvalPrompt] = [
             '"window": "1m"}, "usage": {"current": 103, "remaining": 0}}'
         ),
         judge_criteria=(
-            "Accurate interpretation of all fields, natural language "
-            "quality, actionable summary."
+            "Accurate interpretation of all fields, natural language quality, actionable summary."
         ),
     ),
 ]
@@ -944,6 +933,7 @@ _MIXED_PROMPTS: list[EvalPrompt] = [
 # Aggregated prompt bank
 # ---------------------------------------------------------------------------
 
+
 def get_all_prompts() -> list[EvalPrompt]:
     """Return the complete eval prompt bank, validated against IBR dimensions.
 
@@ -968,13 +958,10 @@ def get_all_prompts() -> list[EvalPrompt]:
     # Verify uniqueness of IDs
     ids = [p.id for p in all_prompts]
     assert len(ids) == len(set(ids)), (
-        f"Duplicate prompt IDs found: "
-        f"{[pid for pid in ids if ids.count(pid) > 1]}"
+        f"Duplicate prompt IDs found: {[pid for pid in ids if ids.count(pid) > 1]}"
     )
 
-    assert len(all_prompts) >= 48, (
-        f"Expected at least 48 prompts, got {len(all_prompts)}"
-    )
+    assert len(all_prompts) >= 48, f"Expected at least 48 prompts, got {len(all_prompts)}"
     return all_prompts
 
 

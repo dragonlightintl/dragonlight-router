@@ -6,6 +6,7 @@ hard timeout enforcement, and graceful degradation on failure.
 
 Spec reference: intent-based-router-v0.1.0-spec.md section 2.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -27,31 +28,37 @@ logger = structlog.get_logger()
 # Taxonomy constants (IBR spec section 2.1)
 # ---------------------------------------------------------------------------
 
-TASK_TYPES: frozenset[str] = frozenset({
-    "generation",
-    "analysis",
-    "refactoring",
-    "summarization",
-    "creative",
-    "reasoning",
-    "lookup",
-    "translation",
-})
+TASK_TYPES: frozenset[str] = frozenset(
+    {
+        "generation",
+        "analysis",
+        "refactoring",
+        "summarization",
+        "creative",
+        "reasoning",
+        "lookup",
+        "translation",
+    }
+)
 
-DOMAINS: frozenset[str] = frozenset({
-    "code",
-    "technical",
-    "legal",
-    "business",
-    "creative_writing",
-    "general",
-})
+DOMAINS: frozenset[str] = frozenset(
+    {
+        "code",
+        "technical",
+        "legal",
+        "business",
+        "creative_writing",
+        "general",
+    }
+)
 
-QUALITY_SPEED: frozenset[str] = frozenset({
-    "quality",
-    "balanced",
-    "speed",
-})
+QUALITY_SPEED: frozenset[str] = frozenset(
+    {
+        "quality",
+        "balanced",
+        "speed",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # ClassifiedIntent — local definition (another agent adds to core/types.py)
@@ -59,11 +66,12 @@ QUALITY_SPEED: frozenset[str] = frozenset({
 
 try:
     from dragonlight_router.core.types import ClassifiedIntent
-except ImportError:
+except ImportError:  # pragma: no cover
 
     @dataclass(frozen=True)
     class ClassifiedIntent:  # type: ignore[no-redef]
         """Classification output for a single operator message."""
+
         task_type: str
         domain: str
         quality_speed: str
@@ -215,7 +223,7 @@ def _parse_response(text: str) -> dict[str, Any] | None:
         return None
 
     try:
-        result: dict[str, Any] | None = json.loads(cleaned[start:end + 1])
+        result: dict[str, Any] | None = json.loads(cleaned[start : end + 1])
         return result
     except json.JSONDecodeError:
         return None
@@ -242,7 +250,8 @@ def _build_classifier_prompt(
 
 
 def _parse_classification_response(
-    raw_text: str, latency_ms: float,
+    raw_text: str,
+    latency_ms: float,
 ) -> ClassifiedIntent | None:
     """Parse and validate raw LLM text into a ClassifiedIntent.
 
@@ -290,7 +299,10 @@ async def _call_classifier(
     collected: list[str] = []
     try:
         async for chunk in adapter.generate(
-            messages, max_tokens=128, temperature=0.0, stream=False,
+            messages,
+            max_tokens=128,
+            temperature=0.0,
+            stream=False,
         ):
             collected.append(chunk)
     except (RuntimeError, ValueError, OSError):
@@ -336,8 +348,10 @@ def _resolve_cache_hit(cached: ClassifiedIntent) -> ClassifiedIntent:
 
 
 async def classify_intent(
-    operator_message: str, adapter: GenerativeBackend,
-    *, timeout_s: float = 0.1,
+    operator_message: str,
+    adapter: GenerativeBackend,
+    *,
+    timeout_s: float = 0.1,
 ) -> ClassifiedIntent | None:
     """Classify operator_message via cache or LLM; returns None on any failure."""
     assert isinstance(operator_message, str), "operator_message must be a string"
@@ -348,24 +362,32 @@ async def classify_intent(
         return _resolve_cache_hit(cached)
     try:
         result = await asyncio.wait_for(
-            _call_classifier(operator_message, adapter), timeout=timeout_s,
+            _call_classifier(operator_message, adapter),
+            timeout=timeout_s,
         )
     except TimeoutError:
-        logger.warning("ibr_classification_timeout",
-                       timeout_s=timeout_s,
-                       operator_message_len=len(operator_message))
+        logger.warning(
+            "ibr_classification_timeout",
+            timeout_s=timeout_s,
+            operator_message_len=len(operator_message),
+        )
         return None
     except (RuntimeError, ValueError, OSError):
-        logger.warning("ibr_classification_unexpected_error",
-                       operator_message_len=len(operator_message),
-                       exc_info=True)
+        logger.warning(
+            "ibr_classification_unexpected_error",
+            operator_message_len=len(operator_message),
+            exc_info=True,
+        )
         return None
     if result is not None:
         _cache.put(cache_key, result)
         logger.info(
-            "ibr_classification", task_type=result.task_type,
-            domain=result.domain, quality_speed=result.quality_speed,
-            confidence=result.confidence, latency_ms=result.latency_ms,
+            "ibr_classification",
+            task_type=result.task_type,
+            domain=result.domain,
+            quality_speed=result.quality_speed,
+            confidence=result.confidence,
+            latency_ms=result.latency_ms,
             from_cache=False,
         )
     return result

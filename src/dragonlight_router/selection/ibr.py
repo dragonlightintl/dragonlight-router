@@ -7,6 +7,7 @@ transparently to v0.3.0 behavior (IBR-SYS-02, IBR-SYS-03).
 
 Spec reference: intent-based-router-v0.1.0-spec.md sections 4–5.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -36,6 +37,7 @@ logger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 # IBRResult — frozen dataclass carrying stage output (IBR-DATA-01)
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class IBRResult:
@@ -86,7 +88,11 @@ async def run_ibr_stage(
 
     try:
         return await _execute_ibr(
-            order, candidates, ibr_config, flavor_loader, classification_adapter,
+            order,
+            candidates,
+            ibr_config,
+            flavor_loader,
+            classification_adapter,
         )
     except (KeyError, ValueError, TypeError, RuntimeError, OSError, TimeoutError):
         logger.warning("ibr_stage_unexpected_error", exc_info=True)
@@ -185,7 +191,6 @@ def _build_ibr_result(
 def _log_flavor_scores(scores: dict[str, float]) -> None:
     """Emit structured log for flavor match scores (IBR-OBS-02)."""
     score_range = (
-        (round(min(scores.values()), 4), round(max(scores.values()), 4))
-        if scores else (0.0, 0.0)
+        (round(min(scores.values()), 4), round(max(scores.values()), 4)) if scores else (0.0, 0.0)
     )
     logger.info("ibr_flavor_match", candidate_count=len(scores), score_range=score_range)

@@ -8,16 +8,23 @@ and speed-quality calibration.
 
 Spec reference: intent-based-router-v0.1.0-spec.md section 3.3, Spectrography.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 from dragonlight_router.core.types import IBR_DOMAINS, IBR_TASK_TYPES
 
-DISCRIMINATION_AXES: frozenset[str] = frozenset({
-    "style", "edge_case", "reasoning_depth",
-    "domain_cross", "instruction_following", "speed_quality",
-})
+DISCRIMINATION_AXES: frozenset[str] = frozenset(
+    {
+        "style",
+        "edge_case",
+        "reasoning_depth",
+        "domain_cross",
+        "instruction_following",
+        "speed_quality",
+    }
+)
 
 DIFFICULTY_LEVELS: frozenset[str] = frozenset({"easy", "medium", "hard"})
 
@@ -48,24 +55,16 @@ class SpectrographyProbe:
 
 def _validate_probe(p: SpectrographyProbe) -> None:
     """Assert that a SpectrographyProbe references valid IBR dimensions."""
-    assert p.id.startswith("disc-"), (
-        f"Probe ID must start with 'disc-': {p.id}"
-    )
-    assert p.task_type in IBR_TASK_TYPES, (
-        f"Invalid task_type '{p.task_type}' in probe {p.id}"
-    )
-    assert p.domain in IBR_DOMAINS, (
-        f"Invalid domain '{p.domain}' in probe {p.id}"
-    )
+    assert p.id.startswith("disc-"), f"Probe ID must start with 'disc-': {p.id}"
+    assert p.task_type in IBR_TASK_TYPES, f"Invalid task_type '{p.task_type}' in probe {p.id}"
+    assert p.domain in IBR_DOMAINS, f"Invalid domain '{p.domain}' in probe {p.id}"
     assert p.quality_speed in {"quality", "balanced", "speed"}, (
         f"Invalid quality_speed '{p.quality_speed}' in probe {p.id}"
     )
     assert p.discrimination_axis in DISCRIMINATION_AXES, (
         f"Invalid discrimination_axis '{p.discrimination_axis}' in probe {p.id}"
     )
-    assert p.difficulty in DIFFICULTY_LEVELS, (
-        f"Invalid difficulty '{p.difficulty}' in probe {p.id}"
-    )
+    assert p.difficulty in DIFFICULTY_LEVELS, f"Invalid difficulty '{p.difficulty}' in probe {p.id}"
     assert len(p.prompt) > 0, f"Empty prompt text in {p.id}"
     assert len(p.judge_criteria) > 0, f"Empty judge_criteria in {p.id}"
 
@@ -102,7 +101,7 @@ _STYLE_PROBES: list[SpectrographyProbe] = [
             "character counts. No type hints, no docstrings, single-letter "
             "variables are fine.\n\n"
             "def calculate_fibonacci_sequence(number_of_terms: int) -> list[int]:\n"
-            "    \"\"\"Calculate the first n terms of the Fibonacci sequence.\"\"\"\n"
+            '    """Calculate the first n terms of the Fibonacci sequence."""\n'
             "    fibonacci_numbers: list[int] = []\n"
             "    for current_index in range(number_of_terms):\n"
             "        if current_index <= 1:\n"
@@ -221,8 +220,7 @@ _STYLE_PROBES: list[SpectrographyProbe] = [
         domain="technical",
         quality_speed="speed",
         prompt=(
-            "Summarize what a B-tree is in exactly two sentences. Not one, "
-            "not three. Exactly two."
+            "Summarize what a B-tree is in exactly two sentences. Not one, not three. Exactly two."
         ),
         judge_criteria=(
             "Exactly two sentences (period-delimited), accuracy of B-tree "
@@ -429,7 +427,7 @@ _EDGE_CASE_PROBES: list[SpectrographyProbe] = [
             "DELETE /api/v1/users?confirmed=false\n"
             "Authorization: Bearer <token>\n\n"
             "Response: 200 OK\n"
-            "{\"deleted_count\": 847, \"message\": \"Users deleted successfully\"}"
+            '{"deleted_count": 847, "message": "Users deleted successfully"}'
         ),
         judge_criteria=(
             "Identification of bulk delete via query parameter without "
@@ -867,7 +865,7 @@ _INSTRUCTION_FOLLOWING_PROBES: list[SpectrographyProbe] = [
         quality_speed="balanced",
         prompt=(
             "Respond in ONLY valid JSON with exactly these keys: "
-            "\"summary\", \"confidence\", \"tags\". Summary is a string "
+            '"summary", "confidence", "tags". Summary is a string '
             "under 100 characters. Confidence is a float 0-1. Tags is an "
             "array of exactly 3 strings. Topic: machine learning in healthcare."
         ),
@@ -1032,8 +1030,7 @@ _SPEED_QUALITY_PROBES: list[SpectrographyProbe] = [
         domain="code",
         quality_speed="speed",
         prompt=(
-            "Quick: what is the time complexity of looking up a key in a "
-            "Python dict? One sentence."
+            "Quick: what is the time complexity of looking up a key in a Python dict? One sentence."
         ),
         judge_criteria=(
             "Speed-appropriate response: concise single sentence, correct "
@@ -1068,9 +1065,7 @@ _SPEED_QUALITY_PROBES: list[SpectrographyProbe] = [
         task_type="lookup",
         domain="technical",
         quality_speed="speed",
-        prompt=(
-            "Fastest answer: what port does PostgreSQL listen on by default?"
-        ),
+        prompt=("Fastest answer: what port does PostgreSQL listen on by default?"),
         judge_criteria=(
             "Minimal response (ideally just '5432' or one short sentence), "
             "correct answer, no padding or unnecessary context. "
@@ -1104,9 +1099,7 @@ _SPEED_QUALITY_PROBES: list[SpectrographyProbe] = [
         task_type="summarization",
         domain="general",
         quality_speed="speed",
-        prompt=(
-            "Quick summary: what is Docker? Two sentences max."
-        ),
+        prompt=("Quick summary: what is Docker? Two sentences max."),
         judge_criteria=(
             "Two sentences or fewer, accurate Docker summary, no "
             "unnecessary detail. Weight: 50% brevity, 50% accuracy."
@@ -1910,17 +1903,17 @@ _ADDITIONAL_PROBES: list[SpectrographyProbe] = [
         prompt=(
             "Translate this Terraform resource into equivalent AWS "
             "CloudFormation YAML. Preserve all configuration exactly.\n\n"
-            "resource \"aws_s3_bucket\" \"data\" {\n"
-            "  bucket = \"my-data-bucket\"\n"
+            'resource "aws_s3_bucket" "data" {\n'
+            '  bucket = "my-data-bucket"\n'
             "  tags = {\n"
-            "    Environment = \"production\"\n"
-            "    Team        = \"data-eng\"\n"
+            '    Environment = "production"\n'
+            '    Team        = "data-eng"\n'
             "  }\n"
             "}\n\n"
-            "resource \"aws_s3_bucket_versioning\" \"data\" {\n"
+            'resource "aws_s3_bucket_versioning" "data" {\n'
             "  bucket = aws_s3_bucket.data.id\n"
             "  versioning_configuration {\n"
-            "    status = \"Enabled\"\n"
+            '    status = "Enabled"\n'
             "  }\n"
             "}"
         ),
@@ -1940,6 +1933,11 @@ _ADDITIONAL_PROBES: list[SpectrographyProbe] = [
 # Aggregated probe bank
 # ---------------------------------------------------------------------------
 
+
+# DEVIATION DCS-FUNC-LEN — get_all_probes is 58 lines.
+# Justification: probe aggregation and validation function that collects all probe
+# banks and validates dimensional coverage; linear assembly logic.
+# Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
 def get_all_probes() -> list[SpectrographyProbe]:
     """Return the complete spectrography probe bank, validated against IBR dimensions.
 
@@ -1963,38 +1961,33 @@ def get_all_probes() -> list[SpectrographyProbe]:
     # Verify uniqueness of IDs
     ids = [p.id for p in all_probes]
     assert len(ids) == len(set(ids)), (
-        f"Duplicate probe IDs found: "
-        f"{[pid for pid in ids if ids.count(pid) > 1]}"
+        f"Duplicate probe IDs found: {[pid for pid in ids if ids.count(pid) > 1]}"
     )
 
     # Verify minimum count
-    assert len(all_probes) >= 80, (
-        f"Expected at least 80 probes, got {len(all_probes)}"
-    )
+    assert len(all_probes) >= 80, f"Expected at least 80 probes, got {len(all_probes)}"
 
     # Verify task_type coverage (at least 3 per type)
     from collections import Counter
+
     task_counts = Counter(p.task_type for p in all_probes)
     for task_type in IBR_TASK_TYPES:
         assert task_counts.get(task_type, 0) >= 3, (
-            f"Task type '{task_type}' has {task_counts.get(task_type, 0)} "
-            f"probes, need at least 3"
+            f"Task type '{task_type}' has {task_counts.get(task_type, 0)} probes, need at least 3"
         )
 
     # Verify domain coverage (at least 2 per domain)
     domain_counts = Counter(p.domain for p in all_probes)
     for domain in IBR_DOMAINS:
         assert domain_counts.get(domain, 0) >= 2, (
-            f"Domain '{domain}' has {domain_counts.get(domain, 0)} "
-            f"probes, need at least 2"
+            f"Domain '{domain}' has {domain_counts.get(domain, 0)} probes, need at least 2"
         )
 
     # Verify discrimination axis coverage (at least 2 per axis)
     axis_counts = Counter(p.discrimination_axis for p in all_probes)
     for axis in DISCRIMINATION_AXES:
         assert axis_counts.get(axis, 0) >= 2, (
-            f"Discrimination axis '{axis}' has {axis_counts.get(axis, 0)} "
-            f"probes, need at least 2"
+            f"Discrimination axis '{axis}' has {axis_counts.get(axis, 0)} probes, need at least 2"
         )
 
     return all_probes

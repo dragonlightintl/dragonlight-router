@@ -3,6 +3,7 @@ All configuration and request/response types are frozen dataclasses.
 Mutable runtime state lives in state.py.
 Canonical Result type for fallible operations.
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -10,12 +11,14 @@ from dataclasses import dataclass
 from enum import Enum, unique
 from typing import Generic, NoReturn, Protocol, TypeVar, runtime_checkable
 
-T = TypeVar('T')
-E = TypeVar('E')
+T = TypeVar("T")
+E = TypeVar("E")
+
 
 @dataclass(frozen=True)
 class Ok(Generic[T]):
     """Successful result containing a value."""
+
     value: T
 
     def is_ok(self) -> bool:
@@ -34,9 +37,11 @@ class Ok(Generic[T]):
         """Raise AssertionError because this is an Ok value."""
         raise AssertionError("Called unwrap_err on Ok value")
 
+
 @dataclass(frozen=True)
 class Err(Generic[E]):
     """Failed result containing an error."""
+
     error: E
 
     def is_ok(self) -> bool:
@@ -55,18 +60,24 @@ class Err(Generic[E]):
         """Return the contained error."""
         return self.error
 
+
 Result = Ok[T] | Err[E]
+
+
 @unique
 class BackendTier(Enum):
     """Capability tiers — abstract, not provider-specific."""
+
     LOCAL = "local"
     SIMPLE = "simple"
     MODERATE = "moderate"
     COMPLEX = "complex"
 
+
 @unique
 class BackendStatus(Enum):
     """Runtime health state of a single backend."""
+
     AVAILABLE = "available"
     RATE_LIMITED = "rate_limited"
     DAILY_CAP_HIT = "daily_cap_hit"
@@ -77,36 +88,45 @@ class BackendStatus(Enum):
     RETIRED = "retired"
     KEY_INVALID = "key_invalid"
 
+
 @dataclass(frozen=True)
 class BackendCapabilities:
     """Immutable capability declaration for a backend."""
+
     max_context_tokens: int
     supports_tool_use: bool
     supports_streaming: bool
     supports_json_mode: bool
     supports_system_prompts: bool
 
+
 @dataclass(frozen=True)
 class BackendCostProfile:
     """Per-token cost structure. All values in USD per million tokens."""
+
     input_per_mtok: float
     output_per_mtok: float
     cache_read_per_mtok: float = 0.0
     cache_write_per_mtok: float = 0.0
 
+
 @dataclass(frozen=True)
 class BackendRateLimits:
     """Provider-imposed rate limits."""
+
     rpm: int
     rpd: int
     tpm: int
     daily_token_cap: int
 
+
 @dataclass(frozen=True)
 class LatencySLO:
     """Latency Service Level Objective for health checking."""
+
     latency_ms: float
     description: str = ""
+
 
 @dataclass(frozen=True)
 class BackendConfig:
@@ -114,6 +134,7 @@ class BackendConfig:
     Frozen dataclass — constructed once at boot, never mutated.
     Runtime state lives in BackendState (separate, mutable).
     """
+
     name: str
     provider: str
     model: str
@@ -125,9 +146,11 @@ class BackendConfig:
     rate_limits: BackendRateLimits
     priority: int = 0
 
+
 @dataclass(frozen=True)
 class ProviderConfig:
     """Provider-level configuration (config-driven)."""
+
     name: str
     base_url: str
     catalog_url: str | None
@@ -138,9 +161,11 @@ class ProviderConfig:
     tpm_limit: int | None
     daily_token_cap: int | None
 
+
 @dataclass(frozen=True)
 class DispatchOrder:
     """Immutable request from server to cascade router."""
+
     intent_category: str
     specific_intent: str
     operator_message: str
@@ -162,19 +187,35 @@ class DispatchOrder:
     # BackendRegistry (e.g. "anthropic/claude-sonnet-4-20250514").
     model: str | None = None
 
+
 # ---------------------------------------------------------------------------
 # IBR (Intent Based Router) types — frozen dataclasses for intent
 # classification and model flavor profiling.  See IBR spec v0.1.0.
 # ---------------------------------------------------------------------------
 
 # Validation constants — canonical allowed values for ClassifiedIntent fields.
-IBR_TASK_TYPES: frozenset[str] = frozenset({
-    "generation", "analysis", "refactoring", "summarization",
-    "creative", "reasoning", "lookup", "translation",
-})
-IBR_DOMAINS: frozenset[str] = frozenset({
-    "code", "technical", "legal", "business", "creative_writing", "general",
-})
+IBR_TASK_TYPES: frozenset[str] = frozenset(
+    {
+        "generation",
+        "analysis",
+        "refactoring",
+        "summarization",
+        "creative",
+        "reasoning",
+        "lookup",
+        "translation",
+    }
+)
+IBR_DOMAINS: frozenset[str] = frozenset(
+    {
+        "code",
+        "technical",
+        "legal",
+        "business",
+        "creative_writing",
+        "general",
+    }
+)
 IBR_QUALITY_SPEED: frozenset[str] = frozenset({"quality", "balanced", "speed"})
 
 
@@ -186,12 +227,13 @@ class ClassifiedIntent:
     (task_type), the subject matter (domain), and the latency-quality
     tradeoff preference (quality_speed).
     """
-    task_type: str         # One of IBR_TASK_TYPES
-    domain: str            # One of IBR_DOMAINS
-    quality_speed: str     # One of IBR_QUALITY_SPEED
-    confidence: float      # 0.0-1.0 classifier self-reported confidence
-    latency_ms: float      # Wall-clock time for classification
-    from_cache: bool       # Whether this was a cache hit
+
+    task_type: str  # One of IBR_TASK_TYPES
+    domain: str  # One of IBR_DOMAINS
+    quality_speed: str  # One of IBR_QUALITY_SPEED
+    confidence: float  # 0.0-1.0 classifier self-reported confidence
+    latency_ms: float  # Wall-clock time for classification
+    from_cache: bool  # Whether this was a cache hit
 
 
 @dataclass(frozen=True)
@@ -202,9 +244,10 @@ class FlavorScore:
     confidence indicates how much data backs the score (0.0-1.0).
     sample_count is the number of observations behind the score.
     """
-    score: float           # 0.0-1.0 relative strength
-    confidence: float      # 0.0-1.0 how much data backs this score
-    sample_count: int      # Number of observations behind this score
+
+    score: float  # 0.0-1.0 relative strength
+    confidence: float  # 0.0-1.0 how much data backs this score
+    sample_count: int  # Number of observations behind this score
 
 
 # Neutral default for missing flavor dimensions.
@@ -218,12 +261,13 @@ class ModelFlavorProfile:
     Maps a model_id to its relative strengths across IBR intent dimensions.
     Missing dimensions default to IBR_NEUTRAL_FLAVOR.
     """
+
     model_id: str
-    version: int                         # Profile schema version (for migration)
-    updated_at: str                      # ISO-8601 timestamp of last update
+    version: int  # Profile schema version (for migration)
+    updated_at: str  # ISO-8601 timestamp of last update
     task_scores: dict[str, FlavorScore]  # task_type -> FlavorScore
     domain_scores: dict[str, FlavorScore]  # domain -> FlavorScore
-    qs_scores: dict[str, FlavorScore]    # quality_speed -> FlavorScore
+    qs_scores: dict[str, FlavorScore]  # quality_speed -> FlavorScore
 
 
 @dataclass(frozen=True)
@@ -233,6 +277,7 @@ class IBRScoringContext:
     Carries the classification result, loaded flavor profiles, and the
     effective flavor_match weight so CBR can incorporate the signal.
     """
+
     classified_intent: ClassifiedIntent | None
     flavor_profiles: dict[str, ModelFlavorProfile]
     flavor_match_weight: float
@@ -241,6 +286,7 @@ class IBRScoringContext:
 @dataclass(frozen=True)
 class EngineResponse:
     """Immutable response from cascade router to server."""
+
     content: str
     backend_used: str
     backend_tier: BackendTier
@@ -255,62 +301,78 @@ class EngineResponse:
     ibr_active: bool = False
     dispatch_mode: str = "cascade"
 
+
 @dataclass(frozen=True)
 class DispatchFailure:
     """Returned when all backends in the cascade are exhausted."""
+
     message: str
     attempted_backends: list[str]
     error_details: dict[str, str]
+
 
 # ---------------------------------------------------------------------------
 # Pinned dispatch error types (model-pinning v0.1.0 spec section 2.4).
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class ModelNotFoundError:
     """Pinned model not found in registry."""
+
     model: str
     message: str
+
 
 @dataclass(frozen=True)
 class ModelUnhealthyError:
     """Pinned model is circuit-open or retired."""
+
     model: str
     status: str  # "circuit_open" | "retired"
     message: str
 
+
 @dataclass(frozen=True)
 class BudgetExhaustedError:
     """Pinned model's provider has exhausted its budget or rate limits."""
+
     model: str
     provider: str
     message: str
 
+
 @dataclass(frozen=True)
 class ComplexityEstimate:
     """Output of the reasoning tier heuristic."""
+
     tier: BackendTier
     confidence: float
     signals: list[str]
 
+
 @dataclass(frozen=True)
 class BackendError:
     """Base error from a backend dispatch attempt."""
+
     backend_name: str
     error_type: str
     message: str
     http_status: int | None = None
     retryable: bool = False
 
+
 @dataclass(frozen=True)
 class ModelScore:
     """Composite score for a model candidate."""
+
     model_id: str
     provider: str
     rank: int
     budget_score: float
     health_score: float
     composite: float
+
 
 @dataclass(frozen=True)
 class ScoredCandidate:
@@ -320,15 +382,19 @@ class ScoredCandidate:
     downstream stages (LBR, final selection) can use the score for
     weighted random selection and observability without re-computing it.
     """
+
     config: BackendConfig
     score: float
+
 
 @dataclass(frozen=True)
 class CatalogEntry:
     """One model from a provider's catalog."""
+
     model_id: str
     provider: str
     created: int | None = None
+
 
 @dataclass(frozen=True)
 class StreamChunk:
@@ -339,6 +405,7 @@ class StreamChunk:
         "metadata" — final metadata after generation completes
         "error"    — an error during generation
     """
+
     event_type: str
     content: str = ""
     backend_used: str = ""
@@ -355,9 +422,11 @@ class StreamChunk:
     ibr_active: bool = False
     dispatch_mode: str = "cascade"
 
+
 @dataclass(frozen=True)
 class RequestOutcome:
     """Immutable record of a request outcome for budget/health tracking."""
+
     provider: str
     model_id: str
     success: bool
@@ -365,9 +434,11 @@ class RequestOutcome:
     latency_ms: float = 0.0
     quality_rating: int | None = None
 
+
 @runtime_checkable
 class GenerativeBackend(Protocol):
     """Protocol that every backend adapter must implement."""
+
     @property
     def config(self) -> BackendConfig: ...
     @property

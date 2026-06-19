@@ -99,20 +99,25 @@ class CohereBackend(GenerativeBackend):
 
         if not self._api_key:
             self._status = BackendStatus.ERROR
-            raise ValueError(
-                f"cohere: API key not configured (env: {self._config.env_key})"
-            )
+            raise ValueError(f"cohere: API key not configured (env: {self._config.env_key})")
 
         url = f"{self._resolve_base_url()}/v2/chat"
         headers = self._build_headers()
         payload = self._build_payload(
-            messages, max_tokens=max_tokens, temperature=temperature, stream=stream,
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            stream=stream,
         )
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
                 async with client.stream(
-                    "POST", url, headers=headers, json=payload, timeout=60.0,
+                    "POST",
+                    url,
+                    headers=headers,
+                    json=payload,
+                    timeout=60.0,
                 ) as response:
                     response.raise_for_status()
                     if stream:
@@ -125,8 +130,14 @@ class CohereBackend(GenerativeBackend):
                             yield content
             except RuntimeError:
                 raise
-            except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException,
-                    json.JSONDecodeError, KeyError, ValueError) as e:
+            except (
+                httpx.HTTPStatusError,
+                httpx.ConnectError,
+                httpx.TimeoutException,
+                json.JSONDecodeError,
+                KeyError,
+                ValueError,
+            ) as e:
                 raise self._wrap_error(e) from e
 
     async def _parse_stream(self, response: httpx.Response) -> AsyncIterator[str]:
@@ -152,12 +163,7 @@ class CohereBackend(GenerativeBackend):
 
     def _extract_delta_text(self, chunk: dict[str, Any]) -> str:
         """Extract text from a Cohere content-delta event."""
-        text: str = (
-            chunk.get("delta", {})
-            .get("message", {})
-            .get("content", {})
-            .get("text", "")
-        )
+        text: str = chunk.get("delta", {}).get("message", {}).get("content", {}).get("text", "")
         return text
 
     def _extract_non_stream_content(self, response_data: dict[str, Any]) -> str:
@@ -165,11 +171,7 @@ class CohereBackend(GenerativeBackend):
         message = response_data.get("message", {})
         content_parts = message.get("content", [])
         if isinstance(content_parts, list):
-            return "".join(
-                part.get("text", "")
-                for part in content_parts
-                if isinstance(part, dict)
-            )
+            return "".join(part.get("text", "") for part in content_parts if isinstance(part, dict))
         if isinstance(content_parts, str):
             return content_parts
         return ""

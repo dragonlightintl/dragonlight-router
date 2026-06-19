@@ -6,6 +6,7 @@ scores against classified intents, and provides confidence gating.
 Mirrors the RoleMatrix pattern: load at boot, hot-reload via mtime check.
 Missing or malformed YAML yields empty profiles (HAZ-019 mitigation).
 """
+
 from __future__ import annotations
 
 import os
@@ -32,24 +33,43 @@ try:
         FlavorScore,
         ModelFlavorProfile,
     )
-except ImportError:
+except ImportError:  # pragma: no cover — parallel-development fallback (IBR-DATA-01)
     from dataclasses import dataclass
 
-    IBR_TASK_TYPES: frozenset[str] = frozenset({  # type: ignore[no-redef]
-        "generation", "analysis", "refactoring", "summarization",
-        "creative", "reasoning", "lookup", "translation",
-    })
-    IBR_DOMAINS: frozenset[str] = frozenset({  # type: ignore[no-redef]
-        "code", "technical", "legal", "business",
-        "creative_writing", "general",
-    })
-    IBR_QUALITY_SPEED: frozenset[str] = frozenset({  # type: ignore[no-redef]
-        "quality", "balanced", "speed",
-    })
+    IBR_TASK_TYPES: frozenset[str] = frozenset(
+        {  # type: ignore[no-redef]
+            "generation",
+            "analysis",
+            "refactoring",
+            "summarization",
+            "creative",
+            "reasoning",
+            "lookup",
+            "translation",
+        }
+    )
+    IBR_DOMAINS: frozenset[str] = frozenset(
+        {  # type: ignore[no-redef]
+            "code",
+            "technical",
+            "legal",
+            "business",
+            "creative_writing",
+            "general",
+        }
+    )
+    IBR_QUALITY_SPEED: frozenset[str] = frozenset(
+        {  # type: ignore[no-redef]
+            "quality",
+            "balanced",
+            "speed",
+        }
+    )
 
     @dataclass(frozen=True)
     class FlavorScore:  # type: ignore[no-redef]
         """Single dimension score within a flavor profile."""
+
         score: float
         confidence: float
         sample_count: int
@@ -57,6 +77,7 @@ except ImportError:
     @dataclass(frozen=True)
     class ModelFlavorProfile:  # type: ignore[no-redef]
         """Full flavor profile for one model."""
+
         model_id: str
         version: int
         updated_at: str
@@ -67,6 +88,7 @@ except ImportError:
     @dataclass(frozen=True)
     class ClassifiedIntent:  # type: ignore[no-redef]
         """Classification output from the intent classifier."""
+
         task_type: str
         domain: str
         quality_speed: str
@@ -93,6 +115,7 @@ assert abs(_TASK_WEIGHT + _DOMAIN_WEIGHT + _QS_WEIGHT - 1.0) < 1e-9, (
 # ---------------------------------------------------------------------------
 # FlavorProfileLoader — mirrors RoleMatrix pattern
 # ---------------------------------------------------------------------------
+
 
 class FlavorProfileLoader:
     """Load and hot-reload model flavor profiles from YAML.
@@ -172,7 +195,8 @@ class FlavorProfileLoader:
         for model_id, profile in self._profiles.items():
             if model_id in feedback_profiles:
                 merged[model_id] = _merge_single_profile(
-                    profile, feedback_profiles[model_id],
+                    profile,
+                    feedback_profiles[model_id],
                 )
             else:
                 merged[model_id] = profile
@@ -205,6 +229,7 @@ class FlavorProfileLoader:
 # YAML parsing helpers
 # ---------------------------------------------------------------------------
 
+
 def _parse_profiles(
     profiles_raw: dict[str, Any],
 ) -> dict[str, ModelFlavorProfile]:
@@ -219,7 +244,8 @@ def _parse_profiles(
 
 
 def _parse_single_profile(
-    model_id: str, raw: dict[str, Any],
+    model_id: str,
+    raw: dict[str, Any],
 ) -> ModelFlavorProfile | None:
     """Parse one model's profile entry. Returns None on bad data."""
     assert isinstance(model_id, str), "model_id must be a string"
@@ -228,21 +254,22 @@ def _parse_single_profile(
         return None
 
     task_scores = _parse_dimension_scores(
-        raw.get("task_scores", {}), IBR_TASK_TYPES,
+        raw.get("task_scores", {}),
+        IBR_TASK_TYPES,
     )
     domain_scores = _parse_dimension_scores(
-        raw.get("domain_scores", {}), IBR_DOMAINS,
+        raw.get("domain_scores", {}),
+        IBR_DOMAINS,
     )
     qs_scores = _parse_dimension_scores(
-        raw.get("qs_scores", {}), IBR_QUALITY_SPEED,
+        raw.get("qs_scores", {}),
+        IBR_QUALITY_SPEED,
     )
 
     return ModelFlavorProfile(
         model_id=model_id,
         version=int(raw.get("version", 1)),
-        updated_at=str(
-            raw.get("updated_at", datetime.now(UTC).isoformat())
-        ),
+        updated_at=str(raw.get("updated_at", datetime.now(UTC).isoformat())),
         task_scores=task_scores,
         domain_scores=domain_scores,
         qs_scores=qs_scores,
@@ -267,7 +294,9 @@ def _parse_dimension_scores(
         if key in parsed:
             value = _clamp_score(float(parsed[key]))
             scores[key] = FlavorScore(
-                score=value, confidence=1.0, sample_count=0,
+                score=value,
+                confidence=1.0,
+                sample_count=0,
             )
         else:
             scores[key] = IBR_NEUTRAL_FLAVOR
@@ -288,6 +317,7 @@ def _clamp_score(value: float) -> float:
 # ---------------------------------------------------------------------------
 # Profile lookup helper
 # ---------------------------------------------------------------------------
+
 
 def get_profile_for_model(
     model_id: str,
@@ -329,6 +359,7 @@ def _build_neutral_profile(model_id: str) -> ModelFlavorProfile:
 # Flavor match scoring (spec section 4.1)
 # ---------------------------------------------------------------------------
 
+
 def compute_flavor_match(
     intent: ClassifiedIntent,
     profile: ModelFlavorProfile,
@@ -347,9 +378,7 @@ def compute_flavor_match(
     qs_fs = profile.qs_scores.get(intent.quality_speed, IBR_NEUTRAL_FLAVOR)
 
     result = (
-        _TASK_WEIGHT * task_fs.score
-        + _DOMAIN_WEIGHT * domain_fs.score
-        + _QS_WEIGHT * qs_fs.score
+        _TASK_WEIGHT * task_fs.score + _DOMAIN_WEIGHT * domain_fs.score + _QS_WEIGHT * qs_fs.score
     )
 
     result = max(0.0, min(1.0, result))
@@ -360,6 +389,7 @@ def compute_flavor_match(
 # ---------------------------------------------------------------------------
 # Batch scoring
 # ---------------------------------------------------------------------------
+
 
 def compute_flavor_scores(
     intent: ClassifiedIntent | None,
@@ -391,6 +421,7 @@ def compute_flavor_scores(
 # ---------------------------------------------------------------------------
 # Confidence gating (spec section 4.1)
 # ---------------------------------------------------------------------------
+
 
 def should_apply_flavor_match(
     intent: ClassifiedIntent | None,

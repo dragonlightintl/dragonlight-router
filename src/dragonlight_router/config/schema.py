@@ -3,6 +3,7 @@
 All configuration is validated through these models.
 RouterConfig is the top-level model loaded from YAML.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

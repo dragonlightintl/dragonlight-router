@@ -34,19 +34,21 @@ __all__ = [
     "create_adapter",
 ]
 
-_PROVIDER_MAP: types.MappingProxyType[str, type[GenerativeBackend]] = types.MappingProxyType({
-    "anthropic": AnthropicBackend,
-    "cerebras": CerebrasBackend,
-    "cohere": CohereBackend,
-    "google": GoogleBackend,
-    "groq": GroqBackend,
-    "local": LocalBackend,
-    "mistral": MistralBackend,
-    "nvidia": NvidiaBackend,
-    "openai": OpenAIBackend,
-    "openrouter": OpenRouterBackend,
-    "together": TogetherBackend,
-})
+_PROVIDER_MAP: types.MappingProxyType[str, type[GenerativeBackend]] = types.MappingProxyType(
+    {
+        "anthropic": AnthropicBackend,
+        "cerebras": CerebrasBackend,
+        "cohere": CohereBackend,
+        "google": GoogleBackend,
+        "groq": GroqBackend,
+        "local": LocalBackend,
+        "mistral": MistralBackend,
+        "nvidia": NvidiaBackend,
+        "openai": OpenAIBackend,
+        "openrouter": OpenRouterBackend,
+        "together": TogetherBackend,
+    }
+)
 
 
 def create_adapter(config: BackendConfig) -> GenerativeBackend:

@@ -3,6 +3,7 @@
 Tracks rate limit consumption, error history, and circuit breaker state.
 One instance per registered backend.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -111,8 +112,7 @@ class BackendState:
             self.avg_latency_ms = latency_ms
         else:
             self.avg_latency_ms = (
-                self.latency_alpha * latency_ms
-                + (1.0 - self.latency_alpha) * self.avg_latency_ms
+                self.latency_alpha * latency_ms + (1.0 - self.latency_alpha) * self.avg_latency_ms
             )
 
     def record_error(self) -> bool:
@@ -138,6 +138,9 @@ class BackendState:
             self.requests_today = 0
             self.tokens_today = 0
             tomorrow = dt.datetime.now(dt.UTC).replace(
-                hour=0, minute=0, second=0, microsecond=0,
+                hour=0,
+                minute=0,
+                second=0,
+                microsecond=0,
             ) + dt.timedelta(days=1)
             self.day_reset_at = tomorrow.timestamp()

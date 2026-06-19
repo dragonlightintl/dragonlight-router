@@ -126,14 +126,16 @@ class OpenAICompatibleBackend(GenerativeBackend):
         Uses full jitter: uniform random in [0, min(base * 2^attempt, max_delay)].
         """
         assert attempt >= 0, "attempt must be non-negative"
-        exp_delay = min(self._base_delay_s * (2 ** attempt), self._max_delay_s)
+        exp_delay = min(self._base_delay_s * (2**attempt), self._max_delay_s)
         jitter = random.uniform(0, self._jitter_factor * exp_delay)
         delay: float = exp_delay + jitter
         assert delay >= 0, "computed delay must be non-negative"
         return delay
 
     def _handle_http_retry(
-        self, exc: httpx.HTTPStatusError, attempt: int,
+        self,
+        exc: httpx.HTTPStatusError,
+        attempt: int,
     ) -> float | None:
         """Handle an HTTP error during retry loop.
 
@@ -158,7 +160,9 @@ class OpenAICompatibleBackend(GenerativeBackend):
         return None
 
     def _handle_connection_retry(
-        self, exc: httpx.ConnectError | httpx.TimeoutException, attempt: int,
+        self,
+        exc: httpx.ConnectError | httpx.TimeoutException,
+        attempt: int,
     ) -> float | None:
         """Handle a connection/timeout error during retry loop.
 
@@ -203,7 +207,10 @@ class OpenAICompatibleBackend(GenerativeBackend):
         url = f"{base_url}{self._completions_path}"
         headers = self._build_auth_headers()
         payload = self._build_request_payload(
-            messages, max_tokens=max_tokens, temperature=temperature, stream=stream,
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            stream=stream,
         )
         return url, headers, payload
 
@@ -230,7 +237,10 @@ class OpenAICompatibleBackend(GenerativeBackend):
         assert len(messages) > 0, "messages must not be empty"
 
         url, headers, payload = self._validate_and_prepare_request(
-            messages, max_tokens=max_tokens, temperature=temperature, stream=stream,
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            stream=stream,
         )
 
         last_exc: Exception | None = None
@@ -239,7 +249,11 @@ class OpenAICompatibleBackend(GenerativeBackend):
                 async with (
                     self._make_client(timeout=30.0) as client,
                     client.stream(
-                        "POST", url, headers=headers, json=payload, timeout=60.0,
+                        "POST",
+                        url,
+                        headers=headers,
+                        json=payload,
+                        timeout=60.0,
                     ) as response,
                 ):
                     response.raise_for_status()

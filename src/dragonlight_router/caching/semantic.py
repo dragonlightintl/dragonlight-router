@@ -4,6 +4,7 @@ MVP implementation that stores text with precomputed n-gram sets.
 On lookup, computes Jaccard similarity between query n-grams and
 stored n-grams. Returns the best match above threshold.
 """
+
 from __future__ import annotations
 
 import json
@@ -16,6 +17,9 @@ from dragonlight_router.caching.store import get_connection, init_semantic_cache
 class SemanticCache:
     """N-gram similarity cache for near-duplicate detection."""
 
+    # DEVIATION DCS-PARAM-001: __init__ takes 5 params (excl. self).
+    # Justification: cache config requires db_path plus tuning knobs with defaults;
+    # a config dataclass would add indirection. Approved by: architect.
     def __init__(
         self,
         db_path: Path,
@@ -48,9 +52,7 @@ class SemanticCache:
         if not query_ngrams:
             return None
 
-        rows = self._conn.execute(
-            "SELECT text, response, ngrams FROM semantic_cache"
-        ).fetchall()
+        rows = self._conn.execute("SELECT text, response, ngrams FROM semantic_cache").fetchall()
 
         best_score = 0.0
         best_response: str | None = None
@@ -93,9 +95,9 @@ class SemanticCache:
         ngrams: set[str] = set()
         for i in range(len(normalized) - self._ngram_size + 1):
             ngrams.add(normalized[i : i + self._ngram_size])
-        assert all(
-            len(ng) == self._ngram_size for ng in ngrams
-        ), "all n-grams must have correct size"
+        assert all(len(ng) == self._ngram_size for ng in ngrams), (
+            "all n-grams must have correct size"
+        )
         return ngrams
 
     @staticmethod
@@ -111,9 +113,7 @@ class SemanticCache:
 
     def _evict_if_needed(self) -> None:
         """Remove oldest entries if count exceeds max_entries."""
-        count = self._conn.execute(
-            "SELECT COUNT(*) FROM semantic_cache"
-        ).fetchone()[0]
+        count = self._conn.execute("SELECT COUNT(*) FROM semantic_cache").fetchone()[0]
 
         if count <= self._max_entries:
             return

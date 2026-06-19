@@ -4,6 +4,7 @@ SEC-003 mitigation: Validates provider URLs to prevent Server-Side Request
 Forgery attacks. Rejects URLs that resolve to private IP ranges, localhost,
 or cloud metadata endpoints.
 """
+
 from __future__ import annotations
 
 import ipaddress
@@ -15,11 +16,13 @@ import structlog
 logger = structlog.get_logger()
 
 # Known cloud metadata endpoint hostnames
-_METADATA_HOSTNAMES = frozenset({
-    "metadata.google.internal",
-    "metadata.goog",
-    "169.254.169.254",
-})
+_METADATA_HOSTNAMES = frozenset(
+    {
+        "metadata.google.internal",
+        "metadata.goog",
+        "169.254.169.254",
+    }
+)
 
 
 def _is_private_ip(host: str) -> bool:
@@ -95,9 +98,7 @@ def validate_provider_url(url: str) -> None:
     # Scheme validation: https required, except http for localhost
     if scheme == "http":
         if not is_localhost:
-            raise ValueError(
-                f"URL scheme must be https for non-localhost URLs: {url}"
-            )
+            raise ValueError(f"URL scheme must be https for non-localhost URLs: {url}")
         # http://localhost is allowed (e.g., Ollama)
         return
     elif scheme != "https":
@@ -105,6 +106,4 @@ def validate_provider_url(url: str) -> None:
 
     # For https URLs, check that the host does not resolve to a private IP
     if _is_private_ip(hostname):
-        raise ValueError(
-            f"URL resolves to a private/reserved IP address: {url}"
-        )
+        raise ValueError(f"URL resolves to a private/reserved IP address: {url}")

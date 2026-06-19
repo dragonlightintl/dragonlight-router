@@ -104,7 +104,10 @@ class LocalBackend(GenerativeBackend):
         }
 
     async def _stream_response(
-        self, url: str, body: dict[str, Any], headers: dict[str, str],
+        self,
+        url: str,
+        body: dict[str, Any],
+        headers: dict[str, str],
     ) -> AsyncIterator[str]:
         """Handle SSE streaming from the OpenAI-compatible endpoint."""
         async with (
@@ -119,9 +122,7 @@ class LocalBackend(GenerativeBackend):
                     status=response.status_code,
                     body_length=len(error_body),
                 )
-                raise RuntimeError(
-                    f"Local API error {response.status_code}"
-                )
+                raise RuntimeError(f"Local API error {response.status_code}")
 
             async for line in response.aiter_lines():
                 text = self._parse_sse_line(line.strip())
@@ -134,7 +135,7 @@ class LocalBackend(GenerativeBackend):
         """Parse a single SSE line, returning content, __DONE__, or None."""
         if not line or not line.startswith("data: "):
             return None
-        json_str = line[len("data: "):]
+        json_str = line[len("data: ") :]
         if json_str == "[DONE]":
             return "__DONE__"
         try:
@@ -148,7 +149,10 @@ class LocalBackend(GenerativeBackend):
         return delta if delta else None
 
     async def _non_stream_response(
-        self, url: str, body: dict[str, Any], headers: dict[str, str],
+        self,
+        url: str,
+        body: dict[str, Any],
+        headers: dict[str, str],
     ) -> AsyncIterator[str]:
         """Handle non-streaming response."""
         async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
@@ -160,16 +164,10 @@ class LocalBackend(GenerativeBackend):
                     status=response.status_code,
                     body=response.text[:500],
                 )
-                raise RuntimeError(
-                    f"Local API error {response.status_code}"
-                )
+                raise RuntimeError(f"Local API error {response.status_code}")
 
             data = response.json()
-            content = (
-                data.get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "")
-            )
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
             if content:
                 assert isinstance(content, str), "response content must be a string"
                 yield content

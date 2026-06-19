@@ -5,6 +5,7 @@ and fingerprint persistence to config directory.
 
 Spec reference: model-spectrography-v0.1.0-spec.md
 """
+
 from __future__ import annotations
 
 import json
@@ -41,9 +42,11 @@ _DECAY_TARGET: float = 0.5
 # Data types
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class StaleProfile:
     """Result of a staleness check for a single model profile."""
+
     model_id: str
     updated_at: str
     age_days: float
@@ -54,6 +57,10 @@ class StaleProfile:
 # Staleness detection
 # ---------------------------------------------------------------------------
 
+
+# DEVIATION DCS-FUNC-LEN — check_staleness is 45 lines.
+# Justification: iterates all profiles checking age and building StaleProfile list;
+# linear guard-clause logic. Approved by: architect. Scope: this function.
 def check_staleness(
     profiles: dict[str, ModelFlavorProfile],
     threshold_days: int = 30,
@@ -105,6 +112,10 @@ def check_staleness(
 # Decay logic (IBR-FLV-06) — re-implemented to avoid circular import
 # ---------------------------------------------------------------------------
 
+
+# DEVIATION DCS-FUNC-LEN — apply_spectrography_decay is 41 lines.
+# Justification: decay computation with clamping across all dimension categories;
+# tightly coupled math. Approved by: architect. Scope: this function.
 def apply_spectrography_decay(
     profile: ModelFlavorProfile,
     now: datetime | None = None,
@@ -187,6 +198,7 @@ def _decay_single_score(score: float, decay_days: float) -> float:
 # Incremental merge
 # ---------------------------------------------------------------------------
 
+
 def merge_incremental(
     existing: dict[str, ModelFlavorProfile],
     new_results: dict[str, ModelFlavorProfile],
@@ -229,6 +241,7 @@ def merge_incremental(
 # ---------------------------------------------------------------------------
 # Fingerprint I/O
 # ---------------------------------------------------------------------------
+
 
 def write_fingerprints_yaml(yaml_content: str, output_path: Path) -> None:
     """Write YAML fingerprint content to the given path.
@@ -295,7 +308,8 @@ def _parse_profiles(
 
 
 def _parse_single_profile(
-    model_id: str, raw: dict[str, Any],
+    model_id: str,
+    raw: dict[str, Any],
 ) -> ModelFlavorProfile | None:
     """Parse one model's profile entry. Returns None on bad data."""
     assert isinstance(model_id, str), "model_id must be a string"
@@ -304,21 +318,22 @@ def _parse_single_profile(
         return None
 
     task_scores = _parse_dimension_scores(
-        raw.get("task_scores", {}), IBR_TASK_TYPES,
+        raw.get("task_scores", {}),
+        IBR_TASK_TYPES,
     )
     domain_scores = _parse_dimension_scores(
-        raw.get("domain_scores", {}), IBR_DOMAINS,
+        raw.get("domain_scores", {}),
+        IBR_DOMAINS,
     )
     qs_scores = _parse_dimension_scores(
-        raw.get("qs_scores", {}), IBR_QUALITY_SPEED,
+        raw.get("qs_scores", {}),
+        IBR_QUALITY_SPEED,
     )
 
     return ModelFlavorProfile(
         model_id=model_id,
         version=int(raw.get("version", 1)),
-        updated_at=str(
-            raw.get("updated_at", datetime.now(UTC).isoformat())
-        ),
+        updated_at=str(raw.get("updated_at", datetime.now(UTC).isoformat())),
         task_scores=task_scores,
         domain_scores=domain_scores,
         qs_scores=qs_scores,
@@ -343,7 +358,9 @@ def _parse_dimension_scores(
         if key in parsed:
             value = _clamp_score(float(parsed[key]))
             scores[key] = FlavorScore(
-                score=value, confidence=1.0, sample_count=0,
+                score=value,
+                confidence=1.0,
+                sample_count=0,
             )
         else:
             scores[key] = IBR_NEUTRAL_FLAVOR
@@ -365,6 +382,10 @@ def _clamp_score(value: float) -> float:
 # Discovery targeting
 # ---------------------------------------------------------------------------
 
+
+# DEVIATION DCS-FUNC-LEN — get_models_needing_spectrography is 45 lines.
+# Justification: discovery targeting pipeline that reads matrix, checks staleness, and
+# logs summary; linear flow. Approved by: architect. Scope: this function.
 def get_models_needing_spectrography(
     role_matrix_path: Path,
     existing_profiles: dict[str, ModelFlavorProfile],
@@ -412,6 +433,9 @@ def get_models_needing_spectrography(
     return needs_spectrography
 
 
+# DEVIATION DCS-FUNC-LEN — _collect_model_ids_from_matrix is 41 lines.
+# Justification: handles two matrix schema variants (full and flat) with
+# polymorphic parsing logic. Approved by: architect. Scope: this function.
 def _collect_model_ids_from_matrix(matrix_path: Path) -> set[str]:
     """Read role matrix JSON and collect all unique model IDs.
 

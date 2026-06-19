@@ -3,6 +3,7 @@
 Deterministic cache for exact request matches. Uses a composite key
 of model_id + system_prompt + messages + temperature + max_tokens.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -124,9 +125,7 @@ class SimpleCache:
 
     def _evict_if_needed(self) -> None:
         """Remove oldest entries if count exceeds max_entries."""
-        count = self._conn.execute(
-            "SELECT COUNT(*) FROM simple_cache"
-        ).fetchone()[0]
+        count = self._conn.execute("SELECT COUNT(*) FROM simple_cache").fetchone()[0]
 
         if count <= self._max_entries:
             return

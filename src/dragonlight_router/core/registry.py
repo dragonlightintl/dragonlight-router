@@ -1,4 +1,5 @@
 """Backend registry — constructed once at boot, queried per-request."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -61,17 +62,14 @@ class BackendRegistry:
 
     def all_backends(self) -> list[tuple[str, GenerativeBackend, BackendState]]:
         """Return all registered backends with state."""
-        return [
-            (name, self._backends[name], self._states[name])
-            for name in self._backends
-        ]
+        return [(name, self._backends[name], self._states[name]) for name in self._backends]
 
     def get_by_tier(self, tier: BackendTier) -> list[BackendConfig]:
         """Get all backends matching the specified tier.
-        
+
         Args:
             tier: The BackendTier to filter by.
-            
+
         Returns:
             List of BackendConfig objects for backends in the specified tier.
         """

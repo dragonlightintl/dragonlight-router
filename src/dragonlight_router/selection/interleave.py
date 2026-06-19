@@ -3,6 +3,7 @@
 Preserves score ordering as much as possible while ensuring no provider
 appears more than max_consecutive times in a row.
 """
+
 from __future__ import annotations
 
 from collections import Counter
@@ -24,9 +25,9 @@ def interleave_providers(
     returns as-is (can't interleave).
     """
     assert isinstance(scored_models, list), "scored_models must be a list"
-    assert all(
-        isinstance(m, ModelScore) for m in scored_models
-    ), "all elements must be ModelScore instances"
+    assert all(isinstance(m, ModelScore) for m in scored_models), (
+        "all elements must be ModelScore instances"
+    )
     assert isinstance(max_consecutive, int) and max_consecutive >= 0, (
         "max_consecutive must be a non-negative integer"
     )
@@ -44,9 +45,9 @@ def interleave_providers(
     result = _build_interleaved(scored_models, max_consecutive)
 
     assert len(result) == len(scored_models), "interleaved result must have same length as input"
-    assert all(
-        isinstance(m, ModelScore) for m in result
-    ), "all elements in result must be ModelScore instances"
+    assert all(isinstance(m, ModelScore) for m in result), (
+        "all elements in result must be ModelScore instances"
+    )
     _verify_consecutive_constraint(result, providers, max_consecutive)
 
     return result
@@ -111,7 +112,8 @@ def _try_place_best(
 
     provider_counts = Counter(m.provider for m in remaining)
     placeable = [
-        (i, candidate) for i, candidate in enumerate(remaining)
+        (i, candidate)
+        for i, candidate in enumerate(remaining)
         if _can_place(result, candidate.provider, max_consecutive)
     ]
     if not placeable:

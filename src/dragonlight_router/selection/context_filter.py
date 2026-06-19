@@ -129,7 +129,8 @@ def _filter_semi_trusted(context: dict[str, Any]) -> dict[str, Any]:
     """SEMI_TRUSTED: remove behavioral rules, redact persona names, limit history."""
     assert isinstance(context, dict), "context must be a dict"
     assert "task" not in context or isinstance(
-        context.get("task"), str,
+        context.get("task"),
+        str,
     ), "task must be a string if present"
 
     logger.debug(
@@ -153,7 +154,8 @@ def _redact_system_fields(context: dict[str, Any]) -> dict[str, Any]:
     """Remove behavioral rules and redact persona names from system context."""
     assert isinstance(context, dict), "context must be a dict"
     assert "system" not in context or isinstance(
-        context.get("system"), dict,
+        context.get("system"),
+        dict,
     ), "system must be a dict if present"
 
     system = context.get("system", {})

@@ -3,6 +3,7 @@
 Scores combine rank (role-matrix position), budget availability,
 and health state into a single comparable float.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -81,13 +82,13 @@ def compute_composite_score(rank: int, budget_score: float, health_score: float)
 
     All inputs should be on 0-100 scale. Output is 0-100.
     """
-    assert 0 <= rank <= 100, f'rank must be between 0 and 100, got {rank}'
-    assert 0 <= budget_score <= 100, f'budget_score must be between 0 and 100, got {budget_score}'
-    assert 0 <= health_score <= 100, f'health_score must be between 0 and 100, got {health_score}'
+    assert 0 <= rank <= 100, f"rank must be between 0 and 100, got {rank}"
+    assert 0 <= budget_score <= 100, f"budget_score must be between 0 and 100, got {budget_score}"
+    assert 0 <= health_score <= 100, f"health_score must be between 0 and 100, got {health_score}"
 
     result = rank * 0.6 + budget_score * 0.25 + health_score * 0.15
 
-    assert 0 <= result <= 100, f'computed score {result} must be between 0 and 100'
+    assert 0 <= result <= 100, f"computed score {result} must be between 0 and 100"
     return result
 
 
@@ -104,6 +105,7 @@ class ScoringWeights(Enum):
     Note: HEALTH and QUEUE both have value 0.10, which makes HEALTH an alias.
     The ScoringWeightsConfig dataclass is the source of truth for weights.
     """
+
     COST = 0.35
     LATENCY = 0.25
     PRIORITY = 0.20
@@ -111,13 +113,21 @@ class ScoringWeights(Enum):
     HEALTH = 0.10
 
 
-assert abs(sum([
-    ScoringWeights.COST.value,
-    ScoringWeights.LATENCY.value,
-    ScoringWeights.PRIORITY.value,
-    ScoringWeights.QUEUE.value,
-    ScoringWeights.HEALTH.value,
-]) - 1.0) < 1e-9, "ScoringWeights must sum to 1.0"
+assert (
+    abs(
+        sum(
+            [
+                ScoringWeights.COST.value,
+                ScoringWeights.LATENCY.value,
+                ScoringWeights.PRIORITY.value,
+                ScoringWeights.QUEUE.value,
+                ScoringWeights.HEALTH.value,
+            ]
+        )
+        - 1.0
+    )
+    < 1e-9
+), "ScoringWeights must sum to 1.0"
 
 
 @dataclass(frozen=True)
@@ -128,6 +138,7 @@ class ScoringWeightsConfig:
     other weights are adjusted so the total remains 1.0.  When IBR is
     disabled (flavor_match=0.0), behavior is identical to v0.3.0.
     """
+
     cost: float = 0.35
     latency: float = 0.25
     priority: float = 0.20
@@ -138,8 +149,7 @@ class ScoringWeightsConfig:
     def __post_init__(self) -> None:
         """Validate that weights sum to 1.0."""
         total = (
-            self.cost + self.latency + self.priority
-            + self.queue + self.health + self.flavor_match
+            self.cost + self.latency + self.priority + self.queue + self.health + self.flavor_match
         )
         assert abs(total - 1.0) < 1e-9, f"Weights must sum to 1.0, got {total}"
 
@@ -147,6 +157,7 @@ class ScoringWeightsConfig:
 @dataclass(frozen=True)
 class ScoringContext:
     """Grouped context for candidate scoring (QA-004 compliance)."""
+
     config: BackendConfig
     order: DispatchOrder
     weights: ScoringWeightsConfig
@@ -281,6 +292,7 @@ def score_candidate(
 @dataclass(frozen=True)
 class _RawScores:
     """Raw scores extracted from trackers before normalization."""
+
     budget: float
     health: float
     rank: float
@@ -292,6 +304,7 @@ class _RawScores:
 @dataclass(frozen=True)
 class _NormalizedScores:
     """Scores normalized to [0.0, 1.0] range."""
+
     rank: float
     budget: float
     latency: float
@@ -310,12 +323,12 @@ def _extract_raw_scores(
     assert isinstance(budget_tracker, BudgetTracker), "budget_tracker must be BudgetTracker"
 
     budget_result = budget_tracker.score(config.provider)
-    budget_score = budget_result.value if hasattr(budget_result, 'value') else 50.0
+    budget_score = budget_result.value if hasattr(budget_result, "value") else 50.0
 
     health_score = 50.0
     if health_tracker is not None:
         health_result = health_tracker.score(config.model)
-        health_score = health_result.value if hasattr(health_result, 'value') else 50.0
+        health_score = health_result.value if hasattr(health_result, "value") else 50.0
 
     avg_cost = (config.cost.input_per_mtok + config.cost.output_per_mtok) / 2.0
     rank_score = min(100.0 / (avg_cost + 1.0), 100.0) if avg_cost >= 0 else 50.0
@@ -369,11 +382,11 @@ def _apply_weights(normalized: _NormalizedScores, weights: ScoringWeightsConfig)
     assert isinstance(weights, ScoringWeightsConfig), "weights must be ScoringWeightsConfig"
 
     composite = (
-        normalized.rank * weights.cost +
-        normalized.latency * weights.latency +
-        normalized.priority * weights.priority +
-        normalized.queue * weights.queue +
-        normalized.health * weights.health
+        normalized.rank * weights.cost
+        + normalized.latency * weights.latency
+        + normalized.priority * weights.priority
+        + normalized.queue * weights.queue
+        + normalized.health * weights.health
     )
 
     assert 0.0 <= composite <= 1.0, f"Composite out of bounds: {composite}"
@@ -398,8 +411,8 @@ def cost_governor_active(
     assert isinstance(daily_spend, (int, float)), "daily_spend must be numeric"
     assert isinstance(monthly_spend, (int, float)), "monthly_spend must be numeric"
 
-    daily_threshold: float = float(config.get('cost_down_threshold_daily', 100.0))
-    monthly_threshold: float = float(config.get('cost_down_threshold_monthly', 1000.0))
+    daily_threshold: float = float(config.get("cost_down_threshold_daily", 100.0))
+    monthly_threshold: float = float(config.get("cost_down_threshold_monthly", 1000.0))
 
     return daily_spend >= daily_threshold or monthly_spend >= monthly_threshold
 
@@ -414,10 +427,16 @@ def cost_adjusted_weights(base_weights: ScoringWeightsConfig) -> ScoringWeightsC
     assert isinstance(base_weights, ScoringWeightsConfig), (
         "base_weights must be ScoringWeightsConfig"
     )
-    total = sum([
-        base_weights.cost, base_weights.latency, base_weights.priority,
-        base_weights.queue, base_weights.health, base_weights.flavor_match,
-    ])
+    total = sum(
+        [
+            base_weights.cost,
+            base_weights.latency,
+            base_weights.priority,
+            base_weights.queue,
+            base_weights.health,
+            base_weights.flavor_match,
+        ]
+    )
     assert abs(total - 1.0) < 1e-9, "base weights must sum to 1.0"
 
     if base_weights.flavor_match > 0.0:

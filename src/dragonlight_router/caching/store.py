@@ -3,6 +3,7 @@
 Provides schema initialization and connection management.
 Both SimpleCache and SemanticCache share the same database.
 """
+
 from __future__ import annotations
 
 import sqlite3

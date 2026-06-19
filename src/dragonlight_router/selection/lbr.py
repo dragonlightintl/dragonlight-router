@@ -2,6 +2,7 @@
 
 Filters model candidates based on rate-limit budget availability.
 """
+
 from __future__ import annotations
 
 import random
@@ -72,12 +73,10 @@ def filter_by_rate_limit(
     score is >= the median. LOCAL tier backends bypass both filters.
     """
     assert isinstance(candidates, list), "candidates must be a list"
-    assert all(
-        isinstance(c, BackendConfig) for c in candidates
-    ), "all candidates must be BackendConfig instances"
-    assert isinstance(order, DispatchOrder), (
-        "order must be DispatchOrder instance"
+    assert all(isinstance(c, BackendConfig) for c in candidates), (
+        "all candidates must be BackendConfig instances"
     )
+    assert isinstance(order, DispatchOrder), "order must be DispatchOrder instance"
     assert isinstance(budget_tracker, BudgetTracker), (
         "budget_tracker must be BudgetTracker instance"
     )
@@ -134,7 +133,7 @@ def _extract_score(budget_tracker: BudgetTracker, provider: str) -> float:
     score_result = budget_tracker.score(provider)
     if isinstance(score_result, Ok):
         return score_result.value
-    if hasattr(score_result, 'value'):
+    if hasattr(score_result, "value"):
         return float(score_result.value)
     return 0.0
 
@@ -164,7 +163,8 @@ def _apply_median_threshold(
     assert len(candidates) > 0, "candidates must not be empty"
 
     return [
-        c for c in candidates
+        c
+        for c in candidates
         if c.tier == BackendTier.LOCAL or provider_scores[c.provider] >= median
     ]
 
@@ -193,9 +193,9 @@ def select_final_candidate(candidates: list[ScoredCandidate]) -> BackendConfig:
         ValueError: If candidates list is empty.
     """
     assert isinstance(candidates, list), "candidates must be a list"
-    assert all(
-        isinstance(c, ScoredCandidate) for c in candidates
-    ), "all candidates must be ScoredCandidate"
+    assert all(isinstance(c, ScoredCandidate) for c in candidates), (
+        "all candidates must be ScoredCandidate"
+    )
 
     if not candidates:
         raise ValueError("Cannot select from empty candidate list")

@@ -5,6 +5,7 @@ against structured criteria. Returns normalized scores (0.0-1.0).
 
 Spec reference: intent-based-router-v0.1.0-spec.md section 3.2, Method 3.
 """
+
 from __future__ import annotations
 
 import json
@@ -53,6 +54,7 @@ Return ONLY this JSON (no other text):
 # ---------------------------------------------------------------------------
 # Score parsing
 # ---------------------------------------------------------------------------
+
 
 def _parse_judge_scores(raw: str) -> dict[str, int] | None:
     """Extract scoring dict from judge response. Returns None on parse failure.
@@ -132,8 +134,10 @@ def _normalize_scores(scores: dict[str, int]) -> float:
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def _build_judge_messages(
-    prompt: EvalPrompt, model_response: str,
+    prompt: EvalPrompt,
+    model_response: str,
 ) -> list[dict[str, str]]:
     """Build the system+user message pair for the judge call."""
     assert isinstance(prompt, EvalPrompt), "prompt must be an EvalPrompt"
@@ -162,8 +166,10 @@ def _score_from_raw(raw: str, prompt_id: str) -> float:
 
     normalized = _normalize_scores(scores)
     logger.debug(
-        "judge_scored", prompt_id=prompt_id,
-        raw_scores=scores, normalized=round(normalized, 4),
+        "judge_scored",
+        prompt_id=prompt_id,
+        raw_scores=scores,
+        normalized=round(normalized, 4),
     )
     return normalized
 
@@ -206,7 +212,10 @@ async def _collect_response(
     try:
         chunks: list[str] = []
         async for chunk in adapter.generate(
-            messages, max_tokens=256, temperature=0.0, stream=True,
+            messages,
+            max_tokens=256,
+            temperature=0.0,
+            stream=True,
         ):
             chunks.append(chunk)
         return "".join(chunks) if chunks else None

@@ -5,6 +5,7 @@ Resolution order:
 2. Environment variable DRAGONLIGHT_ROUTER_CONFIG
 3. Default empty config (all defaults)
 """
+
 from __future__ import annotations
 
 import os
@@ -57,10 +58,11 @@ def _load_yaml_config(path: Path) -> Result[RouterConfig, RouterConfigError]:
         return Ok(config)
     except (yaml.YAMLError, OSError) as exc:
         logger.error("config_load_failed", path=str(path), error=str(exc))
-        return Err(RouterConfigError(
-            message=f"Failed to load config from {path}: {exc}",
-            config_path=str(path)
-        ))
+        return Err(
+            RouterConfigError(
+                message=f"Failed to load config from {path}: {exc}", config_path=str(path)
+            )
+        )
 
 
 def _validate_provider_urls(config: RouterConfig) -> None:

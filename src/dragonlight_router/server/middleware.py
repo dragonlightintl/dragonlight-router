@@ -5,6 +5,7 @@ per client IP address, request correlation ID middleware for
 structured request logging with optional metrics collection,
 and CORS middleware for cross-origin requests.
 """
+
 from __future__ import annotations
 
 import os
@@ -15,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.middleware.cors import CORSMiddleware as CORSMiddleware  # re-export
+from starlette.middleware.cors import CORSMiddleware as CORSMiddleware  # noqa: PLC0414
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
@@ -166,6 +167,54 @@ class RequestCorrelationMiddleware(BaseHTTPMiddleware):
 
         structlog.contextvars.clear_contextvars()
         response.headers[_REQUEST_ID_HEADER] = request_id
+        return response
+
+
+_MAX_REQUEST_BODY_BYTES = 1_048_576  # 1 MiB
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add standard security headers to every response."""
+
+    async def dispatch(self, request: Request, call_next: object) -> Response:
+        """Inject security headers on the outbound response."""
+        response: Response = await call_next(request)  # type: ignore[operator]
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "0"
+        if "cache-control" not in response.headers:
+            response.headers["Cache-Control"] = "no-store"
+        response.headers["Content-Security-Policy"] = "default-src 'none'"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Permissions-Policy"] = "interest-cohort=()"
+        return response
+
+
+class RequestBodySizeLimitMiddleware(BaseHTTPMiddleware):
+    """Reject requests with a body larger than the configured limit.
+
+    Reads the Content-Length header and returns 413 if it exceeds the max.
+    """
+
+    def __init__(self, app: object, max_bytes: int = _MAX_REQUEST_BODY_BYTES) -> None:
+        super().__init__(app)  # type: ignore[arg-type]
+        self.max_bytes = max_bytes
+
+    async def dispatch(self, request: Request, call_next: object) -> Response:
+        """Check Content-Length before forwarding."""
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            try:
+                length = int(content_length)
+                if length > self.max_bytes:
+                    return JSONResponse(
+                        {"error": "Request body too large"},
+                        status_code=413,
+                    )
+            except ValueError:
+                pass
+
+        response: Response = await call_next(request)  # type: ignore[operator]
         return response
 
 

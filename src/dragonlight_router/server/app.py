@@ -8,6 +8,7 @@ the Starlette lifespan exit. The lifespan cancels the health check loop,
 persists budget+health state, and closes the shared httpx session.
 ``timeout_graceful_shutdown`` gives in-flight requests time to drain.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -30,7 +31,9 @@ from dragonlight_router.server.metrics import MetricsCollector
 from dragonlight_router.server.middleware import (
     CORSMiddleware,
     RateLimitMiddleware,
+    RequestBodySizeLimitMiddleware,
     RequestCorrelationMiddleware,
+    SecurityHeadersMiddleware,
     get_cors_config,
 )
 from dragonlight_router.server.routes import (
@@ -103,7 +106,11 @@ def create_app(config_path: Path | None = None, **overrides: Any) -> Starlette:
         # Bootstrap: refresh catalog at startup (concurrent, one fetch per provider).
         try:
             await engine._async_refresh_catalog()
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 — DEVIATION DCS-EXC-002: except Exception
+            # at startup I/O boundary. Justification: catalog refresh hits multiple
+            # providers with heterogeneous error types; startup must not crash on
+            # transient network failures. Approved by: architect. Mitigations: logged,
+            # never silenced; health loop will retry. Scope: startup lifespan only.
             _lifespan_logger.warning("startup_catalog_refresh_failed")
 
         # Start health check loop
@@ -159,9 +166,11 @@ def create_app(config_path: Path | None = None, **overrides: Any) -> Starlette:
     app.state.metrics = metrics
     app.state.flavor_loader = flavor_loader
     # Middleware is applied in reverse order (last added = outermost).
-    # Order: CORS (outermost, if configured) → Correlation → RateLimit (innermost)
+    # Order: CORS → SecurityHeaders → Correlation → BodySizeLimit → RateLimit (innermost)
     app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(RequestBodySizeLimitMiddleware)
     app.add_middleware(RequestCorrelationMiddleware, metrics=metrics)
+    app.add_middleware(SecurityHeadersMiddleware)
     cors_config = get_cors_config()
     if cors_config is not None:
         app.add_middleware(CORSMiddleware, **cors_config)
@@ -209,5 +218,5 @@ def main() -> None:
     )
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

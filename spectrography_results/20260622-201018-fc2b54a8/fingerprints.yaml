@@ -1,0 +1,130 @@
+version: 1
+source: spectrography-run-20260622-201018-fc2b54a8
+generated_at: '2026-06-22T22:32:44.294167+00:00'
+profiles:
+  gemini/gemini-2.5-flash-lite:
+    task_scores:
+      analysis: 0.6
+      creative: 0.5
+      generation: 1.0
+      lookup: 0.5
+      reasoning: 0.4
+      refactoring: 0.25
+      summarization: 1.0
+      translation: 0.5
+    domain_scores:
+      business: 0.0
+      code: 1.0
+      creative_writing: 0.5
+      general: 0.5
+      legal: 0.6667
+      technical: 0.8
+    qs_scores:
+      balanced: 1.0
+      quality: 0.4
+      speed: 1.0
+  gemini/gemini-3-flash-preview:
+    task_scores:
+      analysis: 0.2
+      creative: 0.0
+      generation: 0.0
+      lookup: 0.5
+      reasoning: 0.0
+      refactoring: 0.0
+      summarization: 0.0
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.0
+      creative_writing: 0.0
+      general: 0.5
+      legal: 0.5
+      technical: 0.2
+    qs_scores:
+      balanced: 0.4
+      quality: 0.0
+      speed: 0.0
+  gemini/gemini-3.5-flash:
+    task_scores:
+      analysis: 0.0
+      creative: 0.3333
+      generation: 0.5
+      lookup: 0.5
+      reasoning: 0.2
+      refactoring: 0.5
+      summarization: 0.25
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.4
+      creative_writing: 0.3333
+      general: 0.5
+      legal: 0.0
+      technical: 0.0
+    qs_scores:
+      balanced: 0.0
+      quality: 0.2
+      speed: 0.75
+  gemini/gemma-4-26b-a4b-it:
+    task_scores:
+      analysis: 0.8
+      creative: 1.0
+      generation: 0.25
+      lookup: 0.5
+      reasoning: 1.0
+      refactoring: 1.0
+      summarization: 0.5
+      translation: 0.5
+    domain_scores:
+      business: 0.3333
+      code: 0.6
+      creative_writing: 1.0
+      general: 0.5
+      legal: 0.3333
+      technical: 0.6
+    qs_scores:
+      balanced: 0.6
+      quality: 0.8
+      speed: 0.25
+  gemini/gemma-4-31b-it:
+    task_scores:
+      analysis: 1.0
+      creative: 0.6667
+      generation: 0.75
+      lookup: 0.5
+      reasoning: 0.6
+      refactoring: 0.75
+      summarization: 0.75
+      translation: 0.5
+    domain_scores:
+      business: 1.0
+      code: 0.8
+      creative_writing: 0.6667
+      general: 0.5
+      legal: 1.0
+      technical: 0.4
+    qs_scores:
+      balanced: 0.8
+      quality: 0.6
+      speed: 0.5
+  nvidia_nim/microsoft/phi-4-mini-instruct:
+    task_scores:
+      analysis: 0.4
+      creative: 0.5
+      generation: 0.5
+      lookup: 0.5
+      reasoning: 0.8
+      refactoring: 0.5
+      summarization: 0.5
+      translation: 0.5
+    domain_scores:
+      business: 0.6667
+      code: 0.2
+      creative_writing: 0.5
+      general: 0.5
+      legal: 0.5
+      technical: 1.0
+    qs_scores:
+      balanced: 0.2
+      quality: 1.0
+      speed: 0.5

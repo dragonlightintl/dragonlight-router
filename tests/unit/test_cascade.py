@@ -713,7 +713,7 @@ class TestRunIbrStageSafe:
             health_tracker=MagicMock(),
             config={},
             ibr_config=IntentClassificationConfig(enabled=True),
-            flavor_loader=MagicMock(),
+            spectrograph_loader=MagicMock(),
             classification_adapter=MagicMock(),
         )
 
@@ -741,7 +741,7 @@ class TestRunIbrStageSafe:
             health_tracker=MagicMock(),
             config={},
             ibr_config=IntentClassificationConfig(enabled=True),
-            flavor_loader=MagicMock(),
+            spectrograph_loader=MagicMock(),
             classification_adapter=MagicMock(),
         )
 

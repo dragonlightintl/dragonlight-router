@@ -1,7 +1,7 @@
 """Coverage tests for server/app.py lines not covered by test_server.py.
 
 Covers:
-- Line 69: _create_flavor_loader when config_path is None (fallback profile path)
+- Line 69: _create_spectrograph_loader when config_path is None (fallback profile path)
 - Line 175: CORS middleware added when cors_config is not None
 """
 
@@ -16,30 +16,30 @@ pytestmark = pytest.mark.unit
 
 
 # ---------------------------------------------------------------------------
-# Line 69 — _create_flavor_loader when config_path is None
+# Line 69 — _create_spectrograph_loader when config_path is None
 # ---------------------------------------------------------------------------
 
 
 class TestCreateFlavorLoaderNullConfigPath:
     def test_returns_loader_with_default_path_when_config_path_none(self):
-        """_create_flavor_loader with config_path=None uses fallback."""
-        from dragonlight_router.server.app import _create_flavor_loader
+        """_create_spectrograph_loader with config_path=None uses fallback."""
+        from dragonlight_router.server.app import _create_spectrograph_loader
 
-        loader = _create_flavor_loader(config_path=None)
+        loader = _create_spectrograph_loader(config_path=None)
         assert loader is not None
-        # The loader's path should be config/model_flavor_profiles.yaml
-        assert str(loader._path) == str(Path("config") / "model_flavor_profiles.yaml")
+        # The loader's path should be config/model_spectrograph_profiles.yaml
+        assert str(loader._path) == str(Path("config") / "model_spectrograph_profiles.yaml")
 
     def test_returns_loader_with_config_parent_when_config_path_set(self, tmp_path):
-        """[TM-010] _create_flavor_loader with config_path uses sibling path (line 67)."""
-        from dragonlight_router.server.app import _create_flavor_loader
+        """[TM-010] _create_spectrograph_loader with config_path uses sibling path (line 67)."""
+        from dragonlight_router.server.app import _create_spectrograph_loader
 
         config_path = tmp_path / "router.yaml"
         config_path.touch()
 
-        loader = _create_flavor_loader(config_path=config_path)
+        loader = _create_spectrograph_loader(config_path=config_path)
         assert loader is not None
-        expected = config_path.parent / "model_flavor_profiles.yaml"
+        expected = config_path.parent / "model_spectrograph_profiles.yaml"
         assert loader._path == expected
 
 

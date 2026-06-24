@@ -35,12 +35,12 @@ from dragonlight_router.benchmark.runner import (
 )
 from dragonlight_router.core.types import (
     IBR_DOMAINS,
-    IBR_NEUTRAL_FLAVOR,
+    IBR_NEUTRAL_SPECTROGRAPH,
     IBR_QUALITY_SPEED,
     IBR_TASK_TYPES,
-    FlavorScore,
     GenerativeBackend,
-    ModelFlavorProfile,
+    ModelSpectrographProfile,
+    SpectrographScore,
 )
 
 pytestmark = pytest.mark.unit
@@ -94,12 +94,12 @@ def _make_profile(
     score: float = 0.8,
     confidence: float = 0.6,
     sample_count: int = 10,
-) -> ModelFlavorProfile:
-    """Build a ModelFlavorProfile with uniform scores across all dimensions."""
+) -> ModelSpectrographProfile:
+    """Build a ModelSpectrographProfile with uniform scores across all dimensions."""
     if updated_at is None:
         updated_at = datetime.now(UTC).isoformat()
-    fs = FlavorScore(score=score, confidence=confidence, sample_count=sample_count)
-    return ModelFlavorProfile(
+    fs = SpectrographScore(score=score, confidence=confidence, sample_count=sample_count)
+    return ModelSpectrographProfile(
         model_id=model_id,
         version=1,
         updated_at=updated_at,
@@ -664,7 +664,7 @@ class TestAggregateScores:
 
         for key in IBR_TASK_TYPES:
             assert key in profile.task_scores
-            assert profile.task_scores[key].score == IBR_NEUTRAL_FLAVOR.score
+            assert profile.task_scores[key].score == IBR_NEUTRAL_SPECTROGRAPH.score
         for key in IBR_DOMAINS:
             assert key in profile.domain_scores
         for key in IBR_QUALITY_SPEED:
@@ -686,7 +686,7 @@ class TestAggregateScores:
         assert profile.qs_scores["quality"].score == pytest.approx(0.9)
 
         # Other dimensions should be neutral
-        assert profile.task_scores["analysis"].score == IBR_NEUTRAL_FLAVOR.score
+        assert profile.task_scores["analysis"].score == IBR_NEUTRAL_SPECTROGRAPH.score
 
     def test_multiple_prompts_same_dimension(self):
         """[IBR-FLV-04] Multiple prompts in same dimension are averaged."""
@@ -763,16 +763,16 @@ class TestAggregateScores:
 # ===========================================================================
 
 
-class TestBuildFlavorScores:
-    """[IBR-FLV-04] FlavorScore construction from accumulated value lists."""
+class TestBuildSpectrographScores:
+    """[IBR-FLV-04] SpectrographScore construction from accumulated value lists."""
 
     def test_empty_list_produces_neutral(self):
-        """[IBR-FLV-04] Empty list for a key produces IBR_NEUTRAL_FLAVOR."""
+        """[IBR-FLV-04] Empty list for a key produces IBR_NEUTRAL_SPECTROGRAPH."""
         accum = {"generation": []}
         result = _build_flavor_scores(accum)
-        assert result["generation"].score == IBR_NEUTRAL_FLAVOR.score
-        assert result["generation"].confidence == IBR_NEUTRAL_FLAVOR.confidence
-        assert result["generation"].sample_count == IBR_NEUTRAL_FLAVOR.sample_count
+        assert result["generation"].score == IBR_NEUTRAL_SPECTROGRAPH.score
+        assert result["generation"].confidence == IBR_NEUTRAL_SPECTROGRAPH.confidence
+        assert result["generation"].sample_count == IBR_NEUTRAL_SPECTROGRAPH.sample_count
 
     def test_single_value(self):
         """[IBR-FLV-04] Single value computes correct score and confidence."""
@@ -903,7 +903,7 @@ class TestBenchmarkRunner:
 
         profile = await runner.benchmark_model("test-model", model_adapter)
 
-        assert isinstance(profile, ModelFlavorProfile)
+        assert isinstance(profile, ModelSpectrographProfile)
         assert profile.model_id == "test-model"
         assert profile.version == 1
         assert profile.updated_at  # Non-empty timestamp
@@ -943,7 +943,7 @@ class TestIntegrationPipeline:
     """[IBR-FLV-05] Full pipeline mock: adapter -> judge -> profile."""
 
     async def test_full_pipeline_produces_valid_profile(self):
-        """[IBR-FLV-05] Mocked pipeline produces valid ModelFlavorProfile with correct dims."""
+        """[IBR-FLV-05] Mocked pipeline produces valid ModelSpectrographProfile with correct dims."""
         # Model adapter returns consistent text
         model_adapter = _make_mock_adapter("This is a comprehensive response to the prompt.")
 
@@ -982,7 +982,7 @@ class TestIntegrationPipeline:
         profile = await runner.benchmark_model("integration-test-model", model_adapter)
 
         # Structural assertions
-        assert isinstance(profile, ModelFlavorProfile)
+        assert isinstance(profile, ModelSpectrographProfile)
         assert profile.model_id == "integration-test-model"
         assert profile.version == 1
         assert profile.updated_at  # Non-empty
@@ -992,10 +992,10 @@ class TestIntegrationPipeline:
         assert set(profile.domain_scores.keys()) == IBR_DOMAINS
         assert set(profile.qs_scores.keys()) == IBR_QUALITY_SPEED
 
-        # Scored dimensions have valid FlavorScore values
+        # Scored dimensions have valid SpectrographScore values
         for dim_scores in (profile.task_scores, profile.domain_scores, profile.qs_scores):
             for _key, fs in dim_scores.items():
-                assert isinstance(fs, FlavorScore)
+                assert isinstance(fs, SpectrographScore)
                 assert 0.0 <= fs.score <= 1.0
                 assert 0.0 <= fs.confidence <= 1.0
                 assert fs.sample_count >= 0
@@ -1008,7 +1008,7 @@ class TestIntegrationPipeline:
         assert profile.task_scores["creative"].score == expected_score
 
         # Dimensions that got no data should be neutral
-        assert profile.task_scores["refactoring"].score == IBR_NEUTRAL_FLAVOR.score
+        assert profile.task_scores["refactoring"].score == IBR_NEUTRAL_SPECTROGRAPH.score
 
     async def test_pipeline_with_adapter_failures(self):
         """[IBR-FLV-05] Pipeline gracefully handles adapter failures."""
@@ -1036,7 +1036,7 @@ class TestIntegrationPipeline:
         profile = await runner.benchmark_model("failing-model", model_adapter)
 
         # Should still get a valid profile structure
-        assert isinstance(profile, ModelFlavorProfile)
+        assert isinstance(profile, ModelSpectrographProfile)
         assert profile.model_id == "failing-model"
 
         # The generation score should be 0.0 (empty response from adapter failure)

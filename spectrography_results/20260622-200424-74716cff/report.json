@@ -1,0 +1,191 @@
+{
+  "run_id": "20260622-200424-74716cff",
+  "started_at": "2026-06-22T20:04:24.449477+00:00",
+  "completed_at": "2026-06-22T20:08:47.677063+00:00",
+  "judge_model": "groq/llama-3.3-70b-versatile",
+  "models_evaluated": [],
+  "total_probes": 16,
+  "total_errors": 16,
+  "self_eval_count": 0,
+  "profiles": {},
+  "calibration_deltas": {},
+  "rankings": {},
+  "per_probe_results": [
+    {
+      "model_id": "gemini/gemini-2.0-flash",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": "empty_model_response"
+    },
+    {
+      "model_id": "gemini/gemini-2.0-flash-lite",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": "empty_model_response"
+    },
+    {
+      "model_id": "gemini/gemini-2.5-flash-lite",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.5,
+      "is_self_eval": false,
+      "error": "judge_call_failed"
+    },
+    {
+      "model_id": "gemini/gemini-3-flash-preview",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.5,
+      "is_self_eval": false,
+      "error": "judge_call_failed"
+    },
+    {
+      "model_id": "gemini/gemini-3-pro-preview",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": "empty_model_response"
+    },
+    {
+      "model_id": "gemini/gemini-3.1-pro-preview",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": "empty_model_response"
+    },
+    {
+      "model_id": "gemini/gemini-3.5-flash",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": "empty_model_response"
+    },
+    {
+      "model_id": "gemini/gemma-4-26b-a4b-it",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.5,
+      "is_self_eval": false,
+      "error": "judge_call_failed"
+    },
+    {
+      "model_id": "gemini/gemma-4-31b-it",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.5,
+      "is_self_eval": false,
+      "error": "judge_call_failed"
+    },
+    {
+      "model_id": "gemini/gemini-2.0-flash",
+      "probe_id": "disc-refactoring-code-001",
+      "task_type": "refactoring",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": "empty_model_response"
+    },
+    {
+      "model_id": "gemini/gemini-2.0-flash-lite",
+      "probe_id": "disc-refactoring-code-001",
+      "task_type": "refactoring",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": "empty_model_response"
+    },
+    {
+      "model_id": "gemini/gemini-2.5-flash-lite",
+      "probe_id": "disc-refactoring-code-001",
+      "task_type": "refactoring",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.5,
+      "is_self_eval": false,
+      "error": "judge_call_failed"
+    },
+    {
+      "model_id": "gemini/gemini-3-flash-preview",
+      "probe_id": "disc-refactoring-code-001",
+      "task_type": "refactoring",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.5,
+      "is_self_eval": false,
+      "error": "judge_call_failed"
+    },
+    {
+      "model_id": "gemini/gemini-3-pro-preview",
+      "probe_id": "disc-refactoring-code-001",
+      "task_type": "refactoring",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": "empty_model_response"
+    },
+    {
+      "model_id": "gemini/gemini-3.1-pro-preview",
+      "probe_id": "disc-refactoring-code-001",
+      "task_type": "refactoring",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": "empty_model_response"
+    },
+    {
+      "model_id": "gemini/gemini-3.5-flash",
+      "probe_id": "disc-refactoring-code-001",
+      "task_type": "refactoring",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.5,
+      "is_self_eval": false,
+      "error": "judge_call_failed"
+    }
+  ]
+}

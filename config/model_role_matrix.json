@@ -3,59 +3,156 @@
   "default_rank": 20,
   "roles": {
     "coding": [
-      {"model_id": "nvidia_nim/moonshotai/kimi-k2.6", "rank": 95},
-      {"model_id": "nvidia_nim/deepseek-ai/deepseek-v4-pro", "rank": 90},
-      {"model_id": "nvidia_nim/mistralai/codestral-22b-instruct-v0.1", "rank": 82},
-      {"model_id": "gemini/gemini-2.5-pro", "rank": 80},
-      {"model_id": "groq/llama-3.3-70b-versatile", "rank": 75},
-      {"model_id": "gemini/gemini-2.5-flash", "rank": 72},
-      {"model_id": "openrouter/qwen/qwen3-coder:free", "rank": 70},
-      {"model_id": "openrouter/poolside/laguna-m.1:free", "rank": 68},
-      {"model_id": "groq/deepseek-r1-distill-llama-70b", "rank": 65}
+      {
+        "model_id": "nvidia_nim/moonshotai/kimi-k2.6",
+        "rank": 95
+      },
+      {
+        "model_id": "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+        "rank": 90
+      },
+      {
+        "model_id": "gemini/gemini-2.5-pro",
+        "rank": 80
+      },
+      {
+        "model_id": "groq/llama-3.3-70b-versatile",
+        "rank": 75
+      },
+      {
+        "model_id": "gemini/gemini-2.5-flash",
+        "rank": 72
+      },
+      {
+        "model_id": "openrouter/qwen/qwen3-coder:free",
+        "rank": 70
+      }
     ],
     "testing": [
-      {"model_id": "nvidia_nim/qwen/qwen3.5-397b-a17b", "rank": 92},
-      {"model_id": "nvidia_nim/moonshotai/kimi-k2.6", "rank": 88},
-      {"model_id": "gemini/gemini-2.5-pro", "rank": 82},
-      {"model_id": "gemini/gemini-2.5-flash", "rank": 78},
-      {"model_id": "groq/llama-3.3-70b-versatile", "rank": 75},
-      {"model_id": "groq/deepseek-r1-distill-llama-70b", "rank": 72},
-      {"model_id": "openrouter/poolside/laguna-m.1:free", "rank": 68},
-      {"model_id": "openrouter/qwen/qwen3-coder:free", "rank": 65}
+      {
+        "model_id": "nvidia_nim/qwen/qwen3.5-397b-a17b",
+        "rank": 92
+      },
+      {
+        "model_id": "nvidia_nim/moonshotai/kimi-k2.6",
+        "rank": 88
+      },
+      {
+        "model_id": "gemini/gemini-2.5-pro",
+        "rank": 82
+      },
+      {
+        "model_id": "gemini/gemini-2.5-flash",
+        "rank": 78
+      },
+      {
+        "model_id": "groq/llama-3.3-70b-versatile",
+        "rank": 75
+      },
+      {
+        "model_id": "openrouter/qwen/qwen3-coder:free",
+        "rank": 65
+      }
     ],
     "review": [
-      {"model_id": "nvidia_nim/qwen/qwen3.5-397b-a17b", "rank": 95},
-      {"model_id": "nvidia_nim/deepseek-ai/deepseek-v4-pro", "rank": 90},
-      {"model_id": "gemini/gemini-2.5-pro", "rank": 88},
-      {"model_id": "nvidia_nim/moonshotai/kimi-k2.6", "rank": 85},
-      {"model_id": "gemini/gemini-2.5-flash", "rank": 75},
-      {"model_id": "groq/llama-3.3-70b-versatile", "rank": 72},
-      {"model_id": "groq/deepseek-r1-distill-llama-70b", "rank": 70},
-      {"model_id": "openrouter/qwen/qwen3-coder:free", "rank": 60}
+      {
+        "model_id": "nvidia_nim/qwen/qwen3.5-397b-a17b",
+        "rank": 95
+      },
+      {
+        "model_id": "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+        "rank": 90
+      },
+      {
+        "model_id": "gemini/gemini-2.5-pro",
+        "rank": 88
+      },
+      {
+        "model_id": "nvidia_nim/moonshotai/kimi-k2.6",
+        "rank": 85
+      },
+      {
+        "model_id": "gemini/gemini-2.5-flash",
+        "rank": 75
+      },
+      {
+        "model_id": "groq/llama-3.3-70b-versatile",
+        "rank": 72
+      },
+      {
+        "model_id": "openrouter/qwen/qwen3-coder:free",
+        "rank": 60
+      }
     ],
     "spec": [
-      {"model_id": "nvidia_nim/deepseek-ai/deepseek-v4-pro", "rank": 95},
-      {"model_id": "nvidia_nim/qwen/qwen3.5-397b-a17b", "rank": 92},
-      {"model_id": "gemini/gemini-2.5-pro", "rank": 88},
-      {"model_id": "nvidia_nim/moonshotai/kimi-k2.6", "rank": 85},
-      {"model_id": "gemini/gemini-2.5-flash", "rank": 76},
-      {"model_id": "groq/deepseek-r1-distill-llama-70b", "rank": 75},
-      {"model_id": "groq/llama-3.3-70b-versatile", "rank": 70},
-      {"model_id": "openrouter/qwen/qwen3-coder:free", "rank": 60}
+      {
+        "model_id": "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+        "rank": 95
+      },
+      {
+        "model_id": "nvidia_nim/qwen/qwen3.5-397b-a17b",
+        "rank": 92
+      },
+      {
+        "model_id": "gemini/gemini-2.5-pro",
+        "rank": 88
+      },
+      {
+        "model_id": "nvidia_nim/moonshotai/kimi-k2.6",
+        "rank": 85
+      },
+      {
+        "model_id": "gemini/gemini-2.5-flash",
+        "rank": 76
+      },
+      {
+        "model_id": "groq/llama-3.3-70b-versatile",
+        "rank": 70
+      },
+      {
+        "model_id": "openrouter/qwen/qwen3-coder:free",
+        "rank": 60
+      }
     ],
     "reasoning": [
-      {"model_id": "nvidia_nim/qwen/qwen3.5-397b-a17b", "rank": 95},
-      {"model_id": "nvidia_nim/deepseek-ai/deepseek-v4-pro", "rank": 92},
-      {"model_id": "gemini/gemini-2.5-pro", "rank": 85},
-      {"model_id": "groq/deepseek-r1-distill-llama-70b", "rank": 82},
-      {"model_id": "nvidia_nim/moonshotai/kimi-k2.6", "rank": 78},
-      {"model_id": "gemini/gemini-2.5-flash", "rank": 72},
-      {"model_id": "groq/llama-3.3-70b-versatile", "rank": 70},
-      {"model_id": "openrouter/qwen/qwen3-coder:free", "rank": 55}
+      {
+        "model_id": "nvidia_nim/qwen/qwen3.5-397b-a17b",
+        "rank": 95
+      },
+      {
+        "model_id": "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+        "rank": 92
+      },
+      {
+        "model_id": "gemini/gemini-2.5-pro",
+        "rank": 85
+      },
+      {
+        "model_id": "nvidia_nim/moonshotai/kimi-k2.6",
+        "rank": 78
+      },
+      {
+        "model_id": "gemini/gemini-2.5-flash",
+        "rank": 72
+      },
+      {
+        "model_id": "groq/llama-3.3-70b-versatile",
+        "rank": 70
+      },
+      {
+        "model_id": "openrouter/qwen/qwen3-coder:free",
+        "rank": 55
+      }
     ],
     "classification": [
-      {"model_id": "groq/llama-3.3-70b-versatile", "rank": 80},
-      {"model_id": "gemini/gemini-2.5-flash", "rank": 75}
+      {
+        "model_id": "groq/llama-3.3-70b-versatile",
+        "rank": 80
+      },
+      {
+        "model_id": "gemini/gemini-2.5-flash",
+        "rank": 75
+      }
     ]
   }
 }

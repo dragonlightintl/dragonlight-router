@@ -1,0 +1,718 @@
+version: 1
+source: spectrography-run-20260621-025704-e31b5ce0
+generated_at: '2026-06-21T17:40:57.542565+00:00'
+profiles:
+  nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct:
+    task_scores:
+      analysis: 0.6154
+      creative: 0.2692
+      generation: 0.375
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.5
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.3438
+      creative_writing: 0.2692
+      general: 0.5
+      legal: 0.5
+      technical: 0.3125
+    qs_scores:
+      balanced: 0.5
+      quality: 0.6333
+      speed: 0.5
+  nvidia_nim/deepseek-ai/deepseek-v4-flash:
+    task_scores:
+      analysis: 0.7308
+      creative: 0.3077
+      generation: 0.625
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.2593
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.8125
+      creative_writing: 0.3077
+      general: 0.5
+      legal: 0.5
+      technical: 0.3438
+    qs_scores:
+      balanced: 0.5
+      quality: 0.8667
+      speed: 0.4138
+  nvidia_nim/deepseek-ai/deepseek-v4-pro:
+    task_scores:
+      analysis: 0.6923
+      creative: 0.3462
+      generation: 0.5312
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.2963
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.7188
+      creative_writing: 0.3462
+      general: 0.5
+      legal: 0.5
+      technical: 0.375
+    qs_scores:
+      balanced: 0.5217
+      quality: 0.8333
+      speed: 0.4483
+  nvidia_nim/google/gemma-2-2b-it:
+    task_scores:
+      analysis: 0.0769
+      creative: 0.3846
+      generation: 0.125
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.0741
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.1562
+      creative_writing: 0.3846
+      general: 0.5
+      legal: 0.5
+      technical: 0.1562
+    qs_scores:
+      balanced: 0.4348
+      quality: 0.1333
+      speed: 0.2069
+  nvidia_nim/google/gemma-3n-e4b-it:
+    task_scores:
+      analysis: 0.3846
+      creative: 0.4231
+      generation: 0.4688
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.1111
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.2812
+      creative_writing: 0.4231
+      general: 0.5
+      legal: 0.5
+      technical: 0.2188
+    qs_scores:
+      balanced: 0.3043
+      quality: 0.4667
+      speed: 0.2759
+  nvidia_nim/google/gemma-4-31b-it:
+    task_scores:
+      analysis: 0.9615
+      creative: 0.8462
+      generation: 0.9062
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.963
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.9688
+      creative_writing: 0.8462
+      general: 0.5
+      legal: 0.5
+      technical: 0.9375
+    qs_scores:
+      balanced: 0.9565
+      quality: 0.9667
+      speed: 0.9655
+  nvidia_nim/meta/llama-3.1-70b-instruct:
+    task_scores:
+      analysis: 0.6538
+      creative: 0.8846
+      generation: 0.9375
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.1481
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.75
+      creative_writing: 0.8846
+      general: 0.5
+      legal: 0.5
+      technical: 0.25
+    qs_scores:
+      balanced: 0.5
+      quality: 0.7667
+      speed: 0.3103
+  nvidia_nim/meta/llama-3.1-8b-instruct:
+    task_scores:
+      analysis: 0.5769
+      creative: 0.9231
+      generation: 0.0938
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.1852
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.625
+      creative_writing: 0.9231
+      general: 0.5
+      legal: 0.5
+      technical: 0.1875
+    qs_scores:
+      balanced: 0.5
+      quality: 0.3333
+      speed: 0.3448
+  nvidia_nim/meta/llama-3.2-3b-instruct:
+    task_scores:
+      analysis: 0.2308
+      creative: 0.9615
+      generation: 0.3125
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.2222
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.0938
+      creative_writing: 0.9615
+      general: 0.5
+      legal: 0.5
+      technical: 0.2812
+    qs_scores:
+      balanced: 0.2609
+      quality: 0.4333
+      speed: 0.3793
+  nvidia_nim/meta/llama-3.3-70b-instruct:
+    task_scores:
+      analysis: 0.5385
+      creative: 0.5
+      generation: 0.4375
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.5
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.4375
+      creative_writing: 0.5
+      general: 0.5
+      legal: 0.5
+      technical: 0.4062
+    qs_scores:
+      balanced: 0.6087
+      quality: 0.4
+      speed: 0.5
+  nvidia_nim/meta/llama-4-maverick-17b-128e-instruct:
+    task_scores:
+      analysis: 1.0
+      creative: 1.0
+      generation: 0.9688
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.5
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 1.0
+      creative_writing: 1.0
+      general: 0.5
+      legal: 0.5
+      technical: 0.9688
+    qs_scores:
+      balanced: 1.0
+      quality: 1.0
+      speed: 0.5
+  nvidia_nim/minimaxai/minimax-m2.7:
+    task_scores:
+      analysis: 0.5
+      creative: 0.5
+      generation: 0.0312
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.5185
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.0312
+      creative_writing: 0.5
+      general: 0.5
+      legal: 0.5
+      technical: 0.5938
+    qs_scores:
+      balanced: 0.5
+      quality: 0.5
+      speed: 0.1379
+  nvidia_nim/minimaxai/minimax-m3:
+    task_scores:
+      analysis: 0.1154
+      creative: 0.4615
+      generation: 0.5625
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 1.0
+      summarization: 0.3704
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.5
+      creative_writing: 0.4615
+      general: 0.5
+      legal: 0.5
+      technical: 0.4375
+    qs_scores:
+      balanced: 0.5652
+      quality: 0.5667
+      speed: 0.4828
+  nvidia_nim/mistralai/ministral-14b-instruct-2512:
+    task_scores:
+      analysis: 0.4615
+      creative: 0.5769
+      generation: 0.5
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.5556
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.4688
+      creative_writing: 0.5769
+      general: 0.5
+      legal: 0.5
+      technical: 0.625
+    qs_scores:
+      balanced: 0.3913
+      quality: 0.7
+      speed: 0.6207
+  nvidia_nim/mistralai/mistral-large-3-675b-instruct-2512:
+    task_scores:
+      analysis: 0.3077
+      creative: 0.6154
+      generation: 0.75
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.5926
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.5625
+      creative_writing: 0.6154
+      general: 0.5
+      legal: 0.5
+      technical: 0.6562
+    qs_scores:
+      balanced: 0.7391
+      quality: 0.5
+      speed: 0.6552
+  nvidia_nim/mistralai/mistral-medium-3.5-128b:
+    task_scores:
+      analysis: 0.8846
+      creative: 0.6538
+      generation: 0.7812
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.6296
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.8438
+      creative_writing: 0.6538
+      general: 0.5
+      legal: 0.5
+      technical: 0.6875
+    qs_scores:
+      balanced: 0.7826
+      quality: 0.9
+      speed: 0.6897
+  nvidia_nim/mistralai/mistral-nemotron:
+    task_scores:
+      analysis: 0.7692
+      creative: 0.5
+      generation: 0.6562
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.25
+      summarization: 0.4074
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.6875
+      creative_writing: 0.5
+      general: 0.5
+      legal: 0.5
+      technical: 0.4688
+    qs_scores:
+      balanced: 0.6522
+      quality: 0.6
+      speed: 0.5172
+  nvidia_nim/mistralai/mistral-small-4-119b-2603:
+    task_scores:
+      analysis: 0.8077
+      creative: 0.5
+      generation: 0.6875
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.4444
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.7812
+      creative_writing: 0.5
+      general: 0.5
+      legal: 0.5
+      technical: 0.5
+    qs_scores:
+      balanced: 0.5
+      quality: 0.8
+      speed: 0.5517
+  nvidia_nim/moonshotai/kimi-k2.6:
+    task_scores:
+      analysis: 0.0
+      creative: 0.6923
+      generation: 0.0
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.6667
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.0
+      creative_writing: 0.6923
+      general: 0.5
+      legal: 0.5
+      technical: 0.0938
+    qs_scores:
+      balanced: 0.0
+      quality: 0.1
+      speed: 0.069
+  nvidia_nim/nvidia/llama-3.1-nemotron-nano-8b-v1:
+    task_scores:
+      analysis: 0.0385
+      creative: 0.1923
+      generation: 0.1562
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.5
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.125
+      creative_writing: 0.1923
+      general: 0.5
+      legal: 0.5
+      technical: 0.5
+    qs_scores:
+      balanced: 0.8261
+      quality: 0.0333
+      speed: 0.0
+  nvidia_nim/nvidia/llama-3.3-nemotron-super-49b-v1:
+    task_scores:
+      analysis: 0.3462
+      creative: 0.7308
+      generation: 0.2188
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.7037
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.2188
+      creative_writing: 0.7308
+      general: 0.5
+      legal: 0.5
+      technical: 0.7188
+    qs_scores:
+      balanced: 0.1739
+      quality: 0.5333
+      speed: 0.2414
+  nvidia_nim/nvidia/llama-3.3-nemotron-super-49b-v1.5:
+    task_scores:
+      analysis: 0.5
+      creative: 0.5
+      generation: 0.5
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.037
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.5
+      creative_writing: 0.5
+      general: 0.5
+      legal: 0.5
+      technical: 0.0
+    qs_scores:
+      balanced: 0.5
+      quality: 0.5
+      speed: 0.0345
+  nvidia_nim/nvidia/nemotron-3-nano-30b-a3b:
+    task_scores:
+      analysis: 0.1538
+      creative: 0.0385
+      generation: 0.1875
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.0
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.1875
+      creative_writing: 0.0385
+      general: 0.5
+      legal: 0.5
+      technical: 0.0312
+    qs_scores:
+      balanced: 0.087
+      quality: 0.0667
+      speed: 0.1034
+  nvidia_nim/nvidia/nemotron-3-super-120b-a12b:
+    task_scores:
+      analysis: 0.9231
+      creative: 0.7692
+      generation: 0.3438
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.7407
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.875
+      creative_writing: 0.7692
+      general: 0.5
+      legal: 0.5
+      technical: 0.125
+    qs_scores:
+      balanced: 0.8696
+      quality: 0.3
+      speed: 0.7241
+  nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b:
+    task_scores:
+      analysis: 0.1923
+      creative: 0.0
+      generation: 0.5938
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.7778
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.3125
+      creative_writing: 0.0
+      general: 0.5
+      legal: 0.5
+      technical: 0.75
+    qs_scores:
+      balanced: 0.4783
+      quality: 0.1667
+      speed: 0.7586
+  nvidia_nim/nvidia/nvidia-nemotron-nano-9b-v2:
+    task_scores:
+      analysis: 0.5
+      creative: 0.2308
+      generation: 0.8125
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.8148
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.9062
+      creative_writing: 0.2308
+      general: 0.5
+      legal: 0.5
+      technical: 0.7812
+    qs_scores:
+      balanced: 0.5
+      quality: 0.2
+      speed: 0.7931
+  nvidia_nim/openai/gpt-oss-120b:
+    task_scores:
+      analysis: 0.5
+      creative: 0.1154
+      generation: 0.25
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.8519
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.25
+      creative_writing: 0.1154
+      general: 0.5
+      legal: 0.5
+      technical: 0.8125
+    qs_scores:
+      balanced: 0.0435
+      quality: 0.2333
+      speed: 0.8276
+  nvidia_nim/openai/gpt-oss-20b:
+    task_scores:
+      analysis: 0.5
+      creative: 0.5
+      generation: 0.2812
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.8889
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.4062
+      creative_writing: 0.5
+      general: 0.5
+      legal: 0.5
+      technical: 0.8438
+    qs_scores:
+      balanced: 0.2174
+      quality: 0.5
+      speed: 0.8621
+  nvidia_nim/qwen/qwen3-next-80b-a3b-instruct:
+    task_scores:
+      analysis: 0.4231
+      creative: 0.5
+      generation: 0.8438
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.5
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.5938
+      creative_writing: 0.5
+      general: 0.5
+      legal: 0.5
+      technical: 0.875
+    qs_scores:
+      balanced: 0.913
+      quality: 0.3667
+      speed: 0.8966
+  nvidia_nim/qwen/qwen3.5-122b-a10b:
+    task_scores:
+      analysis: 0.5
+      creative: 0.5
+      generation: 0.4062
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.75
+      summarization: 0.5
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.375
+      creative_writing: 0.5
+      general: 0.5
+      legal: 0.5
+      technical: 0.5312
+    qs_scores:
+      balanced: 0.3478
+      quality: 0.7333
+      speed: 0.5
+  nvidia_nim/qwen/qwen3.5-397b-a17b:
+    task_scores:
+      analysis: 0.5
+      creative: 0.0769
+      generation: 1.0
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 1.0
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.5312
+      creative_writing: 0.0769
+      general: 0.5
+      legal: 0.5
+      technical: 1.0
+    qs_scores:
+      balanced: 0.5
+      quality: 0.2667
+      speed: 1.0
+  nvidia_nim/sarvamai/sarvam-m:
+    task_scores:
+      analysis: 0.2692
+      creative: 0.1538
+      generation: 0.0625
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.3333
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.0625
+      creative_writing: 0.1538
+      general: 0.5
+      legal: 0.5
+      technical: 0.0625
+    qs_scores:
+      balanced: 0.1304
+      quality: 0.0
+      speed: 0.1724
+  nvidia_nim/stepfun-ai/step-3.5-flash:
+    task_scores:
+      analysis: 0.5
+      creative: 0.8077
+      generation: 0.875
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.9259
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.9375
+      creative_writing: 0.8077
+      general: 0.5
+      legal: 0.5
+      technical: 0.9062
+    qs_scores:
+      balanced: 0.5
+      quality: 0.9333
+      speed: 0.931
+  nvidia_nim/z-ai/glm-5.1:
+    task_scores:
+      analysis: 0.8462
+      creative: 0.5385
+      generation: 0.7188
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.0
+      summarization: 0.4815
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.6562
+      creative_writing: 0.5385
+      general: 0.5
+      legal: 0.5
+      technical: 0.5625
+    qs_scores:
+      balanced: 0.6957
+      quality: 0.6667
+      speed: 0.5862

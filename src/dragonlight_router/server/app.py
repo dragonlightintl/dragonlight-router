@@ -25,7 +25,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route
 
 from dragonlight_router.router import RouterEngine
-from dragonlight_router.selection.flavor import FlavorProfileLoader
+from dragonlight_router.selection.spectrograph import SpectrographProfileLoader
 from dragonlight_router.server.logging import configure_logging
 from dragonlight_router.server.metrics import MetricsCollector
 from dragonlight_router.server.middleware import (
@@ -57,19 +57,19 @@ from dragonlight_router.server.routes import (
 _DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT = 10
 
 
-def _create_flavor_loader(config_path: Path | None) -> FlavorProfileLoader | None:
-    """Create a FlavorProfileLoader from the config directory.
+def _create_spectrograph_loader(config_path: Path | None) -> SpectrographProfileLoader | None:
+    """Create a SpectrographProfileLoader from the config directory.
 
-    Looks for ``model_flavor_profiles.yaml`` next to the config file.
-    Returns None if no config path is given (FlavorProfileLoader handles
+    Looks for ``model_spectrograph_profiles.yaml`` next to the config file.
+    Returns None if no config path is given (SpectrographProfileLoader handles
     missing files gracefully via HAZ-019).
     """
     if config_path is not None:
-        profile_path = config_path.parent / "model_flavor_profiles.yaml"
+        profile_path = config_path.parent / "model_spectrograph_profiles.yaml"
     else:
-        profile_path = Path("config") / "model_flavor_profiles.yaml"
+        profile_path = Path("config") / "model_spectrograph_profiles.yaml"
     assert isinstance(profile_path, Path), "profile_path must be a Path"
-    return FlavorProfileLoader(profile_path=profile_path)
+    return SpectrographProfileLoader(profile_path=profile_path)
 
 
 # DEVIATION CS-004: create_app is 77 lines (limit: 40).
@@ -159,12 +159,12 @@ def create_app(config_path: Path | None = None, **overrides: Any) -> Starlette:
     ]
 
     metrics = MetricsCollector()
-    flavor_loader = _create_flavor_loader(config_path)
+    spectrograph_loader = _create_spectrograph_loader(config_path)
 
     app = Starlette(routes=routes, lifespan=lifespan)
     app.state.engine = engine
     app.state.metrics = metrics
-    app.state.flavor_loader = flavor_loader
+    app.state.spectrograph_loader = spectrograph_loader
     # Middleware is applied in reverse order (last added = outermost).
     # Order: CORS → SecurityHeaders → Correlation → BodySizeLimit → RateLimit (innermost)
     app.add_middleware(RateLimitMiddleware)
@@ -176,7 +176,9 @@ def create_app(config_path: Path | None = None, **overrides: Any) -> Starlette:
         app.add_middleware(CORSMiddleware, **cors_config)
     assert hasattr(app.state, "engine"), "app must have engine attached to state"
     assert hasattr(app.state, "metrics"), "app must have metrics attached to state"
-    assert hasattr(app.state, "flavor_loader"), "app must have flavor_loader attached to state"
+    assert hasattr(app.state, "spectrograph_loader"), (
+        "app must have spectrograph_loader attached to state"
+    )
     return app
 
 

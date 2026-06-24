@@ -1,0 +1,165 @@
+{
+  "models": {
+    "gemini/gemini-2.0-flash": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "gemini/gemini-2.0-flash-lite": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "gemini/gemini-3-pro-preview": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "gemini/gemini-3.1-pro-preview": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "nvidia_nim/ibm/granite-3.0-8b-instruct": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "nvidia_nim/microsoft/phi-3.5-moe-instruct": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "nvidia_nim/mistralai/mistral-large-2-instruct": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "nvidia_nim/nv-mistralai/mistral-nemo-12b-instruct": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "nvidia_nim/nvidia/llama-3.1-nemotron-51b-instruct": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "nvidia_nim/nvidia/llama-3.1-nemotron-70b-instruct": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "nvidia_nim/nvidia/llama-3.1-nemotron-ultra-253b-v1": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "nvidia_nim/nvidia/mistral-nemo-minitron-8b-8k-instruct": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "nvidia_nim/nvidia/nemotron-4-340b-instruct": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "nvidia_nim/nvidia/nemotron-nano-3-30b-a3b": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "nvidia_nim/stepfun-ai/step-3.7-flash": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "nvidia_nim/writer/palmyra-creative-122b": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "nvidia_nim/ai21labs/jamba-1.5-large-instruct": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "nvidia_nim/bytedance/seed-oss-36b-instruct": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "nvidia_nim/google/gemma-3-12b-it": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "nvidia_nim/google/gemma-3-4b-it": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "gemini/gemini-3-flash-preview": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "gemini/gemini-3.5-flash": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    },
+    "nvidia_nim/qwen/qwen3.5-122b-a10b": {
+      "source": "unreachable",
+      "first_seen": "2026-06-22",
+      "last_catalog_hit": "2026-06-22",
+      "consecutive_misses": 0,
+      "spectrography_run_id": null
+    }
+  }
+}

@@ -976,19 +976,19 @@ class TestLoadDeclaredProfiles:
     def test_valid_yaml(self, tmp_path: Path) -> None:
         """Parses valid YAML with profiles key."""
         yaml_content = "profiles:\n  model-1:\n    task_scores:\n      generation: 0.8\n"
-        (tmp_path / "model_flavor_profiles.yaml").write_text(yaml_content)
+        (tmp_path / "model_spectrograph_profiles.yaml").write_text(yaml_content)
         result = _load_declared_profiles(tmp_path)
         assert "model-1" in result
 
     def test_invalid_yaml_no_profiles_key(self, tmp_path: Path) -> None:
         """Returns empty dict when YAML has no 'profiles' key."""
-        (tmp_path / "model_flavor_profiles.yaml").write_text("other_key: value\n")
+        (tmp_path / "model_spectrograph_profiles.yaml").write_text("other_key: value\n")
         result = _load_declared_profiles(tmp_path)
         assert result == {}
 
     def test_yaml_not_dict(self, tmp_path: Path) -> None:
         """Returns empty dict when YAML is not a dict."""
-        (tmp_path / "model_flavor_profiles.yaml").write_text("- item1\n- item2\n")
+        (tmp_path / "model_spectrograph_profiles.yaml").write_text("- item1\n- item2\n")
         result = _load_declared_profiles(tmp_path)
         assert result == {}
 

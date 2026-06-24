@@ -26,16 +26,16 @@ from dragonlight_router.core.types import (
     DispatchFailure,
     DispatchOrder,
     EngineResponse,
-    FlavorScore,
-    ModelFlavorProfile,
     ModelNotFoundError,
+    ModelSpectrographProfile,
     ModelUnhealthyError,
     RequestOutcome,
+    SpectrographScore,
     StreamChunk,
 )
 from dragonlight_router.result import Err, Ok
 from dragonlight_router.router import RouterEngine
-from dragonlight_router.selection.flavor import FlavorProfileLoader
+from dragonlight_router.selection.spectrograph import SpectrographProfileLoader
 from dragonlight_router.server.metrics import MetricsCollector
 
 logger = structlog.get_logger()
@@ -669,7 +669,7 @@ def _format_dispatch_response(engine_response: EngineResponse) -> JSONResponse:
     }
     if engine_response.ibr_active:
         payload["ibr_active"] = True
-        payload["flavor_match_score"] = engine_response.flavor_match_score
+        payload["spectrograph_match_score"] = engine_response.spectrograph_match_score
         if engine_response.classified_intent is not None:
             payload["classified_intent"] = _serialize_classified_intent(
                 engine_response.classified_intent,
@@ -852,7 +852,7 @@ async def dispatch_handler(request: Request) -> JSONResponse | StreamingResponse
             was_fallback=engine_response.was_fallback,
             fallback_chain=engine_response.fallback_chain,
             classified_intent=engine_response.classified_intent,
-            flavor_match_score=engine_response.flavor_match_score,
+            spectrograph_match_score=engine_response.spectrograph_match_score,
             ibr_active=engine_response.ibr_active,
             dispatch_mode=engine_response.dispatch_mode,
         )
@@ -923,28 +923,32 @@ async def reinstate_handler(request: Request) -> JSONResponse:
 # --- Flavor profile endpoints (IBR-API-02, IBR-API-03) ---
 
 
-def _serialize_flavor_score(fs: FlavorScore) -> dict[str, object]:
-    """Convert a FlavorScore to a JSON-safe dict."""
-    assert isinstance(fs, FlavorScore), "fs must be a FlavorScore"
+def _serialize_spectrograph_score(fs: SpectrographScore) -> dict[str, object]:
+    """Convert a SpectrographScore to a JSON-safe dict."""
+    assert isinstance(fs, SpectrographScore), "fs must be a SpectrographScore"
     return {"score": fs.score, "confidence": fs.confidence, "sample_count": fs.sample_count}
 
 
-def _serialize_profile(profile: ModelFlavorProfile) -> dict[str, object]:
-    """Serialize a ModelFlavorProfile to a JSON-safe dict."""
-    assert isinstance(profile, ModelFlavorProfile), "profile must be ModelFlavorProfile"
+def _serialize_spectrograph_profile(profile: ModelSpectrographProfile) -> dict[str, object]:
+    """Serialize a ModelSpectrographProfile to a JSON-safe dict."""
+    assert isinstance(profile, ModelSpectrographProfile), "profile must be ModelSpectrographProfile"
     return {
         "model_id": profile.model_id,
         "version": profile.version,
         "updated_at": profile.updated_at,
-        "task_scores": {k: _serialize_flavor_score(v) for k, v in profile.task_scores.items()},
-        "domain_scores": {k: _serialize_flavor_score(v) for k, v in profile.domain_scores.items()},
-        "qs_scores": {k: _serialize_flavor_score(v) for k, v in profile.qs_scores.items()},
+        "task_scores": {
+            k: _serialize_spectrograph_score(v) for k, v in profile.task_scores.items()
+        },
+        "domain_scores": {
+            k: _serialize_spectrograph_score(v) for k, v in profile.domain_scores.items()
+        },
+        "qs_scores": {k: _serialize_spectrograph_score(v) for k, v in profile.qs_scores.items()},
     }
 
 
-def _get_flavor_loader(request: Request) -> FlavorProfileLoader | None:
-    """Retrieve the FlavorProfileLoader from app state, or None if absent."""
-    return getattr(request.app.state, "flavor_loader", None)
+def _get_spectrograph_loader(request: Request) -> SpectrographProfileLoader | None:
+    """Retrieve the SpectrographProfileLoader from app state, or None if absent."""
+    return getattr(request.app.state, "spectrograph_loader", None)
 
 
 async def flavor_profiles_list_handler(request: Request) -> JSONResponse:
@@ -952,14 +956,14 @@ async def flavor_profiles_list_handler(request: Request) -> JSONResponse:
 
     IBR-API-02: No authentication required.
     """
-    loader = _get_flavor_loader(request)
+    loader = _get_spectrograph_loader(request)
     if loader is None:
         return JSONResponse({"profiles": {}})
 
     profiles = loader.profiles
     logger.info("ibr_flavor_profiles_loaded", profile_count=len(profiles))
 
-    serialized = {mid: _serialize_profile(p) for mid, p in profiles.items()}
+    serialized = {mid: _serialize_spectrograph_profile(p) for mid, p in profiles.items()}
     assert isinstance(serialized, dict), "serialized profiles must be a dict"
     return JSONResponse({"profiles": serialized})
 
@@ -972,7 +976,7 @@ async def flavor_profile_detail_handler(request: Request) -> JSONResponse:
     model_id = request.path_params["model_id"]
     assert isinstance(model_id, str), "model_id path param must be a string"
 
-    loader = _get_flavor_loader(request)
+    loader = _get_spectrograph_loader(request)
     if loader is None or model_id not in loader.profiles:
         return _format_error_response(
             f"flavor profile not found: {model_id}",
@@ -981,7 +985,7 @@ async def flavor_profile_detail_handler(request: Request) -> JSONResponse:
 
     profile = loader.profiles[model_id]
     logger.info("ibr_flavor_profiles_loaded", model_id=model_id)
-    return JSONResponse(_serialize_profile(profile))
+    return JSONResponse(_serialize_spectrograph_profile(profile))
 
 
 def _validate_flavor_upsert_body(body: dict[str, Any]) -> str | None:
@@ -1020,7 +1024,7 @@ async def flavor_profile_upsert_handler(request: Request) -> JSONResponse:
     if validation_error:
         return _format_error_response(validation_error, 400)
 
-    loader = _get_flavor_loader(request)
+    loader = _get_spectrograph_loader(request)
     if loader is None:
         return _format_error_response("flavor profile loader not initialized", 503)
 
@@ -1028,22 +1032,22 @@ async def flavor_profile_upsert_handler(request: Request) -> JSONResponse:
     loader._profiles[model_id] = profile
 
     logger.info("ibr_flavor_profile_upserted", model_id=model_id)
-    return JSONResponse(_serialize_profile(profile))
+    return JSONResponse(_serialize_spectrograph_profile(profile))
 
 
 def _build_profile_from_body(
     model_id: str,
     body: dict[str, Any],
-) -> ModelFlavorProfile:
-    """Construct a ModelFlavorProfile from a validated upsert request body."""
+) -> ModelSpectrographProfile:
+    """Construct a ModelSpectrographProfile from a validated upsert request body."""
     from datetime import UTC, datetime
 
     assert isinstance(model_id, str), "model_id must be a string"
     assert isinstance(body, dict), "body must be a dict"
 
-    def _parse_scores(raw: dict[str, Any]) -> dict[str, FlavorScore]:
+    def _parse_scores(raw: dict[str, Any]) -> dict[str, SpectrographScore]:
         return {
-            dim: FlavorScore(
+            dim: SpectrographScore(
                 score=max(0.0, min(1.0, float(val))),
                 confidence=1.0,
                 sample_count=0,
@@ -1051,7 +1055,7 @@ def _build_profile_from_body(
             for dim, val in raw.items()
         }
 
-    return ModelFlavorProfile(
+    return ModelSpectrographProfile(
         model_id=model_id,
         version=1,
         updated_at=datetime.now(UTC).isoformat(),

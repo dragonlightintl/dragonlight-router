@@ -50,13 +50,20 @@ from dragonlight_router.health.tracker import HealthTracker
 from dragonlight_router.result import Ok, Result
 from dragonlight_router.roles.matrix import RoleMatrix
 from dragonlight_router.selection.feedback import FeedbackStore
-from dragonlight_router.selection.flavor import FlavorProfileLoader
 from dragonlight_router.selection.interleave import interleave_providers
 from dragonlight_router.selection.scoring import (
     compute_composite_score,
 )
+from dragonlight_router.selection.spectrograph import SpectrographProfileLoader
 
 logger = structlog.get_logger()
+
+try:
+    from dragonlight_router.roles.lifecycle import auto_seed_new_models, decay_deprecated_models
+
+    _HAS_LIFECYCLE = True
+except ImportError:
+    _HAS_LIFECYCLE = False
 
 # DEVIATION QA-012: Module-level mutable singleton state.
 # Justification: Thread-safe singleton pattern for RouterEngine requires module-level lock
@@ -237,6 +244,14 @@ class RouterEngine:
         self._config.state_dir.mkdir(parents=True, exist_ok=True)
         self._init_subsystems()
         self._ensure_matrix_in_state_dir()
+        if _HAS_LIFECYCLE:
+            try:
+                seed_result = auto_seed_new_models(self._config.state_dir)
+                if seed_result.new_seeded > 0:
+                    logger.info("matrix_initial_seed", new_models=seed_result.new_seeded)
+                    self._matrix.reload_if_changed()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("matrix_initial_seed_failed", error=str(exc))
         self._register_backends_from_matrix()
         self._restore_budget_state()
         self._restore_health_state()
@@ -349,7 +364,7 @@ class RouterEngine:
         assert isinstance(self._config, RouterConfig), "_config must be RouterConfig"
         ibr_cfg = self._config.intent_classification
 
-        self._flavor_loader: FlavorProfileLoader | None = None
+        self._spectrograph_loader: SpectrographProfileLoader | None = None
         self._feedback_store: FeedbackStore | None = None
         self._classification_adapter: Any = None
 
@@ -357,27 +372,27 @@ class RouterEngine:
             logger.debug("ibr_disabled")
             return
 
-        profile_path = self._resolve_flavor_profile_path()
-        self._flavor_loader = FlavorProfileLoader(profile_path)
+        profile_path = self._resolve_spectrograph_profile_path()
+        self._spectrograph_loader = SpectrographProfileLoader(profile_path)
         self._feedback_store = FeedbackStore(
-            db_path=self._config.state_dir / "flavor_feedback.db",
+            db_path=self._config.state_dir / "spectrograph_feedback.db",
         )
         self._classification_adapter = self._resolve_classification_adapter()
 
         logger.info(
             "ibr_initialized",
-            flavor_profiles=len(self._flavor_loader.profiles),
+            spectrograph_profiles=len(self._spectrograph_loader.profiles),
             has_classifier=self._classification_adapter is not None,
             feedback_store=True,
         )
 
-    def _resolve_flavor_profile_path(self) -> Path:
-        """Locate the model_flavor_profiles.yaml file."""
+    def _resolve_spectrograph_profile_path(self) -> Path:
+        """Locate the model_spectrograph_profiles.yaml file."""
         assert isinstance(self._config.state_dir, Path), "state_dir must be a Path"
         candidates = [
-            Path("config/model_flavor_profiles.yaml"),
-            Path(__file__).parent.parent / "config" / "model_flavor_profiles.yaml",
-            self._config.state_dir / "model_flavor_profiles.yaml",
+            Path("config/model_spectrograph_profiles.yaml"),
+            Path(__file__).parent.parent / "config" / "model_spectrograph_profiles.yaml",
+            self._config.state_dir / "model_spectrograph_profiles.yaml",
         ]
         for path in candidates:
             if path.exists():
@@ -562,6 +577,11 @@ class RouterEngine:
         rate_limits = matched_provider.rate_limits
         cost_profile = self._resolve_cost_profile(model_id, matched_provider.name)
 
+        max_rank = max(
+            (entries.get(model_id, 0) for entries in self._matrix._matrix.values()),
+            default=0,
+        )
+
         return BackendConfig(
             name=model_id,
             provider=adapter_key,
@@ -569,6 +589,7 @@ class RouterEngine:
             tier=tier,
             base_url=normalized_base_url,
             env_key=matched_provider.env_key,
+            priority=max_rank,
             capabilities=BackendCapabilities(
                 max_context_tokens=131072,
                 supports_tool_use=True,
@@ -892,8 +913,8 @@ class RouterEngine:
             return
 
         operator_profile = None
-        if self._flavor_loader is not None:
-            profiles = self._flavor_loader.profiles
+        if self._spectrograph_loader is not None:
+            profiles = self._spectrograph_loader.profiles
             operator_profile = profiles.get(model_id)
 
         self._feedback_store.record_feedback(
@@ -1027,9 +1048,40 @@ class RouterEngine:
         if catalog:
             self._catalog.set(catalog)
             logger.info("catalog_refreshed", providers=list(catalog.keys()))
+            if _HAS_LIFECYCLE:
+                self._sync_matrix_lifecycle()
 
         if auth_failures:
             self._mark_key_invalid_backends(auth_failures)
+
+    def _sync_matrix_lifecycle(self) -> None:
+        """Auto-seed new catalog models and decay deprecated ones.
+
+        HAZ-008 extension: Keeps the role matrix synchronized with
+        provider catalog changes without manual intervention.
+        """
+        state_dir = self._config.state_dir
+        try:
+            seed_result = auto_seed_new_models(state_dir)
+            if seed_result.new_seeded > 0:
+                logger.info(
+                    "matrix_auto_seeded",
+                    new_models=seed_result.new_seeded,
+                    total=seed_result.total_in_matrix,
+                )
+                # Reload the matrix so the router uses updated rankings
+                self._matrix.reload_if_changed()
+
+            decay_result = decay_deprecated_models(state_dir)
+            if decay_result.decayed > 0 or decay_result.removed > 0:
+                logger.info(
+                    "matrix_deprecated_models_decayed",
+                    decayed=decay_result.decayed,
+                    removed=decay_result.removed,
+                )
+                self._matrix.reload_if_changed()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("matrix_lifecycle_failed", error=str(exc))
 
     def _mark_key_invalid_backends(self, auth_failures: dict[str, int]) -> None:
         """Mark all backends belonging to providers with auth failures as KEY_INVALID."""
@@ -1068,7 +1120,7 @@ class RouterEngine:
             health_tracker=self._health,
             config=config_dict,
             ibr_config=ibr_cfg if ibr_cfg.enabled else None,
-            flavor_loader=self._flavor_loader,
+            spectrograph_loader=self._spectrograph_loader,
             classification_adapter=self._classification_adapter,
         )
 
@@ -1089,7 +1141,7 @@ class RouterEngine:
             health_tracker=self._health,
             config=config_dict,
             ibr_config=ibr_cfg if ibr_cfg.enabled else None,
-            flavor_loader=self._flavor_loader,
+            spectrograph_loader=self._spectrograph_loader,
             classification_adapter=self._classification_adapter,
         ):
             yield chunk

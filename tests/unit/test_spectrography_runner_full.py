@@ -25,8 +25,8 @@ from dragonlight_router.core.types import (
     BackendCostProfile,
     BackendRateLimits,
     BackendTier,
-    FlavorScore,
-    ModelFlavorProfile,
+    ModelSpectrographProfile,
+    SpectrographScore,
 )
 from dragonlight_router.spectrography.analyzer import ProbeResult
 from dragonlight_router.spectrography.probes import SpectrographyProbe
@@ -110,13 +110,13 @@ def _make_probe_result(
     )
 
 
-def _make_flavor_profile(
+def _make_spectrograph_profile(
     model_id: str = "test/model-a",
     score: float = 0.7,
-) -> ModelFlavorProfile:
-    """Build a ModelFlavorProfile with uniform scores."""
-    fs = FlavorScore(score=score, confidence=0.8, sample_count=5)
-    return ModelFlavorProfile(
+) -> ModelSpectrographProfile:
+    """Build a ModelSpectrographProfile with uniform scores."""
+    fs = SpectrographScore(score=score, confidence=0.8, sample_count=5)
+    return ModelSpectrographProfile(
         model_id=model_id,
         version=1,
         updated_at=datetime.now(UTC).isoformat(),
@@ -202,7 +202,7 @@ def _mock_adapter_error() -> MagicMock:
 def _make_report_context(
     tmp_path: Path,
     results: list[ProbeResult] | None = None,
-    profiles: dict[str, ModelFlavorProfile] | None = None,
+    profiles: dict[str, ModelSpectrographProfile] | None = None,
     deltas: dict[str, dict[str, Any]] | None = None,
     rankings: dict[str, list[str]] | None = None,
 ) -> ReportContext:
@@ -210,7 +210,7 @@ def _make_report_context(
     if results is None:
         results = [_make_probe_result()]
     if profiles is None:
-        profiles = {"test/model-a": _make_flavor_profile()}
+        profiles = {"test/model-a": _make_spectrograph_profile()}
     if deltas is None:
         deltas = {}
     if rankings is None:
@@ -680,7 +680,7 @@ class TestSerializeProfiles:
     """Spec: model-spectrography-v0.1.0-spec"""
 
     def test_serializes_profiles_to_json_safe(self) -> None:
-        profiles = {"m1": _make_flavor_profile("m1")}
+        profiles = {"m1": _make_spectrograph_profile("m1")}
         result = _serialize_profiles(profiles)
         assert "m1" in result
         assert "model_id" in result["m1"]
@@ -690,14 +690,14 @@ class TestSerializeProfiles:
 
     def test_serializes_multiple_profiles(self) -> None:
         profiles = {
-            "m1": _make_flavor_profile("m1"),
-            "m2": _make_flavor_profile("m2", score=0.9),
+            "m1": _make_spectrograph_profile("m1"),
+            "m2": _make_spectrograph_profile("m2", score=0.9),
         }
         result = _serialize_profiles(profiles)
         assert len(result) == 2
 
     def test_score_structure(self) -> None:
-        profiles = {"m1": _make_flavor_profile("m1")}
+        profiles = {"m1": _make_spectrograph_profile("m1")}
         result = _serialize_profiles(profiles)
         task_scores = result["m1"]["task_scores"]
         for key in IBR_TASK_TYPES:
@@ -791,8 +791,8 @@ class TestMdRankingsSection:
 
     def test_produces_rankings_table(self) -> None:
         profiles = {
-            "m1": _make_flavor_profile("m1", score=0.3),
-            "m2": _make_flavor_profile("m2", score=0.9),
+            "m1": _make_spectrograph_profile("m1", score=0.3),
+            "m2": _make_spectrograph_profile("m2", score=0.9),
         }
         rankings = {"task/generation": ["m2", "m1"]}
         lines = _md_rankings_section(profiles, rankings)
@@ -802,14 +802,14 @@ class TestMdRankingsSection:
         assert "m2" in joined
 
     def test_includes_dimension_rankings(self) -> None:
-        profiles = {"m1": _make_flavor_profile("m1")}
+        profiles = {"m1": _make_spectrograph_profile("m1")}
         rankings = {"task/generation": ["m1"], "domain/code": ["m1"]}
         lines = _md_rankings_section(profiles, rankings)
         joined = "\n".join(lines)
         assert "Dimension Rankings" in joined
 
     def test_empty_rankings_no_dimension_section(self) -> None:
-        profiles = {"m1": _make_flavor_profile("m1")}
+        profiles = {"m1": _make_spectrograph_profile("m1")}
         lines = _md_rankings_section(profiles, {})
         joined = "\n".join(lines)
         assert "Dimension Rankings" not in joined
@@ -824,7 +824,7 @@ class TestMdProficienciesSection:
     """Spec: model-spectrography-v0.1.0-spec"""
 
     def test_produces_proficiency_lines(self) -> None:
-        profiles = {"m1": _make_flavor_profile("m1", score=0.8)}
+        profiles = {"m1": _make_spectrograph_profile("m1", score=0.8)}
         lines = _md_proficiencies_section(profiles)
         joined = "\n".join(lines)
         assert "Proficiencies" in joined
@@ -834,8 +834,8 @@ class TestMdProficienciesSection:
 
     def test_multiple_models(self) -> None:
         profiles = {
-            "m1": _make_flavor_profile("m1", score=0.3),
-            "m2": _make_flavor_profile("m2", score=0.9),
+            "m1": _make_spectrograph_profile("m1", score=0.3),
+            "m2": _make_spectrograph_profile("m2", score=0.9),
         }
         lines = _md_proficiencies_section(profiles)
         joined = "\n".join(lines)
@@ -1233,7 +1233,7 @@ class TestWriteConfigProfiles:
     """Spec: model-spectrography-v0.1.0-spec"""
 
     def test_merges_and_writes_profiles(self) -> None:
-        profiles = {"m1": _make_flavor_profile("m1")}
+        profiles = {"m1": _make_spectrograph_profile("m1")}
         with (
             patch(
                 "dragonlight_router.spectrography.runner.load_existing_fingerprints",

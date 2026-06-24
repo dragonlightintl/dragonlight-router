@@ -15,8 +15,8 @@ from dragonlight_router.core.types import (
     IBR_DOMAINS,
     IBR_QUALITY_SPEED,
     IBR_TASK_TYPES,
-    FlavorScore,
-    ModelFlavorProfile,
+    ModelSpectrographProfile,
+    SpectrographScore,
 )
 from dragonlight_router.spectrography.lifecycle import (
     _collect_model_ids_from_matrix,
@@ -34,16 +34,16 @@ pytestmark = pytest.mark.unit
 # ---------------------------------------------------------------------------
 
 
-def _make_flavor_profile(
+def _make_spectrograph_profile(
     model_id: str = "test/model-a",
     updated_at: str | None = None,
     score: float = 0.7,
-) -> ModelFlavorProfile:
-    """Build a ModelFlavorProfile with uniform scores."""
+) -> ModelSpectrographProfile:
+    """Build a ModelSpectrographProfile with uniform scores."""
     if updated_at is None:
         updated_at = datetime.now(UTC).isoformat()
-    fs = FlavorScore(score=score, confidence=0.8, sample_count=5)
-    return ModelFlavorProfile(
+    fs = SpectrographScore(score=score, confidence=0.8, sample_count=5)
+    return ModelSpectrographProfile(
         model_id=model_id,
         version=1,
         updated_at=updated_at,
@@ -66,7 +66,7 @@ class TestCheckStalenessNaive:
         naive_old = (datetime.now(UTC) - timedelta(days=60)).strftime(
             "%Y-%m-%dT%H:%M:%S",
         )
-        profile = _make_flavor_profile(
+        profile = _make_spectrograph_profile(
             model_id="m1",
             updated_at=naive_old,
         )
@@ -89,7 +89,7 @@ class TestDecayNaiveDatetime:
         naive_old = (datetime.now(UTC) - timedelta(days=60)).strftime(
             "%Y-%m-%dT%H:%M:%S",
         )
-        profile = _make_flavor_profile(
+        profile = _make_spectrograph_profile(
             model_id="m1",
             updated_at=naive_old,
             score=0.9,
@@ -151,7 +151,7 @@ class TestModelsNeedingSpectrographyNaive:
             "%Y-%m-%dT%H:%M:%S",
         )
         existing = {
-            "m1": _make_flavor_profile(model_id="m1", updated_at=naive_old),
+            "m1": _make_spectrograph_profile(model_id="m1", updated_at=naive_old),
         }
         result = get_models_needing_spectrography(
             matrix_path,

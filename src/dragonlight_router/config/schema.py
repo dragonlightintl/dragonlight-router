@@ -51,8 +51,8 @@ class IntentClassificationConfig(BaseModel):
     cache_max_entries: int = 5000
     confidence_threshold: float = 0.6
     profile_confidence_threshold: float = 0.3
-    flavor_match_weight: float = 0.15
-    flavor_match_weight_governor: float = 0.05
+    spectrograph_match_weight: float = 0.15
+    spectrograph_match_weight_governor: float = 0.05
 
 
 class PinnedDispatchConfig(BaseModel):

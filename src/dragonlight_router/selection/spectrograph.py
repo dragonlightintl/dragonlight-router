@@ -1,6 +1,6 @@
-"""Model flavor profile system for Intent Based Router (IBR).
+"""Model spectrograph profile system for Intent Based Router (IBR).
 
-Loads operator-declared flavor profiles from YAML, computes flavor match
+Loads operator-declared spectrograph profiles from YAML, computes spectrograph match
 scores against classified intents, and provides confidence gating.
 
 Mirrors the RoleMatrix pattern: load at boot, hot-reload via mtime check.
@@ -26,12 +26,12 @@ logger = structlog.get_logger()
 try:
     from dragonlight_router.core.types import (
         IBR_DOMAINS,
-        IBR_NEUTRAL_FLAVOR,
+        IBR_NEUTRAL_SPECTROGRAPH,
         IBR_QUALITY_SPEED,
         IBR_TASK_TYPES,
         ClassifiedIntent,
-        FlavorScore,
-        ModelFlavorProfile,
+        ModelSpectrographProfile,
+        SpectrographScore,
     )
 except ImportError:  # pragma: no cover — parallel-development fallback (IBR-DATA-01)
     from dataclasses import dataclass
@@ -67,23 +67,23 @@ except ImportError:  # pragma: no cover — parallel-development fallback (IBR-D
     )
 
     @dataclass(frozen=True)
-    class FlavorScore:  # type: ignore[no-redef]
-        """Single dimension score within a flavor profile."""
+    class SpectrographScore:  # type: ignore[no-redef]
+        """Single dimension score within a spectrograph profile."""
 
         score: float
         confidence: float
         sample_count: int
 
     @dataclass(frozen=True)
-    class ModelFlavorProfile:  # type: ignore[no-redef]
-        """Full flavor profile for one model."""
+    class ModelSpectrographProfile:  # type: ignore[no-redef]
+        """Full spectrograph profile for one model."""
 
         model_id: str
         version: int
         updated_at: str
-        task_scores: dict[str, FlavorScore]
-        domain_scores: dict[str, FlavorScore]
-        qs_scores: dict[str, FlavorScore]
+        task_scores: dict[str, SpectrographScore]
+        domain_scores: dict[str, SpectrographScore]
+        qs_scores: dict[str, SpectrographScore]
 
     @dataclass(frozen=True)
     class ClassifiedIntent:  # type: ignore[no-redef]
@@ -96,7 +96,7 @@ except ImportError:  # pragma: no cover — parallel-development fallback (IBR-D
         latency_ms: float
         from_cache: bool
 
-    IBR_NEUTRAL_FLAVOR = FlavorScore(score=0.5, confidence=0.0, sample_count=0)
+    IBR_NEUTRAL_SPECTROGRAPH = SpectrographScore(score=0.5, confidence=0.0, sample_count=0)
 
 
 # ---------------------------------------------------------------------------
@@ -108,17 +108,17 @@ _DOMAIN_WEIGHT: float = 0.30
 _QS_WEIGHT: float = 0.20
 
 assert abs(_TASK_WEIGHT + _DOMAIN_WEIGHT + _QS_WEIGHT - 1.0) < 1e-9, (
-    "Flavor match dimension weights must sum to 1.0"
+    "Spectrograph match dimension weights must sum to 1.0"
 )
 
 
 # ---------------------------------------------------------------------------
-# FlavorProfileLoader — mirrors RoleMatrix pattern
+# SpectrographProfileLoader — mirrors RoleMatrix pattern
 # ---------------------------------------------------------------------------
 
 
-class FlavorProfileLoader:
-    """Load and hot-reload model flavor profiles from YAML.
+class SpectrographProfileLoader:
+    """Load and hot-reload model spectrograph profiles from YAML.
 
     Follows the RoleMatrix pattern: load at boot, mtime-based hot-reload.
     Missing or unparseable files yield empty profiles (HAZ-019).
@@ -128,10 +128,10 @@ class FlavorProfileLoader:
         assert isinstance(profile_path, Path), "profile_path must be a Path instance"
         self._path = profile_path
         self._mtime: float = 0.0
-        self._profiles: dict[str, ModelFlavorProfile] = {}
+        self._profiles: dict[str, ModelSpectrographProfile] = {}
         self._profiles = self.load()
 
-    def load(self) -> dict[str, ModelFlavorProfile]:
+    def load(self) -> dict[str, ModelSpectrographProfile]:
         """Parse YAML and build profiles with defaults.
 
         Returns empty dict on missing file or parse error (HAZ-019).
@@ -139,7 +139,7 @@ class FlavorProfileLoader:
         Unlisted dimensions default to neutral (0.5, 0.0, 0).
         """
         if not self._path.exists():
-            logger.info("flavor_profiles_missing", path=str(self._path))
+            logger.info("spectrograph_profiles_missing", path=str(self._path))
             self._profiles = {}
             return self._profiles
 
@@ -155,14 +155,14 @@ class FlavorProfileLoader:
         self._profiles = profiles
 
         logger.info(
-            "flavor_profiles_loaded",
+            "spectrograph_profiles_loaded",
             path=str(self._path),
             model_count=len(profiles),
         )
         return self._profiles
 
     @property
-    def profiles(self) -> dict[str, ModelFlavorProfile]:
+    def profiles(self) -> dict[str, ModelSpectrographProfile]:
         """Return currently loaded profiles."""
         return self._profiles
 
@@ -176,12 +176,12 @@ class FlavorProfileLoader:
             if current_mtime > self._mtime:
                 self.load()
         except OSError as exc:
-            logger.warning("flavor_profile_stat_failed", error=str(exc))
+            logger.warning("spectrograph_profile_stat_failed", error=str(exc))
 
     def get_merged_profiles(
         self,
-        feedback_profiles: dict[str, ModelFlavorProfile],
-    ) -> dict[str, ModelFlavorProfile]:
+        feedback_profiles: dict[str, ModelSpectrographProfile],
+    ) -> dict[str, ModelSpectrographProfile]:
         """Merge feedback-learned profiles on top of operator-declared profiles.
 
         Resolution order per spec: feedback > operator-declared > neutral default.
@@ -189,7 +189,7 @@ class FlavorProfileLoader:
         """
         assert isinstance(feedback_profiles, dict), "feedback_profiles must be a dict"
 
-        merged: dict[str, ModelFlavorProfile] = {}
+        merged: dict[str, ModelSpectrographProfile] = {}
 
         # Start with all operator-declared profiles
         for model_id, profile in self._profiles.items():
@@ -218,7 +218,7 @@ class FlavorProfileLoader:
             return raw
         except (yaml.YAMLError, OSError, AssertionError) as exc:
             logger.warning(
-                "flavor_profile_load_failed",
+                "spectrograph_profile_load_failed",
                 path=str(self._path),
                 error=str(exc),
             )
@@ -232,10 +232,10 @@ class FlavorProfileLoader:
 
 def _parse_profiles(
     profiles_raw: dict[str, Any],
-) -> dict[str, ModelFlavorProfile]:
+) -> dict[str, ModelSpectrographProfile]:
     """Parse all profiles from the YAML 'profiles' block."""
     assert isinstance(profiles_raw, dict), "profiles_raw must be a dict"
-    result: dict[str, ModelFlavorProfile] = {}
+    result: dict[str, ModelSpectrographProfile] = {}
     for model_id, model_raw in profiles_raw.items():
         profile = _parse_single_profile(str(model_id), model_raw or {})
         if profile is not None:
@@ -246,11 +246,11 @@ def _parse_profiles(
 def _parse_single_profile(
     model_id: str,
     raw: dict[str, Any],
-) -> ModelFlavorProfile | None:
+) -> ModelSpectrographProfile | None:
     """Parse one model's profile entry. Returns None on bad data."""
     assert isinstance(model_id, str), "model_id must be a string"
     if not isinstance(raw, dict):
-        logger.warning("flavor_profile_invalid_entry", model_id=model_id)
+        logger.warning("spectrograph_profile_invalid_entry", model_id=model_id)
         return None
 
     task_scores = _parse_dimension_scores(
@@ -266,7 +266,7 @@ def _parse_single_profile(
         IBR_QUALITY_SPEED,
     )
 
-    return ModelFlavorProfile(
+    return ModelSpectrographProfile(
         model_id=model_id,
         version=int(raw.get("version", 1)),
         updated_at=str(raw.get("updated_at", datetime.now(UTC).isoformat())),
@@ -279,27 +279,27 @@ def _parse_single_profile(
 def _parse_dimension_scores(
     raw_scores: Any,
     allowed_keys: frozenset[str],
-) -> dict[str, FlavorScore]:
-    """Parse a dimension block into FlavorScore entries.
+) -> dict[str, SpectrographScore]:
+    """Parse a dimension block into SpectrographScore entries.
 
     Declared values get confidence=1.0 (known but not observed).
     Missing dimensions filled with neutral default.
     """
     assert isinstance(allowed_keys, frozenset), "allowed_keys must be frozenset"
 
-    scores: dict[str, FlavorScore] = {}
+    scores: dict[str, SpectrographScore] = {}
     parsed = raw_scores if isinstance(raw_scores, dict) else {}
 
     for key in allowed_keys:
         if key in parsed:
             value = _clamp_score(float(parsed[key]))
-            scores[key] = FlavorScore(
+            scores[key] = SpectrographScore(
                 score=value,
                 confidence=1.0,
                 sample_count=0,
             )
         else:
-            scores[key] = IBR_NEUTRAL_FLAVOR
+            scores[key] = IBR_NEUTRAL_SPECTROGRAPH
 
     assert len(scores) == len(allowed_keys), (
         f"Expected {len(allowed_keys)} scores, got {len(scores)}"
@@ -321,12 +321,12 @@ def _clamp_score(value: float) -> float:
 
 def get_profile_for_model(
     model_id: str,
-    profiles: dict[str, ModelFlavorProfile],
-) -> ModelFlavorProfile:
+    profiles: dict[str, ModelSpectrographProfile],
+) -> ModelSpectrographProfile:
     """Return the profile for a model_id, or a neutral default if missing.
 
     Neutral profiles have 0.5 score / 0.0 confidence across all dimensions,
-    ensuring unknown models neither benefit nor suffer from flavor matching.
+    ensuring unknown models neither benefit nor suffer from spectrograph matching.
     """
     assert isinstance(model_id, str), "model_id must be a string"
     assert isinstance(profiles, dict), "profiles must be a dict"
@@ -337,15 +337,15 @@ def get_profile_for_model(
     return _build_neutral_profile(model_id)
 
 
-def _build_neutral_profile(model_id: str) -> ModelFlavorProfile:
+def _build_neutral_profile(model_id: str) -> ModelSpectrographProfile:
     """Build a neutral default profile (all dimensions at 0.5, 0.0 conf)."""
     assert isinstance(model_id, str), "model_id must be a string"
 
-    neutral_task = dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_FLAVOR)
-    neutral_domain = dict.fromkeys(IBR_DOMAINS, IBR_NEUTRAL_FLAVOR)
-    neutral_qs = dict.fromkeys(IBR_QUALITY_SPEED, IBR_NEUTRAL_FLAVOR)
+    neutral_task = dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_SPECTROGRAPH)
+    neutral_domain = dict.fromkeys(IBR_DOMAINS, IBR_NEUTRAL_SPECTROGRAPH)
+    neutral_qs = dict.fromkeys(IBR_QUALITY_SPEED, IBR_NEUTRAL_SPECTROGRAPH)
 
-    return ModelFlavorProfile(
+    return ModelSpectrographProfile(
         model_id=model_id,
         version=1,
         updated_at=datetime.now(UTC).isoformat(),
@@ -356,33 +356,33 @@ def _build_neutral_profile(model_id: str) -> ModelFlavorProfile:
 
 
 # ---------------------------------------------------------------------------
-# Flavor match scoring (spec section 4.1)
+# Spectrograph match scoring (spec section 4.1)
 # ---------------------------------------------------------------------------
 
 
-def compute_flavor_match(
+def compute_spectrograph_match(
     intent: ClassifiedIntent,
-    profile: ModelFlavorProfile,
+    profile: ModelSpectrographProfile,
 ) -> float:
-    """Compute weighted flavor match score for a single model.
+    """Compute weighted spectrograph match score for a single model.
 
     Returns:
         Weighted sum: 0.50 * task + 0.30 * domain + 0.20 * quality_speed.
         Always in [0.0, 1.0]. Missing dimensions use neutral default (0.5).
     """
     assert isinstance(intent, ClassifiedIntent), "intent must be ClassifiedIntent"
-    assert isinstance(profile, ModelFlavorProfile), "profile must be ModelFlavorProfile"
+    assert isinstance(profile, ModelSpectrographProfile), "profile must be ModelSpectrographProfile"
 
-    task_fs = profile.task_scores.get(intent.task_type, IBR_NEUTRAL_FLAVOR)
-    domain_fs = profile.domain_scores.get(intent.domain, IBR_NEUTRAL_FLAVOR)
-    qs_fs = profile.qs_scores.get(intent.quality_speed, IBR_NEUTRAL_FLAVOR)
+    task_fs = profile.task_scores.get(intent.task_type, IBR_NEUTRAL_SPECTROGRAPH)
+    domain_fs = profile.domain_scores.get(intent.domain, IBR_NEUTRAL_SPECTROGRAPH)
+    qs_fs = profile.qs_scores.get(intent.quality_speed, IBR_NEUTRAL_SPECTROGRAPH)
 
     result = (
         _TASK_WEIGHT * task_fs.score + _DOMAIN_WEIGHT * domain_fs.score + _QS_WEIGHT * qs_fs.score
     )
 
     result = max(0.0, min(1.0, result))
-    assert 0.0 <= result <= 1.0, f"flavor_match out of bounds: {result}"
+    assert 0.0 <= result <= 1.0, f"spectrograph_match out of bounds: {result}"
     return result
 
 
@@ -391,14 +391,14 @@ def compute_flavor_match(
 # ---------------------------------------------------------------------------
 
 
-def compute_flavor_scores(
+def compute_spectrograph_scores(
     intent: ClassifiedIntent | None,
-    profiles: dict[str, ModelFlavorProfile],
+    profiles: dict[str, ModelSpectrographProfile],
     candidate_ids: list[str],
 ) -> dict[str, float]:
-    """Compute flavor match scores for all candidates.
+    """Compute spectrograph match scores for all candidates.
 
-    Returns model_id -> flavor_match_score for each candidate.
+    Returns model_id -> spectrograph_match_score for each candidate.
     If intent is None, returns empty dict (IBR inactive for this request).
     """
     assert isinstance(profiles, dict), "profiles must be a dict"
@@ -410,7 +410,7 @@ def compute_flavor_scores(
     scores: dict[str, float] = {}
     for model_id in candidate_ids:
         profile = get_profile_for_model(model_id, profiles)
-        scores[model_id] = compute_flavor_match(intent, profile)
+        scores[model_id] = compute_spectrograph_match(intent, profile)
 
     assert len(scores) == len(candidate_ids), (
         f"Expected {len(candidate_ids)} scores, got {len(scores)}"
@@ -423,13 +423,13 @@ def compute_flavor_scores(
 # ---------------------------------------------------------------------------
 
 
-def should_apply_flavor_match(
+def should_apply_spectrograph_match(
     intent: ClassifiedIntent | None,
-    profile: ModelFlavorProfile,
+    profile: ModelSpectrographProfile,
     confidence_threshold: float = 0.6,
     profile_confidence_threshold: float = 0.3,
 ) -> bool:
-    """Determine whether flavor match should be applied for this request.
+    """Determine whether spectrograph match should be applied for this request.
 
     Returns False if:
     - intent is None (classification failed/skipped)
@@ -438,7 +438,7 @@ def should_apply_flavor_match(
 
     This prevents low-confidence classifications from distorting routing.
     """
-    assert isinstance(profile, ModelFlavorProfile), "profile must be ModelFlavorProfile"
+    assert isinstance(profile, ModelSpectrographProfile), "profile must be ModelSpectrographProfile"
     assert 0.0 <= confidence_threshold <= 1.0, "confidence_threshold must be in [0.0, 1.0]"
     assert 0.0 <= profile_confidence_threshold <= 1.0, (
         "profile_confidence_threshold must be in [0.0, 1.0]"
@@ -456,15 +456,15 @@ def should_apply_flavor_match(
 
 def _average_matched_confidence(
     intent: ClassifiedIntent,
-    profile: ModelFlavorProfile,
+    profile: ModelSpectrographProfile,
 ) -> float:
     """Compute average confidence across the three matched dimensions."""
     assert isinstance(intent, ClassifiedIntent), "intent must be ClassifiedIntent"
-    assert isinstance(profile, ModelFlavorProfile), "profile must be ModelFlavorProfile"
+    assert isinstance(profile, ModelSpectrographProfile), "profile must be ModelSpectrographProfile"
 
-    task_fs = profile.task_scores.get(intent.task_type, IBR_NEUTRAL_FLAVOR)
-    domain_fs = profile.domain_scores.get(intent.domain, IBR_NEUTRAL_FLAVOR)
-    qs_fs = profile.qs_scores.get(intent.quality_speed, IBR_NEUTRAL_FLAVOR)
+    task_fs = profile.task_scores.get(intent.task_type, IBR_NEUTRAL_SPECTROGRAPH)
+    domain_fs = profile.domain_scores.get(intent.domain, IBR_NEUTRAL_SPECTROGRAPH)
+    qs_fs = profile.qs_scores.get(intent.quality_speed, IBR_NEUTRAL_SPECTROGRAPH)
 
     avg = (task_fs.confidence + domain_fs.confidence + qs_fs.confidence) / 3.0
     assert 0.0 <= avg <= 1.0, f"average confidence out of bounds: {avg}"
@@ -480,18 +480,22 @@ _FLOOR_RATIO: float = 0.8
 
 
 def _merge_single_profile(
-    operator: ModelFlavorProfile,
-    feedback: ModelFlavorProfile,
-) -> ModelFlavorProfile:
+    operator: ModelSpectrographProfile,
+    feedback: ModelSpectrographProfile,
+) -> ModelSpectrographProfile:
     """Merge a feedback profile on top of an operator-declared profile.
 
     Per-dimension resolution: use feedback score when available (sample_count > 0),
     but enforce floor at 80% of operator-declared value (IBR-FLV-03).
     """
-    assert isinstance(operator, ModelFlavorProfile), "operator must be ModelFlavorProfile"
-    assert isinstance(feedback, ModelFlavorProfile), "feedback must be ModelFlavorProfile"
+    assert isinstance(operator, ModelSpectrographProfile), (
+        "operator must be ModelSpectrographProfile"
+    )
+    assert isinstance(feedback, ModelSpectrographProfile), (
+        "feedback must be ModelSpectrographProfile"
+    )
 
-    return ModelFlavorProfile(
+    return ModelSpectrographProfile(
         model_id=operator.model_id,
         version=operator.version,
         updated_at=feedback.updated_at,
@@ -502,25 +506,25 @@ def _merge_single_profile(
 
 
 def _merge_dimension_scores(
-    operator_scores: dict[str, FlavorScore],
-    feedback_scores: dict[str, FlavorScore],
-) -> dict[str, FlavorScore]:
+    operator_scores: dict[str, SpectrographScore],
+    feedback_scores: dict[str, SpectrographScore],
+) -> dict[str, SpectrographScore]:
     """Merge one dimension dict: feedback overlays operator with floor enforcement."""
     assert isinstance(operator_scores, dict), "operator_scores must be a dict"
     assert isinstance(feedback_scores, dict), "feedback_scores must be a dict"
 
-    merged: dict[str, FlavorScore] = {}
+    merged: dict[str, SpectrographScore] = {}
     all_keys = set(operator_scores) | set(feedback_scores)
 
     for key in all_keys:
-        op_fs = operator_scores.get(key, IBR_NEUTRAL_FLAVOR)
-        fb_fs = feedback_scores.get(key, IBR_NEUTRAL_FLAVOR)
+        op_fs = operator_scores.get(key, IBR_NEUTRAL_SPECTROGRAPH)
+        fb_fs = feedback_scores.get(key, IBR_NEUTRAL_SPECTROGRAPH)
 
         if fb_fs.sample_count > 0:
             floor = _FLOOR_RATIO * op_fs.score
             floored_score = max(fb_fs.score, floor)
             floored_score = max(0.0, min(1.0, floored_score))
-            merged[key] = FlavorScore(
+            merged[key] = SpectrographScore(
                 score=floored_score,
                 confidence=fb_fs.confidence,
                 sample_count=fb_fs.sample_count,

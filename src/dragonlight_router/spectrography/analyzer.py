@@ -20,11 +20,11 @@ import yaml
 
 from dragonlight_router.core.types import (
     IBR_DOMAINS,
-    IBR_NEUTRAL_FLAVOR,
+    IBR_NEUTRAL_SPECTROGRAPH,
     IBR_QUALITY_SPEED,
     IBR_TASK_TYPES,
-    FlavorScore,
-    ModelFlavorProfile,
+    ModelSpectrographProfile,
+    SpectrographScore,
 )
 
 logger = structlog.get_logger()
@@ -187,14 +187,14 @@ def _compute_dimension_stats(
 # Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
 def rank_normalize(
     raw: dict[str, RawFingerprint],
-) -> dict[str, ModelFlavorProfile]:
+) -> dict[str, ModelSpectrographProfile]:
     """Rank-normalize raw fingerprints across models per dimension.
 
     Within each dimension value, best model gets 1.0, worst gets 0.0.
     When only one model exists, score is 0.5. Missing dimensions get
-    IBR_NEUTRAL_FLAVOR.
+    IBR_NEUTRAL_SPECTROGRAPH.
 
-    Maps to FlavorScore: score=rank_normalized_mean, confidence=1.0-stddev,
+    Maps to SpectrographScore: score=rank_normalized_mean, confidence=1.0-stddev,
     sample_count=count.
     """
     assert isinstance(raw, dict), "raw must be a dict"
@@ -215,8 +215,8 @@ def rank_normalize(
     domain_ranked = _rank_normalize_dimension(raw, "domain_scores", all_domain_dims)
     qs_ranked = _rank_normalize_dimension(raw, "qs_scores", all_qs_dims)
 
-    # Build ModelFlavorProfile for each model
-    profiles: dict[str, ModelFlavorProfile] = {}
+    # Build ModelSpectrographProfile for each model
+    profiles: dict[str, ModelSpectrographProfile] = {}
     for model_id in model_ids:
         fp = raw[model_id]
 
@@ -239,7 +239,7 @@ def rank_normalize(
             IBR_QUALITY_SPEED,
         )
 
-        profiles[model_id] = ModelFlavorProfile(
+        profiles[model_id] = ModelSpectrographProfile(
             model_id=model_id,
             version=_PROFILE_SCHEMA_VERSION,
             updated_at=now_iso,
@@ -314,26 +314,26 @@ def _build_flavor_scores_from_ranked(
     ranked: dict[str, dict[str, float]],
     model_id: str,
     allowed_keys: frozenset[str],
-) -> dict[str, FlavorScore]:
-    """Build FlavorScore dict from rank-normalized values.
+) -> dict[str, SpectrographScore]:
+    """Build SpectrographScore dict from rank-normalized values.
 
-    Missing dimensions (not in ranked or raw_stats) default to IBR_NEUTRAL_FLAVOR.
+    Missing dimensions (not in ranked or raw_stats) default to IBR_NEUTRAL_SPECTROGRAPH.
     """
     assert isinstance(allowed_keys, frozenset), "allowed_keys must be frozenset"
 
-    scores: dict[str, FlavorScore] = {}
+    scores: dict[str, SpectrographScore] = {}
     for key in allowed_keys:
         if key in raw_stats and key in ranked and model_id in ranked[key]:
             stats = raw_stats[key]
             norm_score = ranked[key][model_id]
             confidence = max(0.0, min(1.0, 1.0 - stats.stddev))
-            scores[key] = FlavorScore(
+            scores[key] = SpectrographScore(
                 score=max(0.0, min(1.0, norm_score)),
                 confidence=confidence,
                 sample_count=stats.count,
             )
         else:
-            scores[key] = IBR_NEUTRAL_FLAVOR
+            scores[key] = IBR_NEUTRAL_SPECTROGRAPH
 
     assert len(scores) == len(allowed_keys), (
         f"Expected {len(allowed_keys)} scores, got {len(scores)}"
@@ -351,7 +351,7 @@ def _build_flavor_scores_from_ranked(
 # per-dimension deltas; splitting would scatter the comparison contract.
 # Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
 def compute_calibration_deltas(
-    empirical: dict[str, ModelFlavorProfile],
+    empirical: dict[str, ModelSpectrographProfile],
     declared_path: Path,
 ) -> dict[str, dict[str, CalibrationDelta]]:
     """Load operator-declared profiles and compute deltas against empirical.
@@ -417,7 +417,7 @@ def compute_calibration_deltas(
 
 def _load_declared_profiles(
     path: Path,
-) -> dict[str, ModelFlavorProfile]:
+) -> dict[str, ModelSpectrographProfile]:
     """Load operator-declared profiles from YAML file.
 
     Returns empty dict on missing file or parse error.
@@ -446,7 +446,7 @@ def _load_declared_profiles(
         logger.warning("declared_profiles_invalid_format", path=str(path))
         return {}
 
-    profiles: dict[str, ModelFlavorProfile] = {}
+    profiles: dict[str, ModelSpectrographProfile] = {}
     for model_id, model_raw in profiles_raw.items():
         profile = _parse_declared_profile(str(model_id), model_raw or {})
         if profile is not None:
@@ -458,7 +458,7 @@ def _load_declared_profiles(
 def _parse_declared_profile(
     model_id: str,
     raw: dict[str, Any],
-) -> ModelFlavorProfile | None:
+) -> ModelSpectrographProfile | None:
     """Parse a single declared profile entry. Returns None on bad data."""
     assert isinstance(model_id, str), "model_id must be a string"
 
@@ -479,7 +479,7 @@ def _parse_declared_profile(
         IBR_QUALITY_SPEED,
     )
 
-    return ModelFlavorProfile(
+    return ModelSpectrographProfile(
         model_id=model_id,
         version=int(raw.get("version", 1)),
         updated_at=str(
@@ -494,23 +494,23 @@ def _parse_declared_profile(
 def _parse_declared_dimension(
     raw_scores: Any,
     allowed_keys: frozenset[str],
-) -> dict[str, FlavorScore]:
-    """Parse a declared dimension block into FlavorScore entries."""
+) -> dict[str, SpectrographScore]:
+    """Parse a declared dimension block into SpectrographScore entries."""
     assert isinstance(allowed_keys, frozenset), "allowed_keys must be frozenset"
 
-    scores: dict[str, FlavorScore] = {}
+    scores: dict[str, SpectrographScore] = {}
     parsed = raw_scores if isinstance(raw_scores, dict) else {}
 
     for key in allowed_keys:
         if key in parsed:
             value = max(0.0, min(1.0, float(parsed[key])))
-            scores[key] = FlavorScore(
+            scores[key] = SpectrographScore(
                 score=value,
                 confidence=1.0,
                 sample_count=0,
             )
         else:
-            scores[key] = IBR_NEUTRAL_FLAVOR
+            scores[key] = IBR_NEUTRAL_SPECTROGRAPH
 
     return scores
 
@@ -518,8 +518,8 @@ def _parse_declared_dimension(
 def _compute_dimension_deltas(
     out: dict[str, CalibrationDelta],
     prefix: str,
-    empirical_scores: dict[str, FlavorScore],
-    declared_scores: dict[str, FlavorScore],
+    empirical_scores: dict[str, SpectrographScore],
+    declared_scores: dict[str, SpectrographScore],
 ) -> None:
     """Compute calibration deltas for one dimension type, appending to out."""
     assert isinstance(out, dict), "out must be a dict"
@@ -527,8 +527,8 @@ def _compute_dimension_deltas(
 
     all_keys = set(empirical_scores) | set(declared_scores)
     for key in sorted(all_keys):
-        emp_fs = empirical_scores.get(key, IBR_NEUTRAL_FLAVOR)
-        decl_fs = declared_scores.get(key, IBR_NEUTRAL_FLAVOR)
+        emp_fs = empirical_scores.get(key, IBR_NEUTRAL_SPECTROGRAPH)
+        decl_fs = declared_scores.get(key, IBR_NEUTRAL_SPECTROGRAPH)
 
         delta = abs(emp_fs.score - decl_fs.score)
         recommendation = _delta_recommendation(delta)
@@ -560,10 +560,10 @@ def _delta_recommendation(delta: float) -> str:
 
 
 def build_fingerprints_yaml(
-    profiles: dict[str, ModelFlavorProfile],
+    profiles: dict[str, ModelSpectrographProfile],
     run_id: str,
 ) -> str:
-    """Produce a YAML string in the model_flavor_profiles.yaml schema.
+    """Produce a YAML string in the model_spectrograph_profiles.yaml schema.
 
     Output format:
         version: 1
@@ -599,9 +599,9 @@ def build_fingerprints_yaml(
 
 
 def _serialize_scores_for_yaml(
-    scores: dict[str, FlavorScore],
+    scores: dict[str, SpectrographScore],
 ) -> dict[str, float]:
-    """Serialize FlavorScore dict to simple key->score mapping for YAML."""
+    """Serialize SpectrographScore dict to simple key->score mapping for YAML."""
     assert isinstance(scores, dict), "scores must be a dict"
     return {key: round(fs.score, 4) for key, fs in sorted(scores.items())}
 
@@ -615,7 +615,7 @@ def _serialize_scores_for_yaml(
 # Justification: iterates all dimension categories to build per-dimension rankings;
 # tightly coupled aggregation logic. Approved by: architect. Scope: this function.
 def build_model_rankings(
-    profiles: dict[str, ModelFlavorProfile],
+    profiles: dict[str, ModelSpectrographProfile],
 ) -> dict[str, list[str]]:
     """For each dimension, return model IDs sorted by score descending.
 
@@ -665,7 +665,7 @@ def build_model_rankings(
 
 
 def _rank_models_by_dimension(
-    profiles: dict[str, ModelFlavorProfile],
+    profiles: dict[str, ModelSpectrographProfile],
     score_attr: str,
     dim_key: str,
 ) -> list[str]:
@@ -675,7 +675,7 @@ def _rank_models_by_dimension(
     model_scores: list[tuple[str, float]] = []
     for model_id, profile in profiles.items():
         scores = getattr(profile, score_attr)
-        fs = scores.get(dim_key, IBR_NEUTRAL_FLAVOR)
+        fs = scores.get(dim_key, IBR_NEUTRAL_SPECTROGRAPH)
         model_scores.append((model_id, fs.score))
 
     # Sort descending by score, then alphabetically by model_id for stability

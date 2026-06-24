@@ -2,7 +2,7 @@
 
 Orchestrates the benchmark pipeline: sends eval prompts to each model,
 collects responses, scores them via LLM-as-judge, aggregates results
-into ModelFlavorProfile instances, and persists to JSON.
+into ModelSpectrographProfile instances, and persists to JSON.
 
 Spec reference: intent-based-router-v0.1.0-spec.md section 3.2, Method 3.
 """
@@ -22,12 +22,12 @@ from dragonlight_router.benchmark.judge import judge_response
 from dragonlight_router.benchmark.prompts import EvalPrompt, get_all_prompts
 from dragonlight_router.core.types import (
     IBR_DOMAINS,
-    IBR_NEUTRAL_FLAVOR,
+    IBR_NEUTRAL_SPECTROGRAPH,
     IBR_QUALITY_SPEED,
     IBR_TASK_TYPES,
-    FlavorScore,
     GenerativeBackend,
-    ModelFlavorProfile,
+    ModelSpectrographProfile,
+    SpectrographScore,
 )
 
 logger = structlog.get_logger()
@@ -45,9 +45,9 @@ _PROFILE_SCHEMA_VERSION: int = 1
 
 
 def apply_decay(
-    profile: ModelFlavorProfile,
+    profile: ModelSpectrographProfile,
     now: datetime | None = None,
-) -> ModelFlavorProfile:
+) -> ModelSpectrographProfile:
     """Apply time-based decay to a benchmark profile.
 
     Profiles older than 30 days decay toward 0.5 at 0.01/day.
@@ -55,7 +55,7 @@ def apply_decay(
 
     IBR-FLV-06: Benchmark profiles older than 30 days MUST decay toward 0.5.
     """
-    assert isinstance(profile, ModelFlavorProfile), "profile must be ModelFlavorProfile"
+    assert isinstance(profile, ModelSpectrographProfile), "profile must be ModelSpectrographProfile"
 
     if now is None:
         now = datetime.now(UTC)
@@ -76,7 +76,7 @@ def apply_decay(
     domain_scores = _decay_dimension(profile.domain_scores, decay_days)
     qs_scores = _decay_dimension(profile.qs_scores, decay_days)
 
-    return ModelFlavorProfile(
+    return ModelSpectrographProfile(
         model_id=profile.model_id,
         version=profile.version,
         updated_at=profile.updated_at,  # Preserve original timestamp
@@ -87,18 +87,18 @@ def apply_decay(
 
 
 def _decay_dimension(
-    scores: dict[str, FlavorScore],
+    scores: dict[str, SpectrographScore],
     decay_days: float,
-) -> dict[str, FlavorScore]:
+) -> dict[str, SpectrographScore]:
     """Apply decay to all scores in a dimension dict."""
     assert isinstance(scores, dict), "scores must be a dict"
     assert decay_days > 0, "decay_days must be positive"
 
-    result: dict[str, FlavorScore] = {}
+    result: dict[str, SpectrographScore] = {}
     for key, fs in scores.items():
         decayed_score = _decay_single_score(fs.score, decay_days)
         decayed_confidence = max(0.0, fs.confidence - decay_days * _DECAY_RATE_PER_DAY)
-        result[key] = FlavorScore(
+        result[key] = SpectrographScore(
             score=decayed_score,
             confidence=decayed_confidence,
             sample_count=fs.sample_count,
@@ -168,8 +168,8 @@ async def _collect_model_response(
 
 def _aggregate_scores(
     scored_prompts: list[tuple[EvalPrompt, float]],
-) -> ModelFlavorProfile:
-    """Aggregate per-prompt scores into a ModelFlavorProfile.
+) -> ModelSpectrographProfile:
+    """Aggregate per-prompt scores into a ModelSpectrographProfile.
 
     Groups scores by task_type, domain, and quality_speed, computing
     the mean score for each dimension. Confidence is based on sample count.
@@ -190,7 +190,7 @@ def _aggregate_scores(
     qs_scores = _build_flavor_scores(qs_accum)
 
     # model_id will be filled in by the caller
-    return ModelFlavorProfile(
+    return ModelSpectrographProfile(
         model_id="",
         version=_PROFILE_SCHEMA_VERSION,
         updated_at=datetime.now(UTC).isoformat(),
@@ -202,35 +202,35 @@ def _aggregate_scores(
 
 def _build_flavor_scores(
     accum: dict[str, list[float]],
-) -> dict[str, FlavorScore]:
-    """Build FlavorScore dict from accumulated score lists."""
+) -> dict[str, SpectrographScore]:
+    """Build SpectrographScore dict from accumulated score lists."""
     assert isinstance(accum, dict), "accum must be a dict"
 
-    result: dict[str, FlavorScore] = {}
+    result: dict[str, SpectrographScore] = {}
     for key, values in accum.items():
         if values:
             avg_score = sum(values) / len(values)
             avg_score = max(0.0, min(1.0, avg_score))
             confidence = min(1.0, len(values) / 50.0)
-            result[key] = FlavorScore(
+            result[key] = SpectrographScore(
                 score=avg_score,
                 confidence=confidence,
                 sample_count=len(values),
             )
         else:
-            result[key] = IBR_NEUTRAL_FLAVOR
+            result[key] = IBR_NEUTRAL_SPECTROGRAPH
     return result
 
 
 def _finalize_profile(
     model_id: str,
-    profile: ModelFlavorProfile,
-) -> ModelFlavorProfile:
+    profile: ModelSpectrographProfile,
+) -> ModelSpectrographProfile:
     """Replace the placeholder model_id in an aggregated profile."""
     assert isinstance(model_id, str) and model_id, "model_id must be non-empty"
-    assert isinstance(profile, ModelFlavorProfile), "profile must be ModelFlavorProfile"
+    assert isinstance(profile, ModelSpectrographProfile), "profile must be ModelSpectrographProfile"
 
-    return ModelFlavorProfile(
+    return ModelSpectrographProfile(
         model_id=model_id,
         version=profile.version,
         updated_at=profile.updated_at,
@@ -249,7 +249,7 @@ class BenchmarkRunner:
     """Orchestrate benchmark evaluation across multiple models.
 
     Sends eval prompts to each model, scores responses via LLM-as-judge,
-    aggregates into ModelFlavorProfile instances, and saves to JSON.
+    aggregates into ModelSpectrographProfile instances, and saves to JSON.
     """
 
     def __init__(
@@ -293,7 +293,7 @@ class BenchmarkRunner:
         self,
         model_id: str,
         adapter: GenerativeBackend,
-    ) -> ModelFlavorProfile:
+    ) -> ModelSpectrographProfile:
         """Run all eval prompts against a single model and return its profile."""
         assert isinstance(model_id, str) and model_id, "model_id must be a non-empty string"
 
@@ -310,16 +310,16 @@ class BenchmarkRunner:
     async def benchmark_all(
         self,
         models: dict[str, GenerativeBackend],
-    ) -> dict[str, ModelFlavorProfile]:
+    ) -> dict[str, ModelSpectrographProfile]:
         """Run benchmarks for all provided models.
 
-        Returns a dict mapping model_id to ModelFlavorProfile.
+        Returns a dict mapping model_id to ModelSpectrographProfile.
         Saves results to output_path/benchmark_profiles.json.
         """
         assert isinstance(models, dict), "models must be a dict"
         assert len(models) > 0, "models must not be empty"
 
-        profiles: dict[str, ModelFlavorProfile] = {}
+        profiles: dict[str, ModelSpectrographProfile] = {}
 
         for model_id, adapter in models.items():
             logger.info("benchmark_starting", model_id=model_id)
@@ -331,7 +331,7 @@ class BenchmarkRunner:
 
     def _save_profiles(
         self,
-        profiles: dict[str, ModelFlavorProfile],
+        profiles: dict[str, ModelSpectrographProfile],
     ) -> None:
         """Serialize profiles to JSON at the configured output path."""
         assert isinstance(profiles, dict), "profiles must be a dict"
@@ -355,7 +355,7 @@ class BenchmarkRunner:
 
 
 def _serialize_profiles(
-    profiles: dict[str, ModelFlavorProfile],
+    profiles: dict[str, ModelSpectrographProfile],
 ) -> dict[str, Any]:
     """Serialize profiles dict to JSON-compatible structure."""
     assert isinstance(profiles, dict), "profiles must be a dict"
@@ -372,9 +372,9 @@ def _serialize_profiles(
     return result
 
 
-def _serialize_single_profile(profile: ModelFlavorProfile) -> dict[str, Any]:
-    """Serialize a single ModelFlavorProfile to dict."""
-    assert isinstance(profile, ModelFlavorProfile), "profile must be ModelFlavorProfile"
+def _serialize_single_profile(profile: ModelSpectrographProfile) -> dict[str, Any]:
+    """Serialize a single ModelSpectrographProfile to dict."""
+    assert isinstance(profile, ModelSpectrographProfile), "profile must be ModelSpectrographProfile"
 
     return {
         "model_id": profile.model_id,
@@ -386,8 +386,8 @@ def _serialize_single_profile(profile: ModelFlavorProfile) -> dict[str, Any]:
     }
 
 
-def _serialize_scores(scores: dict[str, FlavorScore]) -> dict[str, Any]:
-    """Serialize FlavorScore dict to JSON-compatible dict."""
+def _serialize_scores(scores: dict[str, SpectrographScore]) -> dict[str, Any]:
+    """Serialize SpectrographScore dict to JSON-compatible dict."""
     assert isinstance(scores, dict), "scores must be a dict"
     return {
         key: {
@@ -399,7 +399,7 @@ def _serialize_scores(scores: dict[str, FlavorScore]) -> dict[str, Any]:
     }
 
 
-def load_benchmark_profiles(path: Path) -> dict[str, ModelFlavorProfile]:
+def load_benchmark_profiles(path: Path) -> dict[str, ModelSpectrographProfile]:
     """Load benchmark profiles from JSON file.
 
     Returns empty dict if file does not exist or is malformed.
@@ -424,11 +424,11 @@ def load_benchmark_profiles(path: Path) -> dict[str, ModelFlavorProfile]:
 
 def _deserialize_profiles(
     raw: dict[str, Any],
-) -> dict[str, ModelFlavorProfile]:
+) -> dict[str, ModelSpectrographProfile]:
     """Deserialize profiles from JSON dict."""
     assert isinstance(raw, dict), "raw must be a dict"
 
-    profiles: dict[str, ModelFlavorProfile] = {}
+    profiles: dict[str, ModelSpectrographProfile] = {}
     for model_id, profile_data in raw.items():
         profile = _deserialize_single_profile(model_id, profile_data)
         if profile is not None:
@@ -439,7 +439,7 @@ def _deserialize_profiles(
 def _deserialize_single_profile(
     model_id: str,
     data: dict[str, Any],
-) -> ModelFlavorProfile | None:
+) -> ModelSpectrographProfile | None:
     """Deserialize a single profile. Returns None on bad data."""
     assert isinstance(model_id, str), "model_id must be a string"
 
@@ -447,7 +447,7 @@ def _deserialize_single_profile(
         return None
 
     try:
-        return ModelFlavorProfile(
+        return ModelSpectrographProfile(
             model_id=data.get("model_id", model_id),
             version=int(data.get("version", 1)),
             updated_at=str(data.get("updated_at", "")),
@@ -476,11 +476,11 @@ def _deserialize_single_profile(
 def _deserialize_scores(
     raw: dict[str, Any],
     allowed_keys: frozenset[str],
-) -> dict[str, FlavorScore]:
-    """Deserialize FlavorScore dict, filling missing keys with neutral."""
+) -> dict[str, SpectrographScore]:
+    """Deserialize SpectrographScore dict, filling missing keys with neutral."""
     assert isinstance(allowed_keys, frozenset), "allowed_keys must be frozenset"
 
-    scores: dict[str, FlavorScore] = {}
+    scores: dict[str, SpectrographScore] = {}
     parsed = raw if isinstance(raw, dict) else {}
 
     for key in allowed_keys:
@@ -489,13 +489,13 @@ def _deserialize_scores(
             score = max(0.0, min(1.0, float(entry.get("score", 0.5))))
             confidence = max(0.0, min(1.0, float(entry.get("confidence", 0.0))))
             sample_count = max(0, int(entry.get("sample_count", 0)))
-            scores[key] = FlavorScore(
+            scores[key] = SpectrographScore(
                 score=score,
                 confidence=confidence,
                 sample_count=sample_count,
             )
         else:
-            scores[key] = IBR_NEUTRAL_FLAVOR
+            scores[key] = IBR_NEUTRAL_SPECTROGRAPH
 
     return scores
 

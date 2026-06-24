@@ -1,6 +1,6 @@
-"""IBR orchestration — intent classification + flavor matching pipeline stage.
+"""IBR orchestration — intent classification + spectrograph matching pipeline stage.
 
-Wires classify_intent() and FlavorProfileLoader into a single async stage
+Wires classify_intent() and SpectrographProfileLoader into a single async stage
 that sits between MBR and CBR in the dispatch cascade.  When IBR is disabled
 or classification fails, returns an inactive result so the cascade degrades
 transparently to v0.3.0 behavior (IBR-SYS-02, IBR-SYS-03).
@@ -21,14 +21,14 @@ from dragonlight_router.core.types import (
     ClassifiedIntent,
     DispatchOrder,
     GenerativeBackend,
-    ModelFlavorProfile,
+    ModelSpectrographProfile,
 )
 from dragonlight_router.selection.classifier import classify_intent
-from dragonlight_router.selection.flavor import (
-    FlavorProfileLoader,
-    compute_flavor_scores,
+from dragonlight_router.selection.spectrograph import (
+    SpectrographProfileLoader,
+    compute_spectrograph_scores,
     get_profile_for_model,
-    should_apply_flavor_match,
+    should_apply_spectrograph_match,
 )
 
 logger = structlog.get_logger(__name__)
@@ -44,19 +44,19 @@ class IBRResult:
     """Output of the IBR pipeline stage.
 
     classified_intent: the classification, or None if skipped/failed.
-    flavor_scores: model_id -> flavor_match score (empty when inactive).
+    spectrograph_scores: model_id -> spectrograph_match score (empty when inactive).
     ibr_active: True only when valid scores were produced and gating passed.
     """
 
     classified_intent: ClassifiedIntent | None
-    flavor_scores: dict[str, float]
+    spectrograph_scores: dict[str, float]
     ibr_active: bool
 
 
 # Singleton inactive result — avoids re-creating on every disabled path.
 _INACTIVE_RESULT = IBRResult(
     classified_intent=None,
-    flavor_scores={},
+    spectrograph_scores={},
     ibr_active=False,
 )
 
@@ -71,10 +71,10 @@ async def run_ibr_stage(
     order: DispatchOrder,
     candidates: list[BackendConfig],
     ibr_config: IntentClassificationConfig,
-    flavor_loader: FlavorProfileLoader,
+    spectrograph_loader: SpectrographProfileLoader,
     classification_adapter: GenerativeBackend | None,
 ) -> IBRResult:
-    """Run the IBR pipeline stage: classify intent and compute flavor scores.
+    """Run the IBR pipeline stage: classify intent and compute spectrograph scores.
 
     Returns an inactive IBRResult when IBR is disabled, no adapter is
     available, or classification fails.  Never raises — all errors are
@@ -91,7 +91,7 @@ async def run_ibr_stage(
             order,
             candidates,
             ibr_config,
-            flavor_loader,
+            spectrograph_loader,
             classification_adapter,
         )
     except (KeyError, ValueError, TypeError, RuntimeError, OSError, TimeoutError):
@@ -109,7 +109,7 @@ async def _execute_ibr(
     order: DispatchOrder,
     candidates: list[BackendConfig],
     ibr_config: IntentClassificationConfig,
-    flavor_loader: FlavorProfileLoader,
+    spectrograph_loader: SpectrographProfileLoader,
     adapter: GenerativeBackend,
 ) -> IBRResult:
     """Core IBR execution: classify + load profiles concurrently, then score.
@@ -125,36 +125,36 @@ async def _execute_ibr(
     # Concurrent: classification (async) + profile reload check (sync, wrapped)
     intent, _profiles = await asyncio.gather(
         classify_intent(order.operator_message, adapter, timeout_s=timeout_s),
-        _reload_profiles(flavor_loader),
+        _reload_profiles(spectrograph_loader),
     )
 
     if intent is None:
         logger.debug("ibr_classification_returned_none")
         return _INACTIVE_RESULT
 
-    return _build_ibr_result(intent, candidates, ibr_config, flavor_loader)
+    return _build_ibr_result(intent, candidates, ibr_config, spectrograph_loader)
 
 
-async def _reload_profiles(loader: FlavorProfileLoader) -> None:
-    """Trigger a hot-reload check on the flavor profile loader.
+async def _reload_profiles(loader: SpectrographProfileLoader) -> None:
+    """Trigger a hot-reload check on the spectrograph profile loader.
 
     Wrapped as a coroutine so it can participate in asyncio.gather
     alongside the classification call (IBR-PIPE-02).
     """
-    assert isinstance(loader, FlavorProfileLoader), "loader must be FlavorProfileLoader"
+    assert isinstance(loader, SpectrographProfileLoader), "loader must be SpectrographProfileLoader"
     loader.reload_if_changed()
 
 
 def _passes_confidence_gate(
     intent: ClassifiedIntent,
     candidate_ids: list[str],
-    profiles: dict[str, ModelFlavorProfile],
+    profiles: dict[str, ModelSpectrographProfile],
     ibr_config: IntentClassificationConfig,
 ) -> bool:
     """Check whether the classification passes confidence gating (IBR-SCORE-04)."""
     assert len(candidate_ids) > 0, "candidate_ids must not be empty"
     gate_profile = get_profile_for_model(candidate_ids[0], profiles)
-    return should_apply_flavor_match(
+    return should_apply_spectrograph_match(
         intent,
         gate_profile,
         confidence_threshold=ibr_config.confidence_threshold,
@@ -166,13 +166,13 @@ def _build_ibr_result(
     intent: ClassifiedIntent,
     candidates: list[BackendConfig],
     ibr_config: IntentClassificationConfig,
-    flavor_loader: FlavorProfileLoader,
+    spectrograph_loader: SpectrographProfileLoader,
 ) -> IBRResult:
-    """Apply confidence gating and compute flavor scores."""
+    """Apply confidence gating and compute spectrograph scores."""
     assert isinstance(intent, ClassifiedIntent), "intent must be ClassifiedIntent"
     assert len(candidates) > 0, "candidates must not be empty"
 
-    profiles = flavor_loader.profiles
+    profiles = spectrograph_loader.profiles
     candidate_ids = [c.name for c in candidates]
 
     if not _passes_confidence_gate(intent, candidate_ids, profiles, ibr_config):
@@ -181,16 +181,16 @@ def _build_ibr_result(
             classifier_confidence=intent.confidence,
             threshold=ibr_config.confidence_threshold,
         )
-        return IBRResult(classified_intent=intent, flavor_scores={}, ibr_active=False)
+        return IBRResult(classified_intent=intent, spectrograph_scores={}, ibr_active=False)
 
-    scores = compute_flavor_scores(intent, profiles, candidate_ids)
-    _log_flavor_scores(scores)
-    return IBRResult(classified_intent=intent, flavor_scores=scores, ibr_active=True)
+    scores = compute_spectrograph_scores(intent, profiles, candidate_ids)
+    _log_spectrograph_scores(scores)
+    return IBRResult(classified_intent=intent, spectrograph_scores=scores, ibr_active=True)
 
 
-def _log_flavor_scores(scores: dict[str, float]) -> None:
-    """Emit structured log for flavor match scores (IBR-OBS-02)."""
+def _log_spectrograph_scores(scores: dict[str, float]) -> None:
+    """Emit structured log for spectrograph match scores (IBR-OBS-02)."""
     score_range = (
         (round(min(scores.values()), 4), round(max(scores.values()), 4)) if scores else (0.0, 0.0)
     )
-    logger.info("ibr_flavor_match", candidate_count=len(scores), score_range=score_range)
+    logger.info("ibr_spectrograph_match", candidate_count=len(scores), score_range=score_range)

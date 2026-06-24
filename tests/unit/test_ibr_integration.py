@@ -27,9 +27,9 @@ from dragonlight_router.core.types import (
     BackendTier,
     ClassifiedIntent,
     DispatchOrder,
-    FlavorScore,
     GenerativeBackend,
-    ModelFlavorProfile,
+    ModelSpectrographProfile,
+    SpectrographScore,
 )
 from dragonlight_router.dispatch.cascade import (
     DispatchContext,
@@ -39,9 +39,9 @@ from dragonlight_router.dispatch.cascade import (
 )
 from dragonlight_router.health.tracker import HealthTracker
 from dragonlight_router.selection.feedback import FeedbackStore
-from dragonlight_router.selection.flavor import FlavorProfileLoader
 from dragonlight_router.selection.ibr import IBRResult, run_ibr_stage
 from dragonlight_router.selection.scoring import ScoringWeightsConfig
+from dragonlight_router.selection.spectrograph import SpectrographProfileLoader
 
 pytestmark = pytest.mark.unit
 
@@ -73,7 +73,7 @@ IBR_DOMAINS = frozenset(
     }
 )
 IBR_QUALITY_SPEED = frozenset({"quality", "balanced", "speed"})
-IBR_NEUTRAL_FLAVOR = FlavorScore(score=0.5, confidence=0.0, sample_count=0)
+IBR_NEUTRAL_SPECTROGRAPH = SpectrographScore(score=0.5, confidence=0.0, sample_count=0)
 
 
 def _make_intent(**overrides: object) -> ClassifiedIntent:
@@ -95,27 +95,27 @@ def _make_profile(
     task_scores: dict[str, float] | None = None,
     domain_scores: dict[str, float] | None = None,
     qs_scores: dict[str, float] | None = None,
-) -> ModelFlavorProfile:
-    """Build a ModelFlavorProfile with optional partial scores."""
+) -> ModelSpectrographProfile:
+    """Build a ModelSpectrographProfile with optional partial scores."""
 
     def _build_scores(
         raw: dict[str, float] | None,
         allowed: frozenset[str],
-    ) -> dict[str, FlavorScore]:
-        scores: dict[str, FlavorScore] = {}
+    ) -> dict[str, SpectrographScore]:
+        scores: dict[str, SpectrographScore] = {}
         parsed = raw or {}
         for key in allowed:
             if key in parsed:
-                scores[key] = FlavorScore(
+                scores[key] = SpectrographScore(
                     score=parsed[key],
                     confidence=1.0,
                     sample_count=10,
                 )
             else:
-                scores[key] = IBR_NEUTRAL_FLAVOR
+                scores[key] = IBR_NEUTRAL_SPECTROGRAPH
         return scores
 
-    return ModelFlavorProfile(
+    return ModelSpectrographProfile(
         model_id=model_id,
         version=1,
         updated_at="2026-01-01T00:00:00+00:00",
@@ -170,8 +170,8 @@ def _make_ibr_config(**overrides: object) -> IntentClassificationConfig:
         "timeout_ms": 100,
         "confidence_threshold": 0.6,
         "profile_confidence_threshold": 0.3,
-        "flavor_match_weight": 0.15,
-        "flavor_match_weight_governor": 0.05,
+        "spectrograph_match_weight": 0.15,
+        "spectrograph_match_weight_governor": 0.05,
     }
     defaults.update(overrides)
     return IntentClassificationConfig(**defaults)
@@ -210,7 +210,7 @@ class TestIBRDisabledPath:
             health_tracker=MagicMock(),
             config={},
             ibr_config=None,
-            flavor_loader=None,
+            spectrograph_loader=None,
             classification_adapter=None,
         )
         order = make_dispatch_order()
@@ -218,11 +218,11 @@ class TestIBRDisabledPath:
         result = await _run_ibr_stage(order, candidates, ctx)
         assert result is None
 
-    async def test_ibr_stage_returns_none_when_flavor_loader_none(
+    async def test_ibr_stage_returns_none_when_spectrograph_loader_none(
         self,
         make_dispatch_order,
     ):
-        """_run_ibr_stage returns None when flavor_loader is None."""
+        """_run_ibr_stage returns None when spectrograph_loader is None."""
         ibr_cfg = _make_ibr_config(enabled=True)
         ctx = DispatchContext(
             registry=BackendRegistry(),
@@ -230,7 +230,7 @@ class TestIBRDisabledPath:
             health_tracker=MagicMock(),
             config={},
             ibr_config=ibr_cfg,
-            flavor_loader=None,
+            spectrograph_loader=None,
             classification_adapter=None,
         )
         order = make_dispatch_order()
@@ -247,7 +247,7 @@ class TestIBRDisabledPath:
             ibr_config=None,
         )
         weights = _resolve_cbr_weights(None, ctx)
-        assert weights.flavor_match == 0.0
+        assert weights.spectrograph_match == 0.0
         total = weights.cost + weights.latency + weights.priority + weights.queue + weights.health
         assert abs(total - 1.0) < 1e-9
 
@@ -255,7 +255,7 @@ class TestIBRDisabledPath:
         """[IBR-SCORE-03] When ibr_active=False, CBR uses 5-dimension weights."""
         ibr_result = IBRResult(
             classified_intent=_make_intent(),
-            flavor_scores={},
+            spectrograph_scores={},
             ibr_active=False,
         )
         ctx = DispatchContext(
@@ -266,7 +266,7 @@ class TestIBRDisabledPath:
             ibr_config=_make_ibr_config(),
         )
         weights = _resolve_cbr_weights(ibr_result, ctx)
-        assert weights.flavor_match == 0.0
+        assert weights.spectrograph_match == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +287,7 @@ class TestIBRActivePathClassifierSuccess:
             domain_scores={"code": 0.8},
             qs_scores={"balanced": 0.7},
         )
-        loader = MagicMock(spec=FlavorProfileLoader)
+        loader = MagicMock(spec=SpectrographProfileLoader)
         loader.profiles = {"backend-a": profile}
         loader.reload_if_changed = MagicMock()
 
@@ -304,24 +304,24 @@ class TestIBRActivePathClassifierSuccess:
                 order=_make_dispatch_order(),
                 candidates=[candidate],
                 ibr_config=ibr_cfg,
-                flavor_loader=loader,
+                spectrograph_loader=loader,
                 classification_adapter=adapter,
             )
 
         assert result.ibr_active is True
         assert result.classified_intent is not None
         assert result.classified_intent.task_type == "analysis"
-        assert "backend-a" in result.flavor_scores
-        assert 0.0 <= result.flavor_scores["backend-a"] <= 1.0
+        assert "backend-a" in result.spectrograph_scores
+        assert 0.0 <= result.spectrograph_scores["backend-a"] <= 1.0
 
-    def test_cbr_weights_include_flavor_match_when_active(self):
-        """[IBR-SCORE-02] When IBR active, 6-dimension weights include flavor_match."""
+    def test_cbr_weights_include_spectrograph_match_when_active(self):
+        """[IBR-SCORE-02] When IBR active, 6-dimension weights include spectrograph_match."""
         ibr_result = IBRResult(
             classified_intent=_make_intent(),
-            flavor_scores={"backend-a": 0.8},
+            spectrograph_scores={"backend-a": 0.8},
             ibr_active=True,
         )
-        ibr_cfg = _make_ibr_config(flavor_match_weight=0.15)
+        ibr_cfg = _make_ibr_config(spectrograph_match_weight=0.15)
         ctx = DispatchContext(
             registry=BackendRegistry(),
             budget_tracker=MagicMock(),
@@ -330,22 +330,22 @@ class TestIBRActivePathClassifierSuccess:
             ibr_config=ibr_cfg,
         )
         weights = _resolve_cbr_weights(ibr_result, ctx)
-        assert weights.flavor_match == 0.15
+        assert weights.spectrograph_match == 0.15
         total = (
             weights.cost
             + weights.latency
             + weights.priority
             + weights.queue
             + weights.health
-            + weights.flavor_match
+            + weights.spectrograph_match
         )
         assert abs(total - 1.0) < 1e-9
 
-    def test_flavor_scores_applied_in_scoring(self, make_backend_config):
+    def test_spectrograph_scores_applied_in_scoring(self, make_backend_config):
         """Flavor scores contribute to candidate scoring when IBR active."""
         ibr_result = IBRResult(
             classified_intent=_make_intent(),
-            flavor_scores={"good-model": 0.9, "bad-model": 0.1},
+            spectrograph_scores={"good-model": 0.9, "bad-model": 0.1},
             ibr_active=True,
         )
         weights = ScoringWeightsConfig(
@@ -354,9 +354,9 @@ class TestIBRActivePathClassifierSuccess:
             priority=0.15,
             queue=0.10,
             health=0.10,
-            flavor_match=0.15,
+            spectrograph_match=0.15,
         )
-        # Use identical backends so the only scoring difference is flavor_match
+        # Use identical backends so the only scoring difference is spectrograph_match
         good = make_backend_config(name="good-model", provider="p1")
         bad = make_backend_config(name="bad-model", provider="p1")
 
@@ -378,7 +378,7 @@ class TestIBRActivePathClassifierSuccess:
             ctx,
             ibr_result=ibr_result,
         )
-        # good-model should score higher due to higher flavor_match
+        # good-model should score higher due to higher spectrograph_match
         assert scored[0].config.name == "good-model"
         assert scored[1].config.name == "bad-model"
         assert scored[0].score > scored[1].score
@@ -395,7 +395,7 @@ class TestIBRActivePathClassifierFailure:
     async def test_classifier_returns_none_gives_inactive_result(self):
         """Classification returning None produces inactive IBRResult."""
         ibr_cfg = _make_ibr_config()
-        loader = MagicMock(spec=FlavorProfileLoader)
+        loader = MagicMock(spec=SpectrographProfileLoader)
         loader.profiles = {}
         loader.reload_if_changed = MagicMock()
         adapter = MagicMock(spec=GenerativeBackend)
@@ -410,18 +410,18 @@ class TestIBRActivePathClassifierFailure:
                 order=_make_dispatch_order(),
                 candidates=[candidate],
                 ibr_config=ibr_cfg,
-                flavor_loader=loader,
+                spectrograph_loader=loader,
                 classification_adapter=adapter,
             )
 
         assert result.ibr_active is False
         assert result.classified_intent is None
-        assert result.flavor_scores == {}
+        assert result.spectrograph_scores == {}
 
     async def test_classifier_raises_exception_gives_inactive_result(self):
         """Classification raising an exception produces inactive IBRResult."""
         ibr_cfg = _make_ibr_config()
-        loader = MagicMock(spec=FlavorProfileLoader)
+        loader = MagicMock(spec=SpectrographProfileLoader)
         loader.profiles = {}
         loader.reload_if_changed = MagicMock()
         adapter = MagicMock(spec=GenerativeBackend)
@@ -436,18 +436,18 @@ class TestIBRActivePathClassifierFailure:
                 order=_make_dispatch_order(),
                 candidates=[candidate],
                 ibr_config=ibr_cfg,
-                flavor_loader=loader,
+                spectrograph_loader=loader,
                 classification_adapter=adapter,
             )
 
         assert result.ibr_active is False
         assert result.classified_intent is None
-        assert result.flavor_scores == {}
+        assert result.spectrograph_scores == {}
 
     async def test_ibr_disabled_returns_inactive(self):
         """When ibr_config.enabled=False, returns inactive."""
         ibr_cfg = _make_ibr_config(enabled=False)
-        loader = MagicMock(spec=FlavorProfileLoader)
+        loader = MagicMock(spec=SpectrographProfileLoader)
         loader.profiles = {}
         adapter = MagicMock(spec=GenerativeBackend)
         candidate = _make_backend_config(name="backend-a")
@@ -456,7 +456,7 @@ class TestIBRActivePathClassifierFailure:
             order=_make_dispatch_order(),
             candidates=[candidate],
             ibr_config=ibr_cfg,
-            flavor_loader=loader,
+            spectrograph_loader=loader,
             classification_adapter=adapter,
         )
 
@@ -465,7 +465,7 @@ class TestIBRActivePathClassifierFailure:
     async def test_no_adapter_returns_inactive(self):
         """When classification_adapter is None, returns inactive."""
         ibr_cfg = _make_ibr_config(enabled=True)
-        loader = MagicMock(spec=FlavorProfileLoader)
+        loader = MagicMock(spec=SpectrographProfileLoader)
         loader.profiles = {}
         candidate = _make_backend_config(name="backend-a")
 
@@ -473,7 +473,7 @@ class TestIBRActivePathClassifierFailure:
             order=_make_dispatch_order(),
             candidates=[candidate],
             ibr_config=ibr_cfg,
-            flavor_loader=loader,
+            spectrograph_loader=loader,
             classification_adapter=None,
         )
 
@@ -498,7 +498,7 @@ class TestConfidenceGating:
             domain_scores={"code": 0.8},
             qs_scores={"balanced": 0.7},
         )
-        loader = MagicMock(spec=FlavorProfileLoader)
+        loader = MagicMock(spec=SpectrographProfileLoader)
         loader.profiles = {"backend-a": profile}
         loader.reload_if_changed = MagicMock()
         adapter = MagicMock(spec=GenerativeBackend)
@@ -513,7 +513,7 @@ class TestConfidenceGating:
                 order=_make_dispatch_order(),
                 candidates=[candidate],
                 ibr_config=ibr_cfg,
-                flavor_loader=loader,
+                spectrograph_loader=loader,
                 classification_adapter=adapter,
             )
 
@@ -521,7 +521,7 @@ class TestConfidenceGating:
         # The classification is still preserved for observability
         assert result.classified_intent is not None
         assert result.classified_intent.confidence == 0.3
-        assert result.flavor_scores == {}
+        assert result.spectrograph_scores == {}
 
     async def test_high_confidence_gives_active_result(self):
         """Classification above threshold passes gating."""
@@ -533,7 +533,7 @@ class TestConfidenceGating:
             domain_scores={"code": 0.8},
             qs_scores={"balanced": 0.7},
         )
-        loader = MagicMock(spec=FlavorProfileLoader)
+        loader = MagicMock(spec=SpectrographProfileLoader)
         loader.profiles = {"backend-a": profile}
         loader.reload_if_changed = MagicMock()
         adapter = MagicMock(spec=GenerativeBackend)
@@ -548,12 +548,12 @@ class TestConfidenceGating:
                 order=_make_dispatch_order(),
                 candidates=[candidate],
                 ibr_config=ibr_cfg,
-                flavor_loader=loader,
+                spectrograph_loader=loader,
                 classification_adapter=adapter,
             )
 
         assert result.ibr_active is True
-        assert len(result.flavor_scores) > 0
+        assert len(result.spectrograph_scores) > 0
 
     async def test_low_profile_confidence_gates_out(self):
         """Profiles with low confidence gate out even with high classifier confidence."""
@@ -563,7 +563,7 @@ class TestConfidenceGating:
             profile_confidence_threshold=0.5,
         )
         # Use neutral profiles (confidence=0.0) — below threshold
-        loader = MagicMock(spec=FlavorProfileLoader)
+        loader = MagicMock(spec=SpectrographProfileLoader)
         loader.profiles = {}  # all profiles will be neutral defaults
         loader.reload_if_changed = MagicMock()
         adapter = MagicMock(spec=GenerativeBackend)
@@ -578,7 +578,7 @@ class TestConfidenceGating:
                 order=_make_dispatch_order(),
                 candidates=[candidate],
                 ibr_config=ibr_cfg,
-                flavor_loader=loader,
+                spectrograph_loader=loader,
                 classification_adapter=adapter,
             )
 
@@ -642,18 +642,18 @@ class TestFeedbackRecordingFlow:
 
 
 class TestIBRScoringWeightGovernor:
-    """[IBR-SCORE-05] flavor_match weight is governed."""
+    """[IBR-SCORE-05] spectrograph_match weight is governed."""
 
-    def test_flavor_match_weight_used_from_config(self):
-        """flavor_match weight comes from ibr_config when IBR active."""
+    def test_spectrograph_match_weight_used_from_config(self):
+        """spectrograph_match weight comes from ibr_config when IBR active."""
         ibr_result = IBRResult(
             classified_intent=_make_intent(),
-            flavor_scores={"m1": 0.9},
+            spectrograph_scores={"m1": 0.9},
             ibr_active=True,
         )
         # Use 0.15 — the default and only value that sums to 1.0 with the
         # hardcoded 5-dimension split (0.30+0.20+0.15+0.10+0.10 = 0.85).
-        ibr_cfg = _make_ibr_config(flavor_match_weight=0.15)
+        ibr_cfg = _make_ibr_config(spectrograph_match_weight=0.15)
         ctx = DispatchContext(
             registry=BackendRegistry(),
             budget_tracker=MagicMock(),
@@ -662,10 +662,10 @@ class TestIBRScoringWeightGovernor:
             ibr_config=ibr_cfg,
         )
         weights = _resolve_cbr_weights(ibr_result, ctx)
-        assert weights.flavor_match == 0.15
+        assert weights.spectrograph_match == 0.15
 
-    def test_cost_governor_reduces_flavor_match(self):
-        """[IBR-SCORE-05] Cost governor reduces flavor_match to 0.05."""
+    def test_cost_governor_reduces_spectrograph_match(self):
+        """[IBR-SCORE-05] Cost governor reduces spectrograph_match to 0.05."""
         from dragonlight_router.selection.scoring import cost_adjusted_weights
 
         ibr_weights = ScoringWeightsConfig(
@@ -674,10 +674,10 @@ class TestIBRScoringWeightGovernor:
             priority=0.15,
             queue=0.10,
             health=0.10,
-            flavor_match=0.15,
+            spectrograph_match=0.15,
         )
         adjusted = cost_adjusted_weights(ibr_weights)
-        assert adjusted.flavor_match == 0.05
+        assert adjusted.spectrograph_match == 0.05
         assert adjusted.cost == 0.65
         total = (
             adjusted.cost
@@ -685,23 +685,23 @@ class TestIBRScoringWeightGovernor:
             + adjusted.priority
             + adjusted.queue
             + adjusted.health
-            + adjusted.flavor_match
+            + adjusted.spectrograph_match
         )
         assert abs(total - 1.0) < 1e-9
 
-    def test_flavor_match_score_bounded(self, make_backend_config):
-        """flavor_match contribution to score is bounded by weight * 1.0."""
+    def test_spectrograph_match_score_bounded(self, make_backend_config):
+        """spectrograph_match contribution to score is bounded by weight * 1.0."""
         weights = ScoringWeightsConfig(
             cost=0.30,
             latency=0.20,
             priority=0.15,
             queue=0.10,
             health=0.10,
-            flavor_match=0.15,
+            spectrograph_match=0.15,
         )
         ibr_result = IBRResult(
             classified_intent=_make_intent(),
-            flavor_scores={"model-a": 1.0},  # max possible
+            spectrograph_scores={"model-a": 1.0},  # max possible
             ibr_active=True,
         )
         candidate = make_backend_config(name="model-a")
@@ -725,8 +725,8 @@ class TestIBRScoringWeightGovernor:
         # Score must be in [0.0, 1.0]
         assert 0.0 <= scored[0].score <= 1.0
 
-    def test_zero_flavor_match_weight_when_ibr_disabled(self):
-        """[IBR-SCORE-03] flavor_match weight is 0.0 when IBR is off."""
+    def test_zero_spectrograph_match_weight_when_ibr_disabled(self):
+        """[IBR-SCORE-03] spectrograph_match weight is 0.0 when IBR is off."""
         weights = _resolve_cbr_weights(
             None,
             DispatchContext(
@@ -736,4 +736,4 @@ class TestIBRScoringWeightGovernor:
                 config={},
             ),
         )
-        assert weights.flavor_match == 0.0
+        assert weights.spectrograph_match == 0.0

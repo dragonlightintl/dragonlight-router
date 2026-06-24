@@ -1,7 +1,7 @@
-"""Feedback-loop learning engine for IBR flavor profiles (v0.2.0).
+"""Feedback-loop learning engine for IBR spectrograph profiles (v0.2.0).
 
 Persists quality feedback in SQLite (WAL mode) and applies EMA updates
-to learned model flavor profiles.  Feedback-learned scores overlay
+to learned model spectrograph profiles.  Feedback-learned scores overlay
 operator-declared profiles but never lower a dimension below 80% of the
 operator-declared value (IBR-FLV-03).
 
@@ -19,12 +19,12 @@ import structlog
 
 from dragonlight_router.core.types import (
     IBR_DOMAINS,
-    IBR_NEUTRAL_FLAVOR,
+    IBR_NEUTRAL_SPECTROGRAPH,
     IBR_QUALITY_SPEED,
     IBR_TASK_TYPES,
     ClassifiedIntent,
-    FlavorScore,
-    ModelFlavorProfile,
+    ModelSpectrographProfile,
+    SpectrographScore,
 )
 
 logger = structlog.get_logger(__name__)
@@ -40,12 +40,12 @@ _FLOOR_RATIO: float = 0.8
 
 
 # ---------------------------------------------------------------------------
-# FeedbackStore — SQLite-backed storage for learned flavor profiles
+# FeedbackStore — SQLite-backed storage for learned spectrograph profiles
 # ---------------------------------------------------------------------------
 
 
 class FeedbackStore:
-    """SQLite-backed storage for feedback-learned flavor profiles.
+    """SQLite-backed storage for feedback-learned spectrograph profiles.
 
     Thread-safe via WAL mode.  Each call to ``record_feedback`` updates
     the running EMA for one model across all three intent dimensions.
@@ -94,7 +94,7 @@ class FeedbackStore:
         model_id: str,
         classified_intent: ClassifiedIntent,
         quality_rating: int,
-        operator_profile: ModelFlavorProfile | None = None,
+        operator_profile: ModelSpectrographProfile | None = None,
     ) -> None:
         """Update the learned profile for *model_id* via EMA.
 
@@ -189,10 +189,10 @@ class FeedbackStore:
     # Load learned profiles
     # ------------------------------------------------------------------
 
-    def get_learned_profiles(self) -> dict[str, ModelFlavorProfile]:
+    def get_learned_profiles(self) -> dict[str, ModelSpectrographProfile]:
         """Load all feedback-learned profiles from SQLite.
 
-        Returns a dict of model_id -> ModelFlavorProfile built from the
+        Returns a dict of model_id -> ModelSpectrographProfile built from the
         stored dimension scores.  Dimensions without feedback data are
         filled with neutral defaults.
         """
@@ -220,7 +220,7 @@ class FeedbackStore:
 def _resolve_floor(
     dim_type: str,
     dim_value: str,
-    operator_profile: ModelFlavorProfile | None,
+    operator_profile: ModelSpectrographProfile | None,
 ) -> float:
     """Compute the floor score for a dimension from the operator profile.
 
@@ -230,14 +230,14 @@ def _resolve_floor(
         return 0.0
 
     score_map = _get_score_map(dim_type, operator_profile)
-    fs = score_map.get(dim_value, IBR_NEUTRAL_FLAVOR)
+    fs = score_map.get(dim_value, IBR_NEUTRAL_SPECTROGRAPH)
     return _FLOOR_RATIO * fs.score
 
 
 def _get_score_map(
     dim_type: str,
-    profile: ModelFlavorProfile,
-) -> dict[str, FlavorScore]:
+    profile: ModelSpectrographProfile,
+) -> dict[str, SpectrographScore]:
     """Return the correct score dict for a dimension type."""
     assert dim_type in ("task", "domain", "qs"), f"Unknown dim_type: {dim_type}"
     if dim_type == "task":
@@ -261,8 +261,8 @@ def _apply_floor(score: float, floor: float) -> float:
 
 def _build_profiles_from_rows(
     rows: list[tuple[str, str, str, float, float, int, str]],
-) -> dict[str, ModelFlavorProfile]:
-    """Group SQLite rows into ModelFlavorProfile instances."""
+) -> dict[str, ModelSpectrographProfile]:
+    """Group SQLite rows into ModelSpectrographProfile instances."""
     assert len(rows) > 0, "rows must not be empty"
 
     # Group rows by model_id
@@ -273,7 +273,7 @@ def _build_profiles_from_rows(
             grouped[model_id] = []
         grouped[model_id].append(row)
 
-    profiles: dict[str, ModelFlavorProfile] = {}
+    profiles: dict[str, ModelSpectrographProfile] = {}
     for model_id, model_rows in grouped.items():
         profiles[model_id] = _build_single_profile(model_id, model_rows)
 
@@ -284,17 +284,17 @@ def _build_profiles_from_rows(
 def _build_single_profile(
     model_id: str,
     rows: list[tuple[str, str, str, float, float, int, str]],
-) -> ModelFlavorProfile:
-    """Build one ModelFlavorProfile from its feedback rows."""
+) -> ModelSpectrographProfile:
+    """Build one ModelSpectrographProfile from its feedback rows."""
     assert isinstance(model_id, str) and model_id, "model_id must be non-empty"
 
-    task_scores = dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_FLAVOR)
-    domain_scores = dict.fromkeys(IBR_DOMAINS, IBR_NEUTRAL_FLAVOR)
-    qs_scores = dict.fromkeys(IBR_QUALITY_SPEED, IBR_NEUTRAL_FLAVOR)
+    task_scores = dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_SPECTROGRAPH)
+    domain_scores = dict.fromkeys(IBR_DOMAINS, IBR_NEUTRAL_SPECTROGRAPH)
+    qs_scores = dict.fromkeys(IBR_QUALITY_SPEED, IBR_NEUTRAL_SPECTROGRAPH)
 
     latest_updated = ""
     for _mid, dim_type, dim_value, score, confidence, sample_count, updated_at in rows:
-        fs = FlavorScore(score=score, confidence=confidence, sample_count=sample_count)
+        fs = SpectrographScore(score=score, confidence=confidence, sample_count=sample_count)
         if dim_type == "task" and dim_value in task_scores:
             task_scores[dim_value] = fs
         elif dim_type == "domain" and dim_value in domain_scores:
@@ -304,7 +304,7 @@ def _build_single_profile(
         if updated_at > latest_updated:
             latest_updated = updated_at
 
-    return ModelFlavorProfile(
+    return ModelSpectrographProfile(
         model_id=model_id,
         version=1,
         updated_at=latest_updated or datetime.now(UTC).isoformat(),

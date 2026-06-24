@@ -1501,14 +1501,14 @@ class TestFormatDispatchResponseIBR:
             was_fallback=False,
             fallback_chain=[],
             classified_intent=intent,
-            flavor_match_score=0.92,
+            spectrograph_match_score=0.92,
             ibr_active=True,
             dispatch_mode="cascade",
         )
         response = _format_dispatch_response(engine_resp)
         parsed = json.loads(response.body)
         assert parsed["ibr_active"] is True
-        assert parsed["flavor_match_score"] == 0.92
+        assert parsed["spectrograph_match_score"] == 0.92
         assert "classified_intent" in parsed
         assert parsed["classified_intent"]["task_type"] == "code_review"
 
@@ -1531,18 +1531,18 @@ class TestFormatDispatchResponseIBR:
         response = _format_dispatch_response(engine_resp)
         parsed = json.loads(response.body)
         assert "ibr_active" not in parsed
-        assert "flavor_match_score" not in parsed
+        assert "spectrograph_match_score" not in parsed
 
 
-class TestSerializeFlavorScore:
-    """Cover lines 866-867 — _serialize_flavor_score."""
+class TestSerializeSpectrographScore:
+    """Cover lines 866-867 — _serialize_spectrograph_score."""
 
-    def test_serializes_flavor_score(self):
-        from dragonlight_router.core.types import FlavorScore
-        from dragonlight_router.server.routes import _serialize_flavor_score
+    def test_serializes_spectrograph_score(self):
+        from dragonlight_router.core.types import SpectrographScore
+        from dragonlight_router.server.routes import _serialize_spectrograph_score
 
-        fs = FlavorScore(score=0.75, confidence=0.9, sample_count=42)
-        result = _serialize_flavor_score(fs)
+        fs = SpectrographScore(score=0.75, confidence=0.9, sample_count=42)
+        result = _serialize_spectrograph_score(fs)
         assert result["score"] == 0.75
         assert result["confidence"] == 0.9
         assert result["sample_count"] == 42
@@ -1551,21 +1551,23 @@ class TestSerializeFlavorScore:
 class TestSerializeProfile:
     """Cover lines 872-873 — _serialize_profile."""
 
-    def test_serializes_model_flavor_profile(self):
-        from dragonlight_router.core.types import FlavorScore, ModelFlavorProfile
-        from dragonlight_router.server.routes import _serialize_profile
+    def test_serializes_model_spectrograph_profile(self):
+        from dragonlight_router.core.types import ModelSpectrographProfile, SpectrographScore
+        from dragonlight_router.server.routes import _serialize_spectrograph_profile
 
-        profile = ModelFlavorProfile(
+        profile = ModelSpectrographProfile(
             model_id="test-model",
             version=1,
             updated_at="2026-06-19T00:00:00Z",
             task_scores={
-                "code_generation": FlavorScore(score=0.8, confidence=1.0, sample_count=10)
+                "code_generation": SpectrographScore(score=0.8, confidence=1.0, sample_count=10)
             },
-            domain_scores={"engineering": FlavorScore(score=0.7, confidence=0.9, sample_count=5)},
-            qs_scores={"quality": FlavorScore(score=0.6, confidence=0.8, sample_count=3)},
+            domain_scores={
+                "engineering": SpectrographScore(score=0.7, confidence=0.9, sample_count=5)
+            },
+            qs_scores={"quality": SpectrographScore(score=0.6, confidence=0.8, sample_count=3)},
         )
-        result = _serialize_profile(profile)
+        result = _serialize_spectrograph_profile(profile)
         assert result["model_id"] == "test-model"
         assert result["version"] == 1
         assert "code_generation" in result["task_scores"]
@@ -1573,26 +1575,26 @@ class TestSerializeProfile:
 
 
 class TestGetFlavorLoader:
-    """Cover line 885 — _get_flavor_loader returns None when not on app state."""
+    """Cover line 885 — _get_spectrograph_loader returns None when not on app state."""
 
     def test_returns_none_when_no_loader(self):
-        from dragonlight_router.server.routes import _get_flavor_loader
+        from dragonlight_router.server.routes import _get_spectrograph_loader
 
         mock_request = MagicMock()
-        # State without flavor_loader attribute
+        # State without spectrograph_loader attribute
         mock_request.app.state = MagicMock(spec=[])
-        assert _get_flavor_loader(mock_request) is None
+        assert _get_spectrograph_loader(mock_request) is None
 
 
-class TestFlavorProfilesListHandler:
-    """Cover lines 893-902 — flavor_profiles_list_handler."""
+class TestSpectrographProfilesListHandler:
+    """Cover lines 893-902 — spectrograph_profiles_list_handler."""
 
     def test_list_returns_empty_when_no_loader(self, tmp_path: Path):
-        """Returns empty profiles dict when flavor_loader is None."""
+        """Returns empty profiles dict when spectrograph_loader is None."""
         config_path = _setup_test_env(tmp_path)
         app = create_app(config_path=config_path)
         # Force loader to None
-        app.state.flavor_loader = None
+        app.state.spectrograph_loader = None
         client = TestClient(app)
         response = client.get("/v1/flavor-profiles")
         assert response.status_code == 200
@@ -1600,25 +1602,25 @@ class TestFlavorProfilesListHandler:
 
     def test_list_returns_loaded_profiles(self, tmp_path: Path):
         """Returns serialized profiles when loader has data (lines 897-902)."""
-        from dragonlight_router.core.types import FlavorScore, ModelFlavorProfile
+        from dragonlight_router.core.types import ModelSpectrographProfile, SpectrographScore
 
         config_path = _setup_test_env(tmp_path)
         app = create_app(config_path=config_path)
 
         mock_loader = MagicMock()
         mock_loader.profiles = {
-            "model-a": ModelFlavorProfile(
+            "model-a": ModelSpectrographProfile(
                 model_id="model-a",
                 version=1,
                 updated_at="2026-06-19T00:00:00Z",
                 task_scores={
-                    "code_generation": FlavorScore(score=0.9, confidence=1.0, sample_count=5)
+                    "code_generation": SpectrographScore(score=0.9, confidence=1.0, sample_count=5)
                 },
                 domain_scores={},
                 qs_scores={},
             ),
         }
-        app.state.flavor_loader = mock_loader
+        app.state.spectrograph_loader = mock_loader
 
         client = TestClient(app)
         response = client.get("/v1/flavor-profiles")
@@ -1628,13 +1630,13 @@ class TestFlavorProfilesListHandler:
         assert data["profiles"]["model-a"]["model_id"] == "model-a"
 
 
-class TestFlavorProfileDetailHandler:
-    """Cover lines 910-921 — flavor_profile_detail_handler."""
+class TestSpectrographProfileDetailHandler:
+    """Cover lines 910-921 — spectrograph_profile_detail_handler."""
 
     def test_detail_returns_404_when_no_loader(self, tmp_path: Path):
         config_path = _setup_test_env(tmp_path)
         app = create_app(config_path=config_path)
-        app.state.flavor_loader = None
+        app.state.spectrograph_loader = None
         client = TestClient(app)
         response = client.get("/v1/flavor-profiles/nonexistent")
         assert response.status_code == 404
@@ -1645,31 +1647,31 @@ class TestFlavorProfileDetailHandler:
         app = create_app(config_path=config_path)
         mock_loader = MagicMock()
         mock_loader.profiles = {}
-        app.state.flavor_loader = mock_loader
+        app.state.spectrograph_loader = mock_loader
         client = TestClient(app)
         response = client.get("/v1/flavor-profiles/missing-model")
         assert response.status_code == 404
 
     def test_detail_returns_profile_when_found(self, tmp_path: Path):
         """Lines 919-921 — returns serialized profile for existing model_id."""
-        from dragonlight_router.core.types import FlavorScore, ModelFlavorProfile
+        from dragonlight_router.core.types import ModelSpectrographProfile, SpectrographScore
 
         config_path = _setup_test_env(tmp_path)
         app = create_app(config_path=config_path)
 
-        profile = ModelFlavorProfile(
+        profile = ModelSpectrographProfile(
             model_id="model-x",
             version=1,
             updated_at="2026-06-19T00:00:00Z",
             task_scores={
-                "code_generation": FlavorScore(score=0.85, confidence=1.0, sample_count=8)
+                "code_generation": SpectrographScore(score=0.85, confidence=1.0, sample_count=8)
             },
             domain_scores={},
             qs_scores={},
         )
         mock_loader = MagicMock()
         mock_loader.profiles = {"model-x": profile}
-        app.state.flavor_loader = mock_loader
+        app.state.spectrograph_loader = mock_loader
 
         client = TestClient(app)
         response = client.get("/v1/flavor-profiles/model-x")
@@ -1740,8 +1742,8 @@ class TestValidateFlavorUpsertBody:
         assert error is None
 
 
-class TestFlavorProfileUpsertHandler:
-    """Cover lines 944-968 — flavor_profile_upsert_handler."""
+class TestSpectrographProfileUpsertHandler:
+    """Cover lines 944-968 — spectrograph_profile_upsert_handler."""
 
     def test_upsert_requires_admin_auth(self, tmp_path: Path):
         """Returns 401 when admin key is configured but not provided."""
@@ -1779,10 +1781,10 @@ class TestFlavorProfileUpsertHandler:
         assert response.status_code == 400
 
     def test_upsert_no_loader_returns_503(self, tmp_path: Path):
-        """Returns 503 when flavor_loader is None (line 962)."""
+        """Returns 503 when spectrograph_loader is None (line 962)."""
         config_path = _setup_test_env(tmp_path)
         app = create_app(config_path=config_path)
-        app.state.flavor_loader = None
+        app.state.spectrograph_loader = None
         client = TestClient(app)
         response = client.post(
             "/v1/flavor-profiles/test-model",
@@ -1798,7 +1800,7 @@ class TestFlavorProfileUpsertHandler:
 
         mock_loader = MagicMock()
         mock_loader._profiles = {}
-        app.state.flavor_loader = mock_loader
+        app.state.spectrograph_loader = mock_loader
 
         client = TestClient(app)
         response = client.post(

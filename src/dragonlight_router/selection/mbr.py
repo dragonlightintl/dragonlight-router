@@ -111,7 +111,7 @@ def _resolve_tiers_to_try(
 
     tiers = [requested_tier]
     if requested_index < len(TIER_ORDER) - 1:
-        tiers.append(TIER_ORDER[requested_index + 1])
+        tiers.extend(TIER_ORDER[requested_index + 1:])
 
     assert len(tiers) >= 1, "must have at least one tier to try"
     return Ok(tiers)
@@ -127,11 +127,15 @@ def _try_tiers(
     assert len(tiers_to_try) >= 1, "must have at least one tier to try"
     assert all(isinstance(t, BackendTier) for t in tiers_to_try), "all tiers must be BackendTier"
 
+    all_candidates: list[BackendConfig] = []
     for tier in tiers_to_try:
         logger.debug("trying tier", tier=tier.value)
         healthy = _candidates_for_tier(registry, order, tier, requested_tier)
         if healthy:
-            return Ok(healthy)
+            all_candidates.extend(healthy)
+
+    if all_candidates:
+        return Ok(all_candidates)
 
     logger.warning(
         "no candidates found after trying tiers",

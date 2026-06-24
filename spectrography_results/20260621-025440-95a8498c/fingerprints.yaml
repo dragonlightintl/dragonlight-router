@@ -1,0 +1,172 @@
+version: 1
+source: spectrography-run-20260621-025440-95a8498c
+generated_at: '2026-06-21T02:56:34.569128+00:00'
+profiles:
+  groq/allam-2-7b:
+    task_scores:
+      analysis: 0.5
+      creative: 0.5
+      generation: 0.2857
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.8333
+      summarization: 0.5
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.5714
+      creative_writing: 0.5
+      general: 0.5
+      legal: 0.5
+      technical: 0.5
+    qs_scores:
+      balanced: 0.5
+      quality: 0.6667
+      speed: 0.1667
+  groq/llama-3.1-8b-instant:
+    task_scores:
+      analysis: 0.5
+      creative: 0.5
+      generation: 0.7143
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.5
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.4286
+      creative_writing: 0.5
+      general: 0.5
+      legal: 0.5
+      technical: 0.5
+    qs_scores:
+      balanced: 1.0
+      quality: 0.3333
+      speed: 0.3333
+  groq/llama-3.3-70b-versatile:
+    task_scores:
+      analysis: 0.5
+      creative: 0.5
+      generation: 0.4286
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 1.0
+      summarization: 0.5
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.7143
+      creative_writing: 0.5
+      general: 0.5
+      legal: 0.5
+      technical: 0.5
+    qs_scores:
+      balanced: 0.6667
+      quality: 0.8333
+      speed: 0.5
+  groq/meta-llama/llama-4-scout-17b-16e-instruct:
+    task_scores:
+      analysis: 0.5
+      creative: 0.5
+      generation: 0.5714
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.3333
+      summarization: 0.5
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.2857
+      creative_writing: 0.5
+      general: 0.5
+      legal: 0.5
+      technical: 0.5
+    qs_scores:
+      balanced: 0.8333
+      quality: 0.1667
+      speed: 0.6667
+  groq/openai/gpt-oss-120b:
+    task_scores:
+      analysis: 0.5
+      creative: 0.5
+      generation: 0.8571
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.6667
+      summarization: 0.5
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.8571
+      creative_writing: 0.5
+      general: 0.5
+      legal: 0.5
+      technical: 0.5
+    qs_scores:
+      balanced: 0.3333
+      quality: 1.0
+      speed: 0.8333
+  groq/openai/gpt-oss-20b:
+    task_scores:
+      analysis: 0.5
+      creative: 0.5
+      generation: 1.0
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.5
+      summarization: 0.5
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 1.0
+      creative_writing: 0.5
+      general: 0.5
+      legal: 0.5
+      technical: 0.5
+    qs_scores:
+      balanced: 0.5
+      quality: 0.5
+      speed: 1.0
+  groq/qwen/qwen3-32b:
+    task_scores:
+      analysis: 0.5
+      creative: 0.5
+      generation: 0.1429
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.0
+      summarization: 0.5
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.1429
+      creative_writing: 0.5
+      general: 0.5
+      legal: 0.5
+      technical: 0.5
+    qs_scores:
+      balanced: 0.1667
+      quality: 0.5
+      speed: 0.0
+  groq/qwen/qwen3.6-27b:
+    task_scores:
+      analysis: 0.5
+      creative: 0.5
+      generation: 0.0
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 0.1667
+      summarization: 0.5
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.0
+      creative_writing: 0.5
+      general: 0.5
+      legal: 0.5
+      technical: 0.5
+    qs_scores:
+      balanced: 0.0
+      quality: 0.0
+      speed: 0.5

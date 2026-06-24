@@ -15,11 +15,11 @@ import yaml
 
 from dragonlight_router.core.types import (
     IBR_DOMAINS,
-    IBR_NEUTRAL_FLAVOR,
+    IBR_NEUTRAL_SPECTROGRAPH,
     IBR_QUALITY_SPEED,
     IBR_TASK_TYPES,
-    FlavorScore,
-    ModelFlavorProfile,
+    ModelSpectrographProfile,
+    SpectrographScore,
 )
 from dragonlight_router.spectrography.analyzer import (
     ProbeResult,
@@ -88,18 +88,18 @@ def _make_probe_result(
     )
 
 
-def _make_flavor_profile(
+def _make_spectrograph_profile(
     model_id: str = "test/model-a",
     updated_at: str | None = None,
     score: float = 0.7,
     confidence: float = 0.8,
     sample_count: int = 5,
-) -> ModelFlavorProfile:
-    """Build a ModelFlavorProfile with uniform scores across all dimensions."""
+) -> ModelSpectrographProfile:
+    """Build a ModelSpectrographProfile with uniform scores across all dimensions."""
     if updated_at is None:
         updated_at = datetime.now(UTC).isoformat()
-    fs = FlavorScore(score=score, confidence=confidence, sample_count=sample_count)
-    return ModelFlavorProfile(
+    fs = SpectrographScore(score=score, confidence=confidence, sample_count=sample_count)
+    return ModelSpectrographProfile(
         model_id=model_id,
         version=1,
         updated_at=updated_at,
@@ -383,9 +383,9 @@ class TestRankNormalize:
         profiles = rank_normalize(raw)
         profile = profiles["m1"]
         # "analysis" was never tested so should be neutral
-        assert profile.task_scores["analysis"] == IBR_NEUTRAL_FLAVOR
+        assert profile.task_scores["analysis"] == IBR_NEUTRAL_SPECTROGRAPH
         # "technical" domain was never tested so should be neutral
-        assert profile.domain_scores["technical"] == IBR_NEUTRAL_FLAVOR
+        assert profile.domain_scores["technical"] == IBR_NEUTRAL_SPECTROGRAPH
 
     def test_all_ibr_dimensions_present_in_output(self):
         results = [
@@ -406,7 +406,7 @@ class TestComputeCalibrationDeltas:
     """Tests for compute_calibration_deltas."""
 
     def test_nonexistent_path_returns_empty(self, tmp_path):
-        profiles = {"m1": _make_flavor_profile(model_id="m1")}
+        profiles = {"m1": _make_spectrograph_profile(model_id="m1")}
         result = compute_calibration_deltas(profiles, tmp_path / "no-such-file.yaml")
         assert result == {}
 
@@ -425,7 +425,7 @@ class TestComputeCalibrationDeltas:
         declared_path.write_text(yaml.dump(declared_yaml))
 
         # Create empirical profile with 0.72 for generation (delta=0.02 -> confirm)
-        empirical_profile = _make_flavor_profile(model_id="m1", score=0.72)
+        empirical_profile = _make_spectrograph_profile(model_id="m1", score=0.72)
         result = compute_calibration_deltas({"m1": empirical_profile}, declared_path)
         assert "m1" in result
         # generation dimension should be "confirm" (delta ~0.02)
@@ -456,13 +456,13 @@ class TestBuildFingerprintsYaml:
     """Tests for build_fingerprints_yaml."""
 
     def test_produces_valid_yaml(self):
-        profiles = {"m1": _make_flavor_profile(model_id="m1")}
+        profiles = {"m1": _make_spectrograph_profile(model_id="m1")}
         yaml_str = build_fingerprints_yaml(profiles, "test-run-001")
         parsed = yaml.safe_load(yaml_str)
         assert isinstance(parsed, dict)
 
     def test_includes_source_and_generated_at(self):
-        profiles = {"m1": _make_flavor_profile(model_id="m1")}
+        profiles = {"m1": _make_spectrograph_profile(model_id="m1")}
         yaml_str = build_fingerprints_yaml(profiles, "test-run-001")
         parsed = yaml.safe_load(yaml_str)
         assert parsed["source"] == "spectrography-run-test-run-001"
@@ -471,8 +471,8 @@ class TestBuildFingerprintsYaml:
 
     def test_includes_all_models(self):
         profiles = {
-            "m1": _make_flavor_profile(model_id="m1"),
-            "m2": _make_flavor_profile(model_id="m2"),
+            "m1": _make_spectrograph_profile(model_id="m1"),
+            "m2": _make_spectrograph_profile(model_id="m2"),
         }
         yaml_str = build_fingerprints_yaml(profiles, "run-002")
         parsed = yaml.safe_load(yaml_str)
@@ -480,7 +480,7 @@ class TestBuildFingerprintsYaml:
         assert "m2" in parsed["profiles"]
 
     def test_scores_are_rounded(self):
-        profiles = {"m1": _make_flavor_profile(model_id="m1", score=0.123456789)}
+        profiles = {"m1": _make_spectrograph_profile(model_id="m1", score=0.123456789)}
         yaml_str = build_fingerprints_yaml(profiles, "run-003")
         parsed = yaml.safe_load(yaml_str)
         for _key, score_val in parsed["profiles"]["m1"]["task_scores"].items():
@@ -497,15 +497,15 @@ class TestBuildModelRankings:
 
     def test_returns_correct_ordering(self):
         # m2 has higher scores than m1
-        p1 = _make_flavor_profile(model_id="m1", score=0.3)
-        p2 = _make_flavor_profile(model_id="m2", score=0.9)
+        p1 = _make_spectrograph_profile(model_id="m1", score=0.3)
+        p2 = _make_spectrograph_profile(model_id="m2", score=0.9)
         rankings = build_model_rankings({"m1": p1, "m2": p2})
         # For each dimension, m2 should rank first
         assert rankings["task/generation"][0] == "m2"
         assert rankings["task/generation"][1] == "m1"
 
     def test_covers_all_dimension_types(self):
-        p1 = _make_flavor_profile(model_id="m1")
+        p1 = _make_spectrograph_profile(model_id="m1")
         rankings = build_model_rankings({"m1": p1})
         # Check that all task, domain, and qs dimensions are present
         for t in IBR_TASK_TYPES:
@@ -526,7 +526,7 @@ class TestCheckStaleness:
 
     def test_detects_stale_profiles(self):
         old_time = (datetime.now(UTC) - timedelta(days=60)).isoformat()
-        profiles = {"m1": _make_flavor_profile(model_id="m1", updated_at=old_time)}
+        profiles = {"m1": _make_spectrograph_profile(model_id="m1", updated_at=old_time)}
         results = check_staleness(profiles)
         assert len(results) == 1
         assert results[0].needs_refresh is True
@@ -534,7 +534,7 @@ class TestCheckStaleness:
 
     def test_marks_fresh_profiles_as_not_needing_refresh(self):
         fresh_time = datetime.now(UTC).isoformat()
-        profiles = {"m1": _make_flavor_profile(model_id="m1", updated_at=fresh_time)}
+        profiles = {"m1": _make_spectrograph_profile(model_id="m1", updated_at=fresh_time)}
         results = check_staleness(profiles)
         assert len(results) == 1
         assert results[0].needs_refresh is False
@@ -542,7 +542,7 @@ class TestCheckStaleness:
     def test_custom_threshold(self):
         # 10 days old, with threshold=5 -> stale
         old_time = (datetime.now(UTC) - timedelta(days=10)).isoformat()
-        profiles = {"m1": _make_flavor_profile(model_id="m1", updated_at=old_time)}
+        profiles = {"m1": _make_spectrograph_profile(model_id="m1", updated_at=old_time)}
         results = check_staleness(profiles, threshold_days=5)
         assert results[0].needs_refresh is True
 
@@ -552,7 +552,7 @@ class TestApplySpectrographyDecay:
 
     def test_no_op_for_profiles_30_days_or_younger(self):
         recent_time = datetime.now(UTC).isoformat()
-        profile = _make_flavor_profile(model_id="m1", updated_at=recent_time, score=0.9)
+        profile = _make_spectrograph_profile(model_id="m1", updated_at=recent_time, score=0.9)
         result = apply_spectrography_decay(profile)
         # Scores should be unchanged
         for t in IBR_TASK_TYPES:
@@ -560,7 +560,7 @@ class TestApplySpectrographyDecay:
 
     def test_decays_toward_0_5_for_old_profiles(self):
         old_time = (datetime.now(UTC) - timedelta(days=60)).isoformat()
-        profile = _make_flavor_profile(model_id="m1", updated_at=old_time, score=0.9)
+        profile = _make_spectrograph_profile(model_id="m1", updated_at=old_time, score=0.9)
         result = apply_spectrography_decay(profile)
         # Score should move toward 0.5 (be less than 0.9)
         for t in IBR_TASK_TYPES:
@@ -569,13 +569,13 @@ class TestApplySpectrographyDecay:
 
     def test_preserves_original_updated_at(self):
         old_time = (datetime.now(UTC) - timedelta(days=60)).isoformat()
-        profile = _make_flavor_profile(model_id="m1", updated_at=old_time, score=0.9)
+        profile = _make_spectrograph_profile(model_id="m1", updated_at=old_time, score=0.9)
         result = apply_spectrography_decay(profile)
         assert result.updated_at == old_time
 
     def test_decay_moves_low_scores_up(self):
         old_time = (datetime.now(UTC) - timedelta(days=60)).isoformat()
-        profile = _make_flavor_profile(model_id="m1", updated_at=old_time, score=0.1)
+        profile = _make_spectrograph_profile(model_id="m1", updated_at=old_time, score=0.1)
         result = apply_spectrography_decay(profile)
         # Score 0.1 should move toward 0.5 (increase)
         for t in IBR_TASK_TYPES:
@@ -584,7 +584,7 @@ class TestApplySpectrographyDecay:
 
     def test_explicit_now_parameter(self):
         updated = datetime(2026, 1, 1, tzinfo=UTC)
-        profile = _make_flavor_profile(
+        profile = _make_spectrograph_profile(
             model_id="m1",
             updated_at=updated.isoformat(),
             score=0.9,
@@ -600,24 +600,24 @@ class TestMergeIncremental:
     """Tests for merge_incremental."""
 
     def test_adds_new_models(self):
-        existing = {"m1": _make_flavor_profile(model_id="m1")}
-        new_results = {"m2": _make_flavor_profile(model_id="m2")}
+        existing = {"m1": _make_spectrograph_profile(model_id="m1")}
+        new_results = {"m2": _make_spectrograph_profile(model_id="m2")}
         merged = merge_incremental(existing, new_results)
         assert "m1" in merged
         assert "m2" in merged
 
     def test_replaces_existing_models_with_new_results(self):
-        old = _make_flavor_profile(model_id="m1", score=0.3)
-        new = _make_flavor_profile(model_id="m1", score=0.9)
+        old = _make_spectrograph_profile(model_id="m1", score=0.3)
+        new = _make_spectrograph_profile(model_id="m1", score=0.9)
         merged = merge_incremental({"m1": old}, {"m1": new})
         assert merged["m1"].task_scores["generation"].score == pytest.approx(0.9)
 
     def test_preserves_models_not_in_new_results(self):
         existing = {
-            "m1": _make_flavor_profile(model_id="m1", score=0.5),
-            "m2": _make_flavor_profile(model_id="m2", score=0.7),
+            "m1": _make_spectrograph_profile(model_id="m1", score=0.5),
+            "m2": _make_spectrograph_profile(model_id="m2", score=0.7),
         }
-        new_results = {"m1": _make_flavor_profile(model_id="m1", score=0.9)}
+        new_results = {"m1": _make_spectrograph_profile(model_id="m1", score=0.9)}
         merged = merge_incremental(existing, new_results)
         # m2 should be unchanged
         assert merged["m2"].task_scores["generation"].score == pytest.approx(0.7)
@@ -690,7 +690,7 @@ class TestGetModelsNeedingSpectrography:
         matrix_path = tmp_path / "matrix.json"
         matrix_path.write_text(json.dumps(matrix))
         # Only m1 has a profile
-        existing = {"m1": _make_flavor_profile(model_id="m1")}
+        existing = {"m1": _make_spectrograph_profile(model_id="m1")}
         result = get_models_needing_spectrography(matrix_path, existing)
         assert "m2" in result
         assert "m1" not in result
@@ -704,7 +704,7 @@ class TestGetModelsNeedingSpectrography:
         matrix_path = tmp_path / "matrix.json"
         matrix_path.write_text(json.dumps(matrix))
         old_time = (datetime.now(UTC) - timedelta(days=60)).isoformat()
-        existing = {"m1": _make_flavor_profile(model_id="m1", updated_at=old_time)}
+        existing = {"m1": _make_spectrograph_profile(model_id="m1", updated_at=old_time)}
         result = get_models_needing_spectrography(matrix_path, existing)
         assert "m1" in result
 

@@ -12,15 +12,15 @@ import pytest
 
 from dragonlight_router.core.types import (
     IBR_DOMAINS,
-    IBR_NEUTRAL_FLAVOR,
+    IBR_NEUTRAL_SPECTROGRAPH,
     IBR_QUALITY_SPEED,
     IBR_TASK_TYPES,
     BackendTier,
     ClassifiedIntent,
     EngineResponse,
-    FlavorScore,
     IBRScoringContext,
-    ModelFlavorProfile,
+    ModelSpectrographProfile,
+    SpectrographScore,
 )
 from dragonlight_router.selection.scoring import ScoringWeightsConfig
 
@@ -100,44 +100,44 @@ class TestClassifiedIntent:
 
 
 # ---------------------------------------------------------------------------
-# FlavorScore
+# SpectrographScore
 # ---------------------------------------------------------------------------
 
 
-class TestFlavorScore:
-    """[IBR-DATA-01] FlavorScore frozen dataclass."""
+class TestSpectrographScore:
+    """[IBR-DATA-01] SpectrographScore frozen dataclass."""
 
     def test_frozen(self):
-        """[IBR-DATA-01] FlavorScore is immutable."""
-        fs = FlavorScore(score=0.8, confidence=1.0, sample_count=10)
+        """[IBR-DATA-01] SpectrographScore is immutable."""
+        fs = SpectrographScore(score=0.8, confidence=1.0, sample_count=10)
         with pytest.raises(dataclasses.FrozenInstanceError):
             fs.score = 0.5  # type: ignore[misc]
 
     def test_neutral_default_values(self):
-        """[IBR-DATA-01] IBR_NEUTRAL_FLAVOR has correct default values."""
-        assert IBR_NEUTRAL_FLAVOR.score == 0.5
-        assert IBR_NEUTRAL_FLAVOR.confidence == 0.0
-        assert IBR_NEUTRAL_FLAVOR.sample_count == 0
+        """[IBR-DATA-01] IBR_NEUTRAL_SPECTROGRAPH has correct default values."""
+        assert IBR_NEUTRAL_SPECTROGRAPH.score == 0.5
+        assert IBR_NEUTRAL_SPECTROGRAPH.confidence == 0.0
+        assert IBR_NEUTRAL_SPECTROGRAPH.sample_count == 0
 
     def test_fields_accessible(self):
-        """[IBR-DATA-01] FlavorScore fields are accessible."""
-        fs = FlavorScore(score=0.3, confidence=0.7, sample_count=25)
+        """[IBR-DATA-01] SpectrographScore fields are accessible."""
+        fs = SpectrographScore(score=0.3, confidence=0.7, sample_count=25)
         assert fs.score == 0.3
         assert fs.confidence == 0.7
         assert fs.sample_count == 25
 
 
 # ---------------------------------------------------------------------------
-# ModelFlavorProfile
+# ModelSpectrographProfile
 # ---------------------------------------------------------------------------
 
 
-class TestModelFlavorProfile:
-    """[IBR-DATA-01] ModelFlavorProfile frozen dataclass."""
+class TestModelSpectrographProfile:
+    """[IBR-DATA-01] ModelSpectrographProfile frozen dataclass."""
 
     def test_frozen(self):
-        """[IBR-DATA-01] ModelFlavorProfile is immutable."""
-        profile = ModelFlavorProfile(
+        """[IBR-DATA-01] ModelSpectrographProfile is immutable."""
+        profile = ModelSpectrographProfile(
             model_id="test",
             version=1,
             updated_at="2026-01-01T00:00:00Z",
@@ -149,9 +149,9 @@ class TestModelFlavorProfile:
             profile.model_id = "other"  # type: ignore[misc]
 
     def test_construct_with_partial_scores(self):
-        """[IBR-DATA-01] ModelFlavorProfile can be constructed with partial score dicts."""
-        fs = FlavorScore(score=0.9, confidence=1.0, sample_count=0)
-        profile = ModelFlavorProfile(
+        """[IBR-DATA-01] ModelSpectrographProfile can be constructed with partial score dicts."""
+        fs = SpectrographScore(score=0.9, confidence=1.0, sample_count=0)
+        profile = ModelSpectrographProfile(
             model_id="partial-test",
             version=1,
             updated_at="2026-01-01T00:00:00Z",
@@ -165,12 +165,12 @@ class TestModelFlavorProfile:
         assert "quality" in profile.qs_scores
 
     def test_full_profile_construction(self):
-        """[IBR-DATA-01] ModelFlavorProfile can hold full taxonomy."""
-        fs = FlavorScore(score=0.5, confidence=0.0, sample_count=0)
+        """[IBR-DATA-01] ModelSpectrographProfile can hold full taxonomy."""
+        fs = SpectrographScore(score=0.5, confidence=0.0, sample_count=0)
         task_scores = dict.fromkeys(IBR_TASK_TYPES, fs)
         domain_scores = dict.fromkeys(IBR_DOMAINS, fs)
         qs_scores = dict.fromkeys(IBR_QUALITY_SPEED, fs)
-        profile = ModelFlavorProfile(
+        profile = ModelSpectrographProfile(
             model_id="full",
             version=2,
             updated_at="2026-06-18T00:00:00Z",
@@ -195,18 +195,18 @@ class TestIBRScoringContext:
         """[IBR-DATA-01] IBRScoringContext is immutable."""
         ctx = IBRScoringContext(
             classified_intent=None,
-            flavor_profiles={},
-            flavor_match_weight=0.15,
+            spectrograph_profiles={},
+            spectrograph_match_weight=0.15,
         )
         with pytest.raises(dataclasses.FrozenInstanceError):
-            ctx.flavor_match_weight = 0.0  # type: ignore[misc]
+            ctx.spectrograph_match_weight = 0.0  # type: ignore[misc]
 
     def test_none_classified_intent_allowed(self):
         """[IBR-DATA-01] IBRScoringContext allows None classified_intent."""
         ctx = IBRScoringContext(
             classified_intent=None,
-            flavor_profiles={},
-            flavor_match_weight=0.0,
+            spectrograph_profiles={},
+            spectrograph_match_weight=0.0,
         )
         assert ctx.classified_intent is None
 
@@ -222,43 +222,43 @@ class TestIBRScoringContext:
         )
         ctx = IBRScoringContext(
             classified_intent=intent,
-            flavor_profiles={},
-            flavor_match_weight=0.15,
+            spectrograph_profiles={},
+            spectrograph_match_weight=0.15,
         )
         assert ctx.classified_intent is intent
 
 
 # ---------------------------------------------------------------------------
-# ScoringWeightsConfig with flavor_match
+# ScoringWeightsConfig with spectrograph_match
 # ---------------------------------------------------------------------------
 
 
 class TestScoringWeightsConfigIBR:
-    """[IBR-DATA-03] ScoringWeightsConfig with flavor_match dimension."""
+    """[IBR-DATA-03] ScoringWeightsConfig with spectrograph_match dimension."""
 
-    def test_flavor_match_zero_backward_compatible(self):
-        """[IBR-DATA-02] flavor_match=0.0 sums to 1.0 (v0.3.0)."""
+    def test_spectrograph_match_zero_backward_compatible(self):
+        """[IBR-DATA-02] spectrograph_match=0.0 sums to 1.0 (v0.3.0)."""
         config = ScoringWeightsConfig()
-        assert config.flavor_match == 0.0
+        assert config.spectrograph_match == 0.0
         total = (
             config.cost
             + config.latency
             + config.priority
             + config.queue
             + config.health
-            + config.flavor_match
+            + config.spectrograph_match
         )
         assert abs(total - 1.0) < 1e-9
 
-    def test_flavor_match_0_15_with_adjusted_weights(self):
-        """[IBR-DATA-03] flavor_match=0.15 sums to 1.0."""
+    def test_spectrograph_match_0_15_with_adjusted_weights(self):
+        """[IBR-DATA-03] spectrograph_match=0.15 sums to 1.0."""
         config = ScoringWeightsConfig(
             cost=0.30,
             latency=0.20,
             priority=0.15,
             queue=0.10,
             health=0.10,
-            flavor_match=0.15,
+            spectrograph_match=0.15,
         )
         total = (
             config.cost
@@ -266,7 +266,7 @@ class TestScoringWeightsConfigIBR:
             + config.priority
             + config.queue
             + config.health
-            + config.flavor_match
+            + config.spectrograph_match
         )
         assert abs(total - 1.0) < 1e-9
 
@@ -279,10 +279,10 @@ class TestScoringWeightsConfigIBR:
                 priority=0.20,
                 queue=0.10,
                 health=0.10,
-                flavor_match=0.15,
+                spectrograph_match=0.15,
             )
 
-    def test_flavor_match_0_05_cost_governor(self):
+    def test_spectrograph_match_0_05_cost_governor(self):
         """[IBR-SCORE-05] Cost governor weights sum to 1.0."""
         config = ScoringWeightsConfig(
             cost=0.65,
@@ -290,7 +290,7 @@ class TestScoringWeightsConfigIBR:
             priority=0.10,
             queue=0.05,
             health=0.05,
-            flavor_match=0.05,
+            spectrograph_match=0.05,
         )
         total = (
             config.cost
@@ -298,7 +298,7 @@ class TestScoringWeightsConfigIBR:
             + config.priority
             + config.queue
             + config.health
-            + config.flavor_match
+            + config.spectrograph_match
         )
         assert abs(total - 1.0) < 1e-9
 
@@ -325,7 +325,7 @@ class TestEngineResponseIBRFields:
             fallback_chain=[],
         )
         assert resp.classified_intent is None
-        assert resp.flavor_match_score is None
+        assert resp.spectrograph_match_score is None
         assert resp.ibr_active is False
 
     def test_can_set_ibr_fields(self):
@@ -349,11 +349,11 @@ class TestEngineResponseIBRFields:
             was_fallback=False,
             fallback_chain=[],
             classified_intent=intent,
-            flavor_match_score=0.82,
+            spectrograph_match_score=0.82,
             ibr_active=True,
         )
         assert resp.classified_intent is intent
-        assert resp.flavor_match_score == 0.82
+        assert resp.spectrograph_match_score == 0.82
         assert resp.ibr_active is True
 
     def test_ibr_fields_frozen(self):

@@ -227,8 +227,8 @@ class TestIntentClassificationConfigContract:
         assert ic.cache_max_entries == 5000
         assert ic.confidence_threshold == 0.6
         assert ic.profile_confidence_threshold == 0.3
-        assert ic.flavor_match_weight == 0.15
-        assert ic.flavor_match_weight_governor == 0.05
+        assert ic.spectrograph_match_weight == 0.15
+        assert ic.spectrograph_match_weight_governor == 0.05
 
 
 # ---------------------------------------------------------------------------

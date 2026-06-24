@@ -1,0 +1,862 @@
+{
+  "run_id": "20260621-025458-6e33277c",
+  "started_at": "2026-06-21T02:54:58.245930+00:00",
+  "completed_at": "2026-06-21T02:56:54.701372+00:00",
+  "judge_model": "nvidia_nim/qwen/qwen3.5-397b-a17b",
+  "models_evaluated": [
+    "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct",
+    "nvidia_nim/deepseek-ai/deepseek-v4-flash",
+    "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+    "nvidia_nim/google/gemma-3n-e4b-it",
+    "nvidia_nim/google/gemma-4-31b-it"
+  ],
+  "total_probes": 10,
+  "total_errors": 5,
+  "self_eval_count": 0,
+  "profiles": {
+    "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct": {
+      "model_id": "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct",
+      "version": 1,
+      "updated_at": "2026-06-21T02:56:54.702072+00:00",
+      "task_scores": {
+        "lookup": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "generation": {
+          "score": 0.5,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "analysis": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "summarization": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "reasoning": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "refactoring": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "translation": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      },
+      "domain_scores": {
+        "technical": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative_writing": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "general": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "code": {
+          "score": 0.5,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "legal": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "business": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      },
+      "qs_scores": {
+        "speed": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "quality": {
+          "score": 0.5,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "balanced": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      }
+    },
+    "nvidia_nim/deepseek-ai/deepseek-v4-flash": {
+      "model_id": "nvidia_nim/deepseek-ai/deepseek-v4-flash",
+      "version": 1,
+      "updated_at": "2026-06-21T02:56:54.702072+00:00",
+      "task_scores": {
+        "lookup": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "generation": {
+          "score": 0.0,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "analysis": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "summarization": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "reasoning": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "refactoring": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "translation": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      },
+      "domain_scores": {
+        "technical": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative_writing": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "general": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "code": {
+          "score": 0.0,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "legal": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "business": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      },
+      "qs_scores": {
+        "speed": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "quality": {
+          "score": 0.0,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "balanced": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      }
+    },
+    "nvidia_nim/deepseek-ai/deepseek-v4-pro": {
+      "model_id": "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+      "version": 1,
+      "updated_at": "2026-06-21T02:56:54.702072+00:00",
+      "task_scores": {
+        "lookup": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "generation": {
+          "score": 0.25,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "analysis": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "summarization": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "reasoning": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "refactoring": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "translation": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      },
+      "domain_scores": {
+        "technical": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative_writing": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "general": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "code": {
+          "score": 0.25,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "legal": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "business": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      },
+      "qs_scores": {
+        "speed": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "quality": {
+          "score": 0.25,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "balanced": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      }
+    },
+    "nvidia_nim/google/gemma-3n-e4b-it": {
+      "model_id": "nvidia_nim/google/gemma-3n-e4b-it",
+      "version": 1,
+      "updated_at": "2026-06-21T02:56:54.702072+00:00",
+      "task_scores": {
+        "lookup": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "generation": {
+          "score": 0.75,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "analysis": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "summarization": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "reasoning": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "refactoring": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "translation": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      },
+      "domain_scores": {
+        "technical": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative_writing": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "general": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "code": {
+          "score": 0.75,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "legal": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "business": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      },
+      "qs_scores": {
+        "speed": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "quality": {
+          "score": 0.75,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "balanced": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      }
+    },
+    "nvidia_nim/google/gemma-4-31b-it": {
+      "model_id": "nvidia_nim/google/gemma-4-31b-it",
+      "version": 1,
+      "updated_at": "2026-06-21T02:56:54.702072+00:00",
+      "task_scores": {
+        "lookup": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "generation": {
+          "score": 1.0,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "analysis": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "summarization": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "reasoning": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "refactoring": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "translation": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      },
+      "domain_scores": {
+        "technical": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative_writing": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "general": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "code": {
+          "score": 1.0,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "legal": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "business": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      },
+      "qs_scores": {
+        "speed": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "quality": {
+          "score": 1.0,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "balanced": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      }
+    }
+  },
+  "calibration_deltas": {
+    "nvidia_nim/deepseek-ai/deepseek-v4-pro": {
+      "task/analysis": {
+        "declared": 1.0,
+        "empirical": 0.5,
+        "delta": 0.5,
+        "recommendation": "update"
+      },
+      "task/creative": {
+        "declared": 1.0,
+        "empirical": 0.5,
+        "delta": 0.5,
+        "recommendation": "update"
+      },
+      "task/generation": {
+        "declared": 0.5,
+        "empirical": 0.25,
+        "delta": 0.25,
+        "recommendation": "update"
+      },
+      "task/lookup": {
+        "declared": 0.5,
+        "empirical": 0.5,
+        "delta": 0.0,
+        "recommendation": "confirm"
+      },
+      "task/reasoning": {
+        "declared": 0.5,
+        "empirical": 0.5,
+        "delta": 0.0,
+        "recommendation": "confirm"
+      },
+      "task/refactoring": {
+        "declared": 1.0,
+        "empirical": 0.5,
+        "delta": 0.5,
+        "recommendation": "update"
+      },
+      "task/summarization": {
+        "declared": 1.0,
+        "empirical": 0.5,
+        "delta": 0.5,
+        "recommendation": "update"
+      },
+      "task/translation": {
+        "declared": 1.0,
+        "empirical": 0.5,
+        "delta": 0.5,
+        "recommendation": "update"
+      },
+      "domain/business": {
+        "declared": 0.5,
+        "empirical": 0.5,
+        "delta": 0.0,
+        "recommendation": "confirm"
+      },
+      "domain/code": {
+        "declared": 1.0,
+        "empirical": 0.25,
+        "delta": 0.75,
+        "recommendation": "update"
+      },
+      "domain/creative_writing": {
+        "declared": 1.0,
+        "empirical": 0.5,
+        "delta": 0.5,
+        "recommendation": "update"
+      },
+      "domain/general": {
+        "declared": 1.0,
+        "empirical": 0.5,
+        "delta": 0.5,
+        "recommendation": "update"
+      },
+      "domain/legal": {
+        "declared": 0.3333,
+        "empirical": 0.5,
+        "delta": 0.16670000000000001,
+        "recommendation": "update"
+      },
+      "domain/technical": {
+        "declared": 1.0,
+        "empirical": 0.5,
+        "delta": 0.5,
+        "recommendation": "update"
+      },
+      "qs/balanced": {
+        "declared": 1.0,
+        "empirical": 0.5,
+        "delta": 0.5,
+        "recommendation": "update"
+      },
+      "qs/quality": {
+        "declared": 1.0,
+        "empirical": 0.25,
+        "delta": 0.75,
+        "recommendation": "update"
+      },
+      "qs/speed": {
+        "declared": 1.0,
+        "empirical": 0.5,
+        "delta": 0.5,
+        "recommendation": "update"
+      }
+    }
+  },
+  "rankings": {
+    "task/lookup": [
+      "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct",
+      "nvidia_nim/deepseek-ai/deepseek-v4-flash",
+      "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+      "nvidia_nim/google/gemma-3n-e4b-it",
+      "nvidia_nim/google/gemma-4-31b-it"
+    ],
+    "task/generation": [
+      "nvidia_nim/google/gemma-4-31b-it",
+      "nvidia_nim/google/gemma-3n-e4b-it",
+      "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct",
+      "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+      "nvidia_nim/deepseek-ai/deepseek-v4-flash"
+    ],
+    "task/analysis": [
+      "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct",
+      "nvidia_nim/deepseek-ai/deepseek-v4-flash",
+      "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+      "nvidia_nim/google/gemma-3n-e4b-it",
+      "nvidia_nim/google/gemma-4-31b-it"
+    ],
+    "task/summarization": [
+      "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct",
+      "nvidia_nim/deepseek-ai/deepseek-v4-flash",
+      "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+      "nvidia_nim/google/gemma-3n-e4b-it",
+      "nvidia_nim/google/gemma-4-31b-it"
+    ],
+    "task/reasoning": [
+      "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct",
+      "nvidia_nim/deepseek-ai/deepseek-v4-flash",
+      "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+      "nvidia_nim/google/gemma-3n-e4b-it",
+      "nvidia_nim/google/gemma-4-31b-it"
+    ],
+    "task/refactoring": [
+      "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct",
+      "nvidia_nim/deepseek-ai/deepseek-v4-flash",
+      "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+      "nvidia_nim/google/gemma-3n-e4b-it",
+      "nvidia_nim/google/gemma-4-31b-it"
+    ],
+    "task/translation": [
+      "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct",
+      "nvidia_nim/deepseek-ai/deepseek-v4-flash",
+      "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+      "nvidia_nim/google/gemma-3n-e4b-it",
+      "nvidia_nim/google/gemma-4-31b-it"
+    ],
+    "task/creative": [
+      "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct",
+      "nvidia_nim/deepseek-ai/deepseek-v4-flash",
+      "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+      "nvidia_nim/google/gemma-3n-e4b-it",
+      "nvidia_nim/google/gemma-4-31b-it"
+    ],
+    "domain/technical": [
+      "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct",
+      "nvidia_nim/deepseek-ai/deepseek-v4-flash",
+      "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+      "nvidia_nim/google/gemma-3n-e4b-it",
+      "nvidia_nim/google/gemma-4-31b-it"
+    ],
+    "domain/creative_writing": [
+      "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct",
+      "nvidia_nim/deepseek-ai/deepseek-v4-flash",
+      "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+      "nvidia_nim/google/gemma-3n-e4b-it",
+      "nvidia_nim/google/gemma-4-31b-it"
+    ],
+    "domain/general": [
+      "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct",
+      "nvidia_nim/deepseek-ai/deepseek-v4-flash",
+      "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+      "nvidia_nim/google/gemma-3n-e4b-it",
+      "nvidia_nim/google/gemma-4-31b-it"
+    ],
+    "domain/code": [
+      "nvidia_nim/google/gemma-4-31b-it",
+      "nvidia_nim/google/gemma-3n-e4b-it",
+      "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct",
+      "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+      "nvidia_nim/deepseek-ai/deepseek-v4-flash"
+    ],
+    "domain/legal": [
+      "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct",
+      "nvidia_nim/deepseek-ai/deepseek-v4-flash",
+      "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+      "nvidia_nim/google/gemma-3n-e4b-it",
+      "nvidia_nim/google/gemma-4-31b-it"
+    ],
+    "domain/business": [
+      "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct",
+      "nvidia_nim/deepseek-ai/deepseek-v4-flash",
+      "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+      "nvidia_nim/google/gemma-3n-e4b-it",
+      "nvidia_nim/google/gemma-4-31b-it"
+    ],
+    "qs/speed": [
+      "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct",
+      "nvidia_nim/deepseek-ai/deepseek-v4-flash",
+      "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+      "nvidia_nim/google/gemma-3n-e4b-it",
+      "nvidia_nim/google/gemma-4-31b-it"
+    ],
+    "qs/quality": [
+      "nvidia_nim/google/gemma-4-31b-it",
+      "nvidia_nim/google/gemma-3n-e4b-it",
+      "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct",
+      "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+      "nvidia_nim/deepseek-ai/deepseek-v4-flash"
+    ],
+    "qs/balanced": [
+      "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct",
+      "nvidia_nim/deepseek-ai/deepseek-v4-flash",
+      "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+      "nvidia_nim/google/gemma-3n-e4b-it",
+      "nvidia_nim/google/gemma-4-31b-it"
+    ]
+  },
+  "per_probe_results": [
+    {
+      "model_id": "nvidia_nim/abacusai/dracarys-llama-3.1-70b-instruct",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": {
+        "accuracy": 5,
+        "clarity": 5,
+        "relevance": 5,
+        "completeness": 5
+      },
+      "normalized_score": 1.0,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "nvidia_nim/ai21labs/jamba-1.5-large-instruct",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": "empty_model_response"
+    },
+    {
+      "model_id": "nvidia_nim/bytedance/seed-oss-36b-instruct",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": "empty_model_response"
+    },
+    {
+      "model_id": "nvidia_nim/deepseek-ai/deepseek-v4-flash",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": {
+        "accuracy": 2,
+        "clarity": 5,
+        "relevance": 2,
+        "completeness": 2
+      },
+      "normalized_score": 0.4375,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "nvidia_nim/deepseek-ai/deepseek-v4-pro",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": {
+        "accuracy": 2,
+        "clarity": 5,
+        "relevance": 2,
+        "completeness": 2
+      },
+      "normalized_score": 0.4375,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "nvidia_nim/google/gemma-2-2b-it",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.5,
+      "is_self_eval": false,
+      "error": "judge_call_failed"
+    },
+    {
+      "model_id": "nvidia_nim/google/gemma-3-12b-it",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": "empty_model_response"
+    },
+    {
+      "model_id": "nvidia_nim/google/gemma-3-4b-it",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": "empty_model_response"
+    },
+    {
+      "model_id": "nvidia_nim/google/gemma-3n-e4b-it",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": {
+        "accuracy": 5,
+        "clarity": 5,
+        "relevance": 5,
+        "completeness": 5
+      },
+      "normalized_score": 1.0,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "nvidia_nim/google/gemma-4-31b-it",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": {
+        "accuracy": 5,
+        "clarity": 5,
+        "relevance": 5,
+        "completeness": 5
+      },
+      "normalized_score": 1.0,
+      "is_self_eval": false,
+      "error": null
+    }
+  ]
+}

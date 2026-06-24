@@ -1520,15 +1520,15 @@ class TestCatalogRefreshRestoresKeyInvalid:
 
 
 class TestInitIbrEnabled:
-    """[TM-010] _init_ibr initializes FlavorProfileLoader and FeedbackStore when enabled."""
+    """[TM-010] _init_ibr initializes SpectrographProfileLoader and FeedbackStore when enabled."""
 
-    def test_init_ibr_enabled_creates_flavor_loader_and_feedback_store(self, tmp_path: Path):
-        """[TM-010] IBR enabled: flavor_loader and feedback_store are created (lines 335-342)."""
+    def test_init_ibr_enabled_creates_spectrograph_loader_and_feedback_store(self, tmp_path: Path):
+        """[TM-010] IBR enabled: spectrograph_loader and feedback_store are created (lines 335-342)."""
         state_dir = tmp_path / "state"
         state_dir.mkdir()
 
-        # Create model_flavor_profiles.yaml in state_dir so loader finds it
-        profiles_yaml = state_dir / "model_flavor_profiles.yaml"
+        # Create model_spectrograph_profiles.yaml in state_dir so loader finds it
+        profiles_yaml = state_dir / "model_spectrograph_profiles.yaml"
         profiles_yaml.write_text(yaml.dump({"profiles": {}}))
 
         config = {
@@ -1546,20 +1546,20 @@ class TestInitIbrEnabled:
         (state_dir / "model_role_matrix.json").write_text(json.dumps(matrix))
 
         engine = RouterEngine(config_path=config_path)
-        assert engine._flavor_loader is not None
+        assert engine._spectrograph_loader is not None
         assert engine._feedback_store is not None
 
 
 # ---------------------------------------------------------------------------
-# Coverage for _resolve_flavor_profile_path (lines 351-361)
+# Coverage for _resolve_spectrograph_profile_path (lines 351-361)
 # ---------------------------------------------------------------------------
 
 
-class TestResolveFlavorProfilePath:
-    """[TM-010] _resolve_flavor_profile_path returns a Path when no file exists."""
+class TestResolveSpectrographProfilePath:
+    """[TM-010] _resolve_spectrograph_profile_path returns a Path when no file exists."""
 
     def test_returns_default_path_when_no_candidate_exists(self, tmp_path: Path):
-        """[TM-010] _resolve_flavor_profile_path returns default canonical path (line 386)."""
+        """[TM-010] _resolve_spectrograph_profile_path returns default canonical path (line 386)."""
         state_dir = tmp_path / "state"
         state_dir.mkdir()
 
@@ -1584,23 +1584,23 @@ class TestResolveFlavorProfilePath:
         original_exists = Path.exists
 
         def patched_exists(self):
-            if "model_flavor_profiles.yaml" in str(self):
+            if "model_spectrograph_profiles.yaml" in str(self):
                 return False
             return original_exists(self)
 
         with patch.object(Path, "exists", patched_exists):
-            result = engine._resolve_flavor_profile_path()
+            result = engine._resolve_spectrograph_profile_path()
 
         assert isinstance(result, Path)
-        assert "model_flavor_profiles.yaml" in str(result)
+        assert "model_spectrograph_profiles.yaml" in str(result)
 
     def test_returns_existing_candidate_path(self, tmp_path: Path):
-        """[TM-010] _resolve_flavor_profile_path returns existing path (lines 357-359)."""
+        """[TM-010] _resolve_spectrograph_profile_path returns existing path (lines 357-359)."""
         state_dir = tmp_path / "state"
         state_dir.mkdir()
 
         # Create the file in state_dir
-        profiles = state_dir / "model_flavor_profiles.yaml"
+        profiles = state_dir / "model_spectrograph_profiles.yaml"
         profiles.write_text(yaml.dump({"profiles": {}}))
 
         config = {
@@ -1618,7 +1618,7 @@ class TestResolveFlavorProfilePath:
         (state_dir / "model_role_matrix.json").write_text(json.dumps(matrix))
 
         engine = RouterEngine(config_path=config_path)
-        result = engine._resolve_flavor_profile_path()
+        result = engine._resolve_spectrograph_profile_path()
         assert result.exists()
 
 
@@ -1776,19 +1776,19 @@ class TestMarkMissingKeyEnvPresent:
 
 
 # ---------------------------------------------------------------------------
-# Lines 875-880 — record_ibr_feedback with flavor_loader present
+# Lines 875-880 — record_ibr_feedback with spectrograph_loader present
 # ---------------------------------------------------------------------------
 
 
 class TestRecordFlavorFeedback:
     """[TM-010] record_ibr_feedback calls feedback_store with operator_profile."""
 
-    def test_record_ibr_feedback_with_flavor_loader(self, tmp_path: Path):
-        """[TM-010] When flavor_loader is set, operator_profile is retrieved (lines 875-880)."""
+    def test_record_ibr_feedback_with_spectrograph_loader(self, tmp_path: Path):
+        """[TM-010] When spectrograph_loader is set, operator_profile is retrieved (lines 875-880)."""
         state_dir = tmp_path / "state"
         state_dir.mkdir()
 
-        profiles_path = state_dir / "model_flavor_profiles.yaml"
+        profiles_path = state_dir / "model_spectrograph_profiles.yaml"
         profiles_path.write_text(yaml.dump({"profiles": {}}))
 
         config = {

@@ -10,12 +10,12 @@ import pytest
 
 from dragonlight_router.core.types import (
     IBR_DOMAINS,
-    IBR_NEUTRAL_FLAVOR,
+    IBR_NEUTRAL_SPECTROGRAPH,
     IBR_QUALITY_SPEED,
     IBR_TASK_TYPES,
     ClassifiedIntent,
-    FlavorScore,
-    ModelFlavorProfile,
+    ModelSpectrographProfile,
+    SpectrographScore,
 )
 from dragonlight_router.selection.feedback import (
     FeedbackStore,
@@ -53,27 +53,27 @@ def _make_profile(
     task_scores: dict[str, float] | None = None,
     domain_scores: dict[str, float] | None = None,
     qs_scores: dict[str, float] | None = None,
-) -> ModelFlavorProfile:
-    """Build a ModelFlavorProfile with optional partial scores."""
+) -> ModelSpectrographProfile:
+    """Build a ModelSpectrographProfile with optional partial scores."""
 
     def _build_scores(
         raw: dict[str, float] | None,
         allowed: frozenset[str],
-    ) -> dict[str, FlavorScore]:
-        scores: dict[str, FlavorScore] = {}
+    ) -> dict[str, SpectrographScore]:
+        scores: dict[str, SpectrographScore] = {}
         parsed = raw or {}
         for key in allowed:
             if key in parsed:
-                scores[key] = FlavorScore(
+                scores[key] = SpectrographScore(
                     score=parsed[key],
                     confidence=1.0,
                     sample_count=0,
                 )
             else:
-                scores[key] = IBR_NEUTRAL_FLAVOR
+                scores[key] = IBR_NEUTRAL_SPECTROGRAPH
         return scores
 
-    return ModelFlavorProfile(
+    return ModelSpectrographProfile(
         model_id=model_id,
         version=1,
         updated_at="2026-01-01T00:00:00+00:00",
@@ -333,7 +333,7 @@ class TestGetLearnedProfiles:
         profiles = feedback_store.get_learned_profiles()
         profile = profiles["model-a"]
         # "creative" was never observed
-        assert profile.task_scores["creative"] == IBR_NEUTRAL_FLAVOR
+        assert profile.task_scores["creative"] == IBR_NEUTRAL_SPECTROGRAPH
 
     def test_updated_at_set(self, feedback_store):
         """Profile updated_at is set to a non-empty timestamp."""

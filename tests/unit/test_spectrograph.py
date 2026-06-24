@@ -15,25 +15,25 @@ import yaml
 
 from dragonlight_router.core.types import (
     IBR_DOMAINS,
-    IBR_NEUTRAL_FLAVOR,
+    IBR_NEUTRAL_SPECTROGRAPH,
     IBR_QUALITY_SPEED,
     IBR_TASK_TYPES,
     ClassifiedIntent,
-    FlavorScore,
-    ModelFlavorProfile,
+    ModelSpectrographProfile,
+    SpectrographScore,
 )
-from dragonlight_router.selection.flavor import (
-    FlavorProfileLoader,
+from dragonlight_router.selection.spectrograph import (
+    SpectrographProfileLoader,
     _average_matched_confidence,
     _build_neutral_profile,
     _clamp_score,
     _merge_dimension_scores,
     _merge_single_profile,
     _parse_dimension_scores,
-    compute_flavor_match,
-    compute_flavor_scores,
+    compute_spectrograph_match,
+    compute_spectrograph_scores,
     get_profile_for_model,
-    should_apply_flavor_match,
+    should_apply_spectrograph_match,
 )
 
 pytestmark = pytest.mark.unit
@@ -63,23 +63,23 @@ def _make_profile(
     task_scores: dict[str, float] | None = None,
     domain_scores: dict[str, float] | None = None,
     qs_scores: dict[str, float] | None = None,
-) -> ModelFlavorProfile:
-    """Build a ModelFlavorProfile with optional partial scores."""
+) -> ModelSpectrographProfile:
+    """Build a ModelSpectrographProfile with optional partial scores."""
 
     def _build_scores(
         raw: dict[str, float] | None,
         allowed: frozenset[str],
-    ) -> dict[str, FlavorScore]:
-        scores: dict[str, FlavorScore] = {}
+    ) -> dict[str, SpectrographScore]:
+        scores: dict[str, SpectrographScore] = {}
         parsed = raw or {}
         for key in allowed:
             if key in parsed:
-                scores[key] = FlavorScore(score=parsed[key], confidence=1.0, sample_count=0)
+                scores[key] = SpectrographScore(score=parsed[key], confidence=1.0, sample_count=0)
             else:
-                scores[key] = IBR_NEUTRAL_FLAVOR
+                scores[key] = IBR_NEUTRAL_SPECTROGRAPH
         return scores
 
-    return ModelFlavorProfile(
+    return ModelSpectrographProfile(
         model_id=model_id,
         version=1,
         updated_at="2026-01-01T00:00:00+00:00",
@@ -117,7 +117,7 @@ class TestProfileLoading:
                 },
             }
             _write_yaml(path, data)
-            loader = FlavorProfileLoader(path)
+            loader = SpectrographProfileLoader(path)
             assert "model-a" in loader.profiles
             profile = loader.profiles["model-a"]
             assert profile.model_id == "model-a"
@@ -127,7 +127,7 @@ class TestProfileLoading:
     def test_missing_file_returns_empty_dict(self):
         """[IBR-FLV-01] [IBR-CFG-03] Missing file results in empty profiles."""
         path = Path("/nonexistent/profiles.yaml")
-        loader = FlavorProfileLoader(path)
+        loader = SpectrographProfileLoader(path)
         assert loader.profiles == {}
 
     def test_invalid_yaml_returns_empty_dict(self):
@@ -135,7 +135,7 @@ class TestProfileLoading:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "profiles.yaml"
             path.write_text("{{{{not: valid: yaml: : :")
-            loader = FlavorProfileLoader(path)
+            loader = SpectrographProfileLoader(path)
             assert loader.profiles == {}
 
     def test_unlisted_dimensions_get_neutral_defaults(self):
@@ -152,7 +152,7 @@ class TestProfileLoading:
                 },
             }
             _write_yaml(path, data)
-            loader = FlavorProfileLoader(path)
+            loader = SpectrographProfileLoader(path)
             profile = loader.profiles["model-b"]
 
             # Declared dimension
@@ -178,7 +178,7 @@ class TestProfileLoading:
                 },
             }
             _write_yaml(path, data)
-            loader = FlavorProfileLoader(path)
+            loader = SpectrographProfileLoader(path)
             profile = loader.profiles["model-c"]
             assert profile.task_scores["creative"].confidence == 1.0
             assert profile.domain_scores["code"].confidence == 1.0
@@ -212,7 +212,7 @@ class TestProfileLoading:
                 },
             }
             _write_yaml(path, data)
-            loader = FlavorProfileLoader(path)
+            loader = SpectrographProfileLoader(path)
             profile = loader.profiles["model-d"]
             assert profile.task_scores["analysis"].score == 1.0
             assert profile.task_scores["generation"].score == 0.0
@@ -228,7 +228,7 @@ class TestProfileLoading:
                 },
             }
             _write_yaml(path, data)
-            loader = FlavorProfileLoader(path)
+            loader = SpectrographProfileLoader(path)
             assert len(loader.profiles) == 2
             assert "model-x" in loader.profiles
             assert "model-y" in loader.profiles
@@ -238,7 +238,7 @@ class TestProfileLoading:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "profiles.yaml"
             _write_yaml(path, {"profiles": {}})
-            loader = FlavorProfileLoader(path)
+            loader = SpectrographProfileLoader(path)
             assert loader.profiles == {}
 
     def test_parse_dimension_scores_fills_all_keys(self):
@@ -255,7 +255,7 @@ class TestProfileLoading:
         scores = _parse_dimension_scores(None, IBR_TASK_TYPES)
         assert len(scores) == len(IBR_TASK_TYPES)
         for key in IBR_TASK_TYPES:
-            assert scores[key] == IBR_NEUTRAL_FLAVOR
+            assert scores[key] == IBR_NEUTRAL_SPECTROGRAPH
 
 
 # ---------------------------------------------------------------------------
@@ -267,14 +267,14 @@ class TestFlavorMatchScoring:
     """[IBR-SCORE-01] Weighted flavor match computation."""
 
     def test_full_profile_correct_weighted_sum(self):
-        """[IBR-SCORE-01] compute_flavor_match returns correct 0.50/0.30/0.20 weighted sum."""
+        """[IBR-SCORE-01] compute_spectrograph_match returns correct 0.50/0.30/0.20 weighted sum."""
         profile = _make_profile(
             task_scores={"analysis": 0.8},
             domain_scores={"code": 0.6},
             qs_scores={"balanced": 0.9},
         )
         intent = _make_intent()
-        result = compute_flavor_match(intent, profile)
+        result = compute_spectrograph_match(intent, profile)
         expected = 0.50 * 0.8 + 0.30 * 0.6 + 0.20 * 0.9
         assert result == pytest.approx(expected, abs=1e-9)
 
@@ -283,7 +283,7 @@ class TestFlavorMatchScoring:
         # Use 1.0, 0.0, 0.0 to isolate task weight
         profile_task = _make_profile(task_scores={"analysis": 1.0})
         intent = _make_intent()
-        task_contrib = compute_flavor_match(intent, profile_task)
+        task_contrib = compute_spectrograph_match(intent, profile_task)
         # Domain and qs are 0.5 (neutral), so:
         # 0.50 * 1.0 + 0.30 * 0.5 + 0.20 * 0.5 = 0.50 + 0.15 + 0.10 = 0.75
         assert task_contrib == pytest.approx(0.75, abs=1e-9)
@@ -292,7 +292,7 @@ class TestFlavorMatchScoring:
         """[IBR-FLV-02] Missing dimensions in profile use 0.5 default score."""
         profile = _make_profile()  # All neutral
         intent = _make_intent()
-        result = compute_flavor_match(intent, profile)
+        result = compute_spectrograph_match(intent, profile)
         # All 0.5: 0.50 * 0.5 + 0.30 * 0.5 + 0.20 * 0.5 = 0.5
         assert result == pytest.approx(0.5, abs=1e-9)
 
@@ -305,7 +305,7 @@ class TestFlavorMatchScoring:
             qs_scores={"balanced": 0.0},
         )
         intent = _make_intent()
-        assert compute_flavor_match(intent, profile_min) >= 0.0
+        assert compute_spectrograph_match(intent, profile_min) >= 0.0
 
         # Maximum: all ones
         profile_max = _make_profile(
@@ -313,7 +313,7 @@ class TestFlavorMatchScoring:
             domain_scores={"code": 1.0},
             qs_scores={"balanced": 1.0},
         )
-        assert compute_flavor_match(intent, profile_max) <= 1.0
+        assert compute_spectrograph_match(intent, profile_max) <= 1.0
 
     def test_all_zeros_profile(self):
         """[IBR-SCORE-01] Profile with all 0.0 scores yields 0.0 match."""
@@ -323,7 +323,7 @@ class TestFlavorMatchScoring:
             qs_scores={"balanced": 0.0},
         )
         intent = _make_intent()
-        result = compute_flavor_match(intent, profile)
+        result = compute_spectrograph_match(intent, profile)
         assert result == pytest.approx(0.0, abs=1e-9)
 
     def test_all_ones_profile(self):
@@ -334,7 +334,7 @@ class TestFlavorMatchScoring:
             qs_scores={"balanced": 1.0},
         )
         intent = _make_intent()
-        result = compute_flavor_match(intent, profile)
+        result = compute_spectrograph_match(intent, profile)
         assert result == pytest.approx(1.0, abs=1e-9)
 
     def test_different_intents_different_scores(self):
@@ -346,15 +346,15 @@ class TestFlavorMatchScoring:
         intent_code = _make_intent(task_type="analysis", domain="code")
         intent_creative = _make_intent(task_type="creative", domain="creative_writing")
 
-        score_code = compute_flavor_match(intent_code, profile)
-        score_creative = compute_flavor_match(intent_creative, profile)
+        score_code = compute_spectrograph_match(intent_code, profile)
+        score_creative = compute_spectrograph_match(intent_creative, profile)
         assert score_code != score_creative
 
     def test_symmetry_across_intent_types(self):
         """[IBR-SCORE-01] Each task_type dimension can be independently scored."""
         intent = _make_intent(task_type="refactoring")
         profile = _make_profile(task_scores={"refactoring": 0.95})
-        result = compute_flavor_match(intent, profile)
+        result = compute_spectrograph_match(intent, profile)
         expected = 0.50 * 0.95 + 0.30 * 0.5 + 0.20 * 0.5
         assert result == pytest.approx(expected, abs=1e-9)
 
@@ -368,13 +368,13 @@ class TestBatchScoring:
     """[IBR-SCORE-01] Batch flavor match scoring across candidates."""
 
     def test_compute_scores_multiple_candidates(self):
-        """[IBR-SCORE-01] compute_flavor_scores returns scores for all candidates."""
+        """[IBR-SCORE-01] compute_spectrograph_scores returns scores for all candidates."""
         profiles = {
             "m1": _make_profile("m1", task_scores={"analysis": 0.9}),
             "m2": _make_profile("m2", task_scores={"analysis": 0.4}),
         }
         intent = _make_intent()
-        scores = compute_flavor_scores(intent, profiles, ["m1", "m2"])
+        scores = compute_spectrograph_scores(intent, profiles, ["m1", "m2"])
         assert len(scores) == 2
         assert "m1" in scores
         assert "m2" in scores
@@ -383,21 +383,21 @@ class TestBatchScoring:
     def test_returns_empty_dict_when_intent_is_none(self):
         """[IBR-SYS-03] Returns empty dict when intent is None (IBR inactive)."""
         profiles = {"m1": _make_profile("m1")}
-        scores = compute_flavor_scores(None, profiles, ["m1"])
+        scores = compute_spectrograph_scores(None, profiles, ["m1"])
         assert scores == {}
 
     def test_missing_profiles_get_neutral_scores(self):
         """[IBR-FLV-02] Candidates without profiles get neutral (0.5) match score."""
-        profiles: dict[str, ModelFlavorProfile] = {}
+        profiles: dict[str, ModelSpectrographProfile] = {}
         intent = _make_intent()
-        scores = compute_flavor_scores(intent, profiles, ["unknown-model"])
+        scores = compute_spectrograph_scores(intent, profiles, ["unknown-model"])
         assert len(scores) == 1
         assert scores["unknown-model"] == pytest.approx(0.5, abs=1e-9)
 
     def test_empty_candidate_list(self):
         """[IBR-SCORE-01] Empty candidate list returns empty scores."""
         intent = _make_intent()
-        scores = compute_flavor_scores(intent, {}, [])
+        scores = compute_spectrograph_scores(intent, {}, [])
         assert scores == {}
 
     def test_get_profile_for_known_model(self):
@@ -412,7 +412,7 @@ class TestBatchScoring:
         result = get_profile_for_model("unknown", {})
         assert result.model_id == "unknown"
         for key in IBR_TASK_TYPES:
-            assert result.task_scores[key] == IBR_NEUTRAL_FLAVOR
+            assert result.task_scores[key] == IBR_NEUTRAL_SPECTROGRAPH
 
     def test_build_neutral_profile_has_all_dimensions(self):
         """[IBR-FLV-02] Neutral profile has entries for all taxonomy values."""
@@ -433,7 +433,7 @@ class TestConfidenceGating:
     def test_returns_false_when_intent_is_none(self):
         """[IBR-SCORE-04] should_apply returns False when intent is None."""
         profile = _make_profile()
-        assert should_apply_flavor_match(None, profile) is False
+        assert should_apply_spectrograph_match(None, profile) is False
 
     def test_returns_false_when_classifier_confidence_below_threshold(self):
         """[IBR-SCORE-04] Returns False when intent.confidence < threshold."""
@@ -443,7 +443,7 @@ class TestConfidenceGating:
             domain_scores={"code": 0.9},
             qs_scores={"balanced": 0.9},
         )
-        assert should_apply_flavor_match(intent, profile, confidence_threshold=0.6) is False
+        assert should_apply_spectrograph_match(intent, profile, confidence_threshold=0.6) is False
 
     def test_returns_false_when_profile_confidence_below_threshold(self):
         """[IBR-SCORE-04] Returns False when profile confidence < threshold."""
@@ -451,7 +451,7 @@ class TestConfidenceGating:
         # Neutral profile has confidence=0.0 everywhere
         profile = _make_profile()
         assert (
-            should_apply_flavor_match(
+            should_apply_spectrograph_match(
                 intent,
                 profile,
                 profile_confidence_threshold=0.3,
@@ -468,7 +468,7 @@ class TestConfidenceGating:
             qs_scores={"balanced": 0.6},
         )
         assert (
-            should_apply_flavor_match(
+            should_apply_spectrograph_match(
                 intent,
                 profile,
                 confidence_threshold=0.6,
@@ -485,7 +485,7 @@ class TestConfidenceGating:
             domain_scores={"code": 0.7},
             qs_scores={"balanced": 0.6},
         )
-        result = should_apply_flavor_match(
+        result = should_apply_spectrograph_match(
             intent,
             profile,
             confidence_threshold=0.6,
@@ -501,7 +501,7 @@ class TestConfidenceGating:
             domain_scores={"code": 0.7},
             qs_scores={"balanced": 0.6},
         )
-        result = should_apply_flavor_match(
+        result = should_apply_spectrograph_match(
             intent,
             profile,
             confidence_threshold=0.6,
@@ -538,7 +538,7 @@ class TestConfidenceGating:
             domain_scores={"code": 0.7},
             qs_scores={"balanced": 0.6},
         )
-        result = should_apply_flavor_match(
+        result = should_apply_spectrograph_match(
             intent,
             profile,
             confidence_threshold=0.0,
@@ -562,7 +562,7 @@ class TestHotReload:
             data = {"profiles": {"model-a": {"task_scores": {"analysis": 0.7}}}}
             _write_yaml(path, data)
 
-            loader = FlavorProfileLoader(path)
+            loader = SpectrographProfileLoader(path)
             assert loader.profiles["model-a"].task_scores["analysis"].score == 0.7
 
             # Update file with new content and ensure mtime advances
@@ -580,7 +580,7 @@ class TestHotReload:
             data = {"profiles": {"model-a": {"task_scores": {"analysis": 0.7}}}}
             _write_yaml(path, data)
 
-            loader = FlavorProfileLoader(path)
+            loader = SpectrographProfileLoader(path)
             assert len(loader.profiles) == 1  # initial load
 
             # Reload without changing file
@@ -593,7 +593,7 @@ class TestHotReload:
             path = Path(tmpdir) / "profiles.yaml"
             _write_yaml(path, {"profiles": {"model-a": {"task_scores": {"analysis": 0.7}}}})
 
-            loader = FlavorProfileLoader(path)
+            loader = SpectrographProfileLoader(path)
             assert len(loader.profiles) == 1
 
             # Delete file
@@ -608,7 +608,7 @@ class TestHotReload:
             path = Path(tmpdir) / "profiles.yaml"
             _write_yaml(path, {"profiles": {"model-a": {"task_scores": {"analysis": 0.7}}}})
 
-            loader = FlavorProfileLoader(path)
+            loader = SpectrographProfileLoader(path)
             assert len(loader.profiles) == 1
 
             # Corrupt the file
@@ -635,13 +635,13 @@ class TestProfileMerging:
         )
         feedback = _make_profile("m1")
         # Manually set feedback task_scores with sample_count > 0
-        feedback = ModelFlavorProfile(
+        feedback = ModelSpectrographProfile(
             model_id="m1",
             version=1,
             updated_at="2026-06-01",
             task_scores={
                 **feedback.task_scores,
-                "analysis": FlavorScore(score=0.9, confidence=0.5, sample_count=25),
+                "analysis": SpectrographScore(score=0.9, confidence=0.5, sample_count=25),
             },
             domain_scores=feedback.domain_scores,
             qs_scores=feedback.qs_scores,
@@ -656,16 +656,16 @@ class TestProfileMerging:
             "m1",
             task_scores={"analysis": 0.9},
         )
-        feedback = ModelFlavorProfile(
+        feedback = ModelSpectrographProfile(
             model_id="m1",
             version=1,
             updated_at="2026-06-01",
-            task_scores=dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_FLAVOR)
+            task_scores=dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_SPECTROGRAPH)
             | {
-                "analysis": FlavorScore(score=0.5, confidence=0.3, sample_count=15),
+                "analysis": SpectrographScore(score=0.5, confidence=0.3, sample_count=15),
             },
-            domain_scores=dict.fromkeys(IBR_DOMAINS, IBR_NEUTRAL_FLAVOR),
-            qs_scores=dict.fromkeys(IBR_QUALITY_SPEED, IBR_NEUTRAL_FLAVOR),
+            domain_scores=dict.fromkeys(IBR_DOMAINS, IBR_NEUTRAL_SPECTROGRAPH),
+            qs_scores=dict.fromkeys(IBR_QUALITY_SPEED, IBR_NEUTRAL_SPECTROGRAPH),
         )
         merged = _merge_single_profile(operator, feedback)
         # Floor = 0.8 * 0.9 = 0.72, feedback = 0.5 -> floored to 0.72
@@ -685,12 +685,12 @@ class TestProfileMerging:
     def test_merge_dimension_scores_mixed(self):
         """_merge_dimension_scores handles mix of feedback and operator."""
         operator_scores = {
-            "analysis": FlavorScore(score=0.8, confidence=1.0, sample_count=0),
-            "creative": FlavorScore(score=0.6, confidence=1.0, sample_count=0),
+            "analysis": SpectrographScore(score=0.8, confidence=1.0, sample_count=0),
+            "creative": SpectrographScore(score=0.6, confidence=1.0, sample_count=0),
         }
         feedback_scores = {
-            "analysis": FlavorScore(score=0.9, confidence=0.5, sample_count=25),
-            "creative": IBR_NEUTRAL_FLAVOR,  # no feedback
+            "analysis": SpectrographScore(score=0.9, confidence=0.5, sample_count=25),
+            "creative": IBR_NEUTRAL_SPECTROGRAPH,  # no feedback
         }
         merged = _merge_dimension_scores(operator_scores, feedback_scores)
         assert merged["analysis"].score == pytest.approx(0.9, abs=1e-9)
@@ -709,19 +709,19 @@ class TestProfileMerging:
                 },
             }
             _write_yaml(path, data)
-            loader = FlavorProfileLoader(path)
+            loader = SpectrographProfileLoader(path)
 
             feedback_profiles = {
-                "model-a": ModelFlavorProfile(
+                "model-a": ModelSpectrographProfile(
                     model_id="model-a",
                     version=1,
                     updated_at="2026-06-01",
                     task_scores=dict.fromkeys(
                         IBR_TASK_TYPES,
-                        IBR_NEUTRAL_FLAVOR,
+                        IBR_NEUTRAL_SPECTROGRAPH,
                     )
                     | {
-                        "analysis": FlavorScore(
+                        "analysis": SpectrographScore(
                             score=0.95,
                             confidence=0.6,
                             sample_count=30,
@@ -729,11 +729,11 @@ class TestProfileMerging:
                     },
                     domain_scores=dict.fromkeys(
                         IBR_DOMAINS,
-                        IBR_NEUTRAL_FLAVOR,
+                        IBR_NEUTRAL_SPECTROGRAPH,
                     ),
                     qs_scores=dict.fromkeys(
                         IBR_QUALITY_SPEED,
-                        IBR_NEUTRAL_FLAVOR,
+                        IBR_NEUTRAL_SPECTROGRAPH,
                     ),
                 ),
             }
@@ -749,7 +749,7 @@ class TestProfileMerging:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "profiles.yaml"
             _write_yaml(path, {"profiles": {}})
-            loader = FlavorProfileLoader(path)
+            loader = SpectrographProfileLoader(path)
 
             feedback_profiles = {
                 "new-model": _make_profile("new-model"),
@@ -767,7 +767,7 @@ class TestProfileMerging:
                 },
             }
             _write_yaml(path, data)
-            loader = FlavorProfileLoader(path)
+            loader = SpectrographProfileLoader(path)
 
             merged = loader.get_merged_profiles({})
             assert "model-a" in merged
@@ -789,11 +789,11 @@ class TestReloadIfChangedOSError:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "profiles.yaml"
             _write_yaml(path, {"profiles": {"model-a": {"task_scores": {"analysis": 0.8}}}})
-            loader = FlavorProfileLoader(path)
+            loader = SpectrographProfileLoader(path)
 
             # Simulate OSError when checking mtime
             with patch(
-                "dragonlight_router.selection.flavor.os.path.getmtime",
+                "dragonlight_router.selection.spectrograph.os.path.getmtime",
                 side_effect=OSError("permission denied"),
             ):
                 # Should not raise
@@ -813,21 +813,21 @@ class TestParseSingleProfileNonDict:
 
     def test_non_dict_raw_returns_none(self):
         """_parse_single_profile returns None when raw is not a dict."""
-        from dragonlight_router.selection.flavor import _parse_single_profile
+        from dragonlight_router.selection.spectrograph import _parse_single_profile
 
         result = _parse_single_profile("test-model", "not a dict")  # type: ignore[arg-type]
         assert result is None
 
     def test_list_raw_returns_none(self):
         """[IBR-FLV-03] _parse_single_profile returns None when raw is a list."""
-        from dragonlight_router.selection.flavor import _parse_single_profile
+        from dragonlight_router.selection.spectrograph import _parse_single_profile
 
         result = _parse_single_profile("test-model", [1, 2, 3])  # type: ignore[arg-type]
         assert result is None
 
     def test_none_raw_returns_none(self):
         """[IBR-FLV-03] _parse_single_profile returns None when raw is None."""
-        from dragonlight_router.selection.flavor import _parse_single_profile
+        from dragonlight_router.selection.spectrograph import _parse_single_profile
 
         result = _parse_single_profile("test-model", None)  # type: ignore[arg-type]
         assert result is None

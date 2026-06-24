@@ -39,7 +39,7 @@ from dragonlight_router.core.types import (
     BackendRateLimits,
     BackendTier,
     GenerativeBackend,
-    ModelFlavorProfile,
+    ModelSpectrographProfile,
 )
 from dragonlight_router.spectrography.analyzer import (
     ProbeResult,
@@ -67,6 +67,7 @@ _DEFAULT_OUTPUT_DIR = "spectrography_results"
 _CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
 _BACKOFF_SCHEDULE = [5.0, 10.0, 20.0, 40.0]
 _MAX_RETRIES = 3
+_UNREACHABLE_THRESHOLD = 0.95
 
 
 # ---------------------------------------------------------------------------
@@ -459,6 +460,24 @@ def _load_checkpoint(path: Path) -> set[tuple[str, str]]:
     return completed
 
 
+def _merge_all_checkpoints(output_dir: Path) -> set[tuple[str, str]]:
+    """Scan all run directories for checkpoint files and merge completed pairs."""
+    merged: set[tuple[str, str]] = set()
+    if not output_dir.exists():
+        return merged
+    for cp_file in sorted(output_dir.glob("*/checkpoint.jsonl")):
+        pairs = _load_checkpoint(cp_file)
+        merged |= pairs
+        logger.info(
+            "checkpoint_merged",
+            path=str(cp_file),
+            pairs_in_file=len(pairs),
+            cumulative=len(merged),
+        )
+    logger.info("all_checkpoints_merged", total_completed_pairs=len(merged))
+    return merged
+
+
 def _append_checkpoint(path: Path, result: ProbeResult) -> None:
     """Append one result to checkpoint JSONL."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -493,16 +512,16 @@ class ReportContext:
     completed_at: str
     judge_model: str
     results: list[ProbeResult]
-    profiles: dict[str, ModelFlavorProfile]
+    profiles: dict[str, ModelSpectrographProfile]
     deltas: dict[str, dict[str, Any]]
     rankings: dict[str, list[str]]
     output_dir: Path
 
 
 def _serialize_profiles(
-    profiles: dict[str, ModelFlavorProfile],
+    profiles: dict[str, ModelSpectrographProfile],
 ) -> dict[str, dict[str, Any]]:
-    """Convert ModelFlavorProfile map to JSON-safe dicts."""
+    """Convert ModelSpectrographProfile map to JSON-safe dicts."""
     assert isinstance(profiles, dict), "profiles must be a dict"
 
     profiles_json: dict[str, dict[str, Any]] = {}
@@ -607,7 +626,7 @@ def _md_header_section(ctx: ReportContext) -> list[str]:
 
 
 def _md_rankings_section(
-    profiles: dict[str, ModelFlavorProfile],
+    profiles: dict[str, ModelSpectrographProfile],
     rankings: dict[str, list[str]],
 ) -> list[str]:
     """Build the overall rankings and dimension rankings markdown sections."""
@@ -644,7 +663,7 @@ def _md_rankings_section(
 
 
 def _md_proficiencies_section(
-    profiles: dict[str, ModelFlavorProfile],
+    profiles: dict[str, ModelSpectrographProfile],
 ) -> list[str]:
     """Build the proficiencies and deficiencies markdown section."""
     assert isinstance(profiles, dict), "profiles must be a dict"
@@ -744,6 +763,8 @@ class _SpectrographyConfig:
     provider_delays: dict[str, float] | None
     write_profiles: bool
     resume: bool
+    resume_from: str | None = None
+    merge_checkpoints: bool = False
 
 
 def _create_all_adapters(
@@ -801,7 +822,12 @@ def _setup_spectrography(cfg: _SpectrographyConfig) -> _SpectrographySetup:
 
     state = RunState(run_id=run_id, started_at=started_at)
     cp = _cp_path(cfg.output_dir, run_id)
-    if cfg.resume:
+    if cfg.merge_checkpoints:
+        state.completed_pairs = _merge_all_checkpoints(cfg.output_dir)
+    elif cfg.resume_from:
+        prior_cp = _cp_path(cfg.output_dir, cfg.resume_from)
+        state.completed_pairs = _load_checkpoint(prior_cp)
+    elif cfg.resume:
         state.completed_pairs = _load_checkpoint(cp)
 
     def _on_signal(signum: int, frame: Any) -> None:
@@ -892,7 +918,7 @@ def _serialize_deltas(
 
 
 def _write_config_profiles(
-    profiles: dict[str, ModelFlavorProfile],
+    profiles: dict[str, ModelSpectrographProfile],
     run_id: str,
 ) -> None:
     """Merge and write discovered profiles to the config directory."""
@@ -900,15 +926,53 @@ def _write_config_profiles(
     assert isinstance(run_id, str) and run_id, "run_id must be non-empty"
 
     existing_profiles = load_existing_fingerprints(
-        _CONFIG_DIR / "model_flavor_profiles.yaml",
+        _CONFIG_DIR / "model_spectrograph_profiles.yaml",
     )
     merged = merge_incremental(existing_profiles, profiles)
     merged_yaml = build_fingerprints_yaml(merged, run_id)
-    write_fingerprints_yaml(merged_yaml, _CONFIG_DIR / "model_flavor_profiles.yaml")
+    write_fingerprints_yaml(merged_yaml, _CONFIG_DIR / "model_spectrograph_profiles.yaml")
     logger.info(
         "profiles_written_to_config",
-        path=str(_CONFIG_DIR / "model_flavor_profiles.yaml"),
+        path=str(_CONFIG_DIR / "model_spectrograph_profiles.yaml"),
     )
+
+
+def _prune_unreachable_models(
+    state: RunState,
+    cfg: _SpectrographyConfig,
+) -> None:
+    """Identify models with 100% error rate and mark them unreachable in lifecycle."""
+    from collections import Counter
+
+    model_total: Counter[str] = Counter()
+    model_errors: Counter[str] = Counter()
+    for r in state.results:
+        model_total[r.model_id] += 1
+        if r.error:
+            model_errors[r.model_id] += 1
+
+    unreachable = [
+        mid
+        for mid in model_total
+        if model_total[mid] >= 5
+        and model_errors[mid] / model_total[mid] >= _UNREACHABLE_THRESHOLD
+    ]
+
+    if not unreachable:
+        return
+
+    try:
+        from dragonlight_router.roles.lifecycle import mark_models_unreachable
+
+        removed = mark_models_unreachable(_CONFIG_DIR, unreachable)
+        logger.info(
+            "unreachable_models_pruned",
+            model_count=len(unreachable),
+            matrix_entries_removed=removed,
+            models=unreachable,
+        )
+    except (ImportError, Exception) as exc:
+        logger.warning("unreachable_prune_failed", error=str(exc))
 
 
 def _generate_spectrography_reports(
@@ -927,7 +991,7 @@ def _generate_spectrography_reports(
 
     raw_scores = aggregate_scores(state.results)
     profiles = rank_normalize(raw_scores)
-    deltas = compute_calibration_deltas(profiles, _CONFIG_DIR / "model_flavor_profiles.yaml")
+    deltas = compute_calibration_deltas(profiles, _CONFIG_DIR / "model_spectrograph_profiles.yaml")
     deltas_json = _serialize_deltas(deltas)
     rankings = build_model_rankings(profiles)
 
@@ -954,6 +1018,8 @@ def _generate_spectrography_reports(
     if cfg.write_profiles:
         _write_config_profiles(profiles, state.run_id)
 
+    _prune_unreachable_models(state, cfg)
+
     logger.info(
         "spectrography_complete",
         run_id=state.run_id,
@@ -973,6 +1039,8 @@ async def run_spectrography(
     provider_delays: dict[str, float] | None,
     write_profiles: bool,
     resume: bool,
+    resume_from: str | None = None,
+    merge_checkpoints: bool = False,
 ) -> None:
     """Main entry point for model spectrography.
 
@@ -985,6 +1053,8 @@ async def run_spectrography(
         provider_delays=provider_delays,
         write_profiles=write_profiles,
         resume=resume,
+        resume_from=resume_from,
+        merge_checkpoints=merge_checkpoints,
     )
     setup = _setup_spectrography(cfg)
     await _run_probe_loop(setup, judge_model)
@@ -1049,6 +1119,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Resume from checkpoint (skip already-completed pairs)",
     )
     parser.add_argument(
+        "--resume-from",
+        metavar="RUN_ID",
+        help="Resume using checkpoint from a specific prior run ID",
+    )
+    parser.add_argument(
+        "--merge-checkpoints",
+        action="store_true",
+        help="Merge all prior checkpoints and skip already-completed pairs",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Resolve targets and probes, then exit without evaluating",
@@ -1087,6 +1167,8 @@ def main() -> None:
             provider_delays=provider_delays,
             write_profiles=args.write_profiles,
             resume=args.resume,
+            resume_from=args.resume_from,
+            merge_checkpoints=args.merge_checkpoints,
         )
     )
 

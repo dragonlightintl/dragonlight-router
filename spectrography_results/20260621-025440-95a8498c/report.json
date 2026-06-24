@@ -1,0 +1,1545 @@
+{
+  "run_id": "20260621-025440-95a8498c",
+  "started_at": "2026-06-21T02:54:40.003496+00:00",
+  "completed_at": "2026-06-21T02:56:34.547402+00:00",
+  "judge_model": "nvidia_nim/qwen/qwen3.5-397b-a17b",
+  "models_evaluated": [
+    "groq/allam-2-7b",
+    "groq/llama-3.1-8b-instant",
+    "groq/llama-3.3-70b-versatile",
+    "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+    "groq/openai/gpt-oss-120b",
+    "groq/openai/gpt-oss-20b",
+    "groq/qwen/qwen3-32b",
+    "groq/qwen/qwen3.6-27b"
+  ],
+  "total_probes": 31,
+  "total_errors": 4,
+  "self_eval_count": 0,
+  "profiles": {
+    "groq/allam-2-7b": {
+      "model_id": "groq/allam-2-7b",
+      "version": 1,
+      "updated_at": "2026-06-21T02:56:34.548084+00:00",
+      "task_scores": {
+        "refactoring": {
+          "score": 0.8333333333333334,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "reasoning": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "generation": {
+          "score": 0.2857142857142857,
+          "confidence": 0.715871214646128,
+          "sample_count": 3
+        },
+        "translation": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "summarization": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "analysis": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "lookup": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      },
+      "domain_scores": {
+        "general": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "business": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "legal": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "technical": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative_writing": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "code": {
+          "score": 0.5714285714285714,
+          "confidence": 0.6342281277900117,
+          "sample_count": 4
+        }
+      },
+      "qs_scores": {
+        "balanced": {
+          "score": 0.5,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "quality": {
+          "score": 0.6666666666666666,
+          "confidence": 0.53125,
+          "sample_count": 2
+        },
+        "speed": {
+          "score": 0.16666666666666666,
+          "confidence": 1.0,
+          "sample_count": 1
+        }
+      }
+    },
+    "groq/llama-3.1-8b-instant": {
+      "model_id": "groq/llama-3.1-8b-instant",
+      "version": 1,
+      "updated_at": "2026-06-21T02:56:34.548084+00:00",
+      "task_scores": {
+        "refactoring": {
+          "score": 0.5,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "reasoning": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "generation": {
+          "score": 0.7142857142857143,
+          "confidence": 0.8649845687831695,
+          "sample_count": 3
+        },
+        "translation": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "summarization": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "analysis": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "lookup": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      },
+      "domain_scores": {
+        "general": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "business": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "legal": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "technical": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative_writing": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "code": {
+          "score": 0.42857142857142855,
+          "confidence": 0.8576494753258703,
+          "sample_count": 4
+        }
+      },
+      "qs_scores": {
+        "balanced": {
+          "score": 1.0,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "quality": {
+          "score": 0.3333333333333333,
+          "confidence": 0.96875,
+          "sample_count": 2
+        },
+        "speed": {
+          "score": 0.3333333333333333,
+          "confidence": 1.0,
+          "sample_count": 1
+        }
+      }
+    },
+    "groq/llama-3.3-70b-versatile": {
+      "model_id": "groq/llama-3.3-70b-versatile",
+      "version": 1,
+      "updated_at": "2026-06-21T02:56:34.548084+00:00",
+      "task_scores": {
+        "refactoring": {
+          "score": 1.0,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "reasoning": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "generation": {
+          "score": 0.42857142857142855,
+          "confidence": 0.7875408536003006,
+          "sample_count": 3
+        },
+        "translation": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "summarization": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "analysis": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "lookup": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      },
+      "domain_scores": {
+        "general": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "business": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "legal": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "technical": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative_writing": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "code": {
+          "score": 0.7142857142857143,
+          "confidence": 0.7018939995572044,
+          "sample_count": 4
+        }
+      },
+      "qs_scores": {
+        "balanced": {
+          "score": 0.6666666666666666,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "quality": {
+          "score": 0.8333333333333334,
+          "confidence": 0.625,
+          "sample_count": 2
+        },
+        "speed": {
+          "score": 0.5,
+          "confidence": 1.0,
+          "sample_count": 1
+        }
+      }
+    },
+    "groq/meta-llama/llama-4-scout-17b-16e-instruct": {
+      "model_id": "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "version": 1,
+      "updated_at": "2026-06-21T02:56:34.548084+00:00",
+      "task_scores": {
+        "refactoring": {
+          "score": 0.3333333333333333,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "reasoning": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "generation": {
+          "score": 0.5714285714285714,
+          "confidence": 0.8526860872528026,
+          "sample_count": 3
+        },
+        "translation": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "summarization": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "analysis": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "lookup": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      },
+      "domain_scores": {
+        "general": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "business": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "legal": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "technical": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative_writing": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "code": {
+          "score": 0.2857142857142857,
+          "confidence": 0.8005133541436922,
+          "sample_count": 4
+        }
+      },
+      "qs_scores": {
+        "balanced": {
+          "score": 0.8333333333333334,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "quality": {
+          "score": 0.16666666666666666,
+          "confidence": 0.875,
+          "sample_count": 2
+        },
+        "speed": {
+          "score": 0.6666666666666666,
+          "confidence": 1.0,
+          "sample_count": 1
+        }
+      }
+    },
+    "groq/openai/gpt-oss-120b": {
+      "model_id": "groq/openai/gpt-oss-120b",
+      "version": 1,
+      "updated_at": "2026-06-21T02:56:34.548084+00:00",
+      "task_scores": {
+        "refactoring": {
+          "score": 0.6666666666666666,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "reasoning": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "generation": {
+          "score": 0.8571428571428571,
+          "confidence": 0.59375,
+          "sample_count": 2
+        },
+        "translation": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "summarization": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "analysis": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "lookup": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      },
+      "domain_scores": {
+        "general": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "business": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "legal": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "technical": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative_writing": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "code": {
+          "score": 0.8571428571428571,
+          "confidence": 0.6427827458441199,
+          "sample_count": 3
+        }
+      },
+      "qs_scores": {
+        "balanced": {
+          "score": 0.3333333333333333,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "quality": {
+          "score": 1.0,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "speed": {
+          "score": 0.8333333333333334,
+          "confidence": 1.0,
+          "sample_count": 1
+        }
+      }
+    },
+    "groq/openai/gpt-oss-20b": {
+      "model_id": "groq/openai/gpt-oss-20b",
+      "version": 1,
+      "updated_at": "2026-06-21T02:56:34.548084+00:00",
+      "task_scores": {
+        "refactoring": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "reasoning": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "generation": {
+          "score": 1.0,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "translation": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "summarization": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "analysis": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "lookup": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      },
+      "domain_scores": {
+        "general": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "business": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "legal": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "technical": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative_writing": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "code": {
+          "score": 1.0,
+          "confidence": 1.0,
+          "sample_count": 1
+        }
+      },
+      "qs_scores": {
+        "balanced": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "quality": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "speed": {
+          "score": 1.0,
+          "confidence": 1.0,
+          "sample_count": 1
+        }
+      }
+    },
+    "groq/qwen/qwen3-32b": {
+      "model_id": "groq/qwen/qwen3-32b",
+      "version": 1,
+      "updated_at": "2026-06-21T02:56:34.548084+00:00",
+      "task_scores": {
+        "refactoring": {
+          "score": 0.0,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "reasoning": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "generation": {
+          "score": 0.14285714285714285,
+          "confidence": 0.5426146166645802,
+          "sample_count": 3
+        },
+        "translation": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "summarization": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "analysis": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "lookup": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      },
+      "domain_scores": {
+        "general": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "business": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "legal": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "technical": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative_writing": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "code": {
+          "score": 0.14285714285714285,
+          "confidence": 0.5752413369041192,
+          "sample_count": 4
+        }
+      },
+      "qs_scores": {
+        "balanced": {
+          "score": 0.16666666666666666,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "quality": {
+          "score": 0.5,
+          "confidence": 0.5,
+          "sample_count": 2
+        },
+        "speed": {
+          "score": 0.0,
+          "confidence": 1.0,
+          "sample_count": 1
+        }
+      }
+    },
+    "groq/qwen/qwen3.6-27b": {
+      "model_id": "groq/qwen/qwen3.6-27b",
+      "version": 1,
+      "updated_at": "2026-06-21T02:56:34.548084+00:00",
+      "task_scores": {
+        "refactoring": {
+          "score": 0.16666666666666666,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "reasoning": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "generation": {
+          "score": 0.0,
+          "confidence": 1.0,
+          "sample_count": 2
+        },
+        "translation": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "summarization": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "analysis": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "lookup": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      },
+      "domain_scores": {
+        "general": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "business": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "legal": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "technical": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "creative_writing": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        },
+        "code": {
+          "score": 0.0,
+          "confidence": 1.0,
+          "sample_count": 3
+        }
+      },
+      "qs_scores": {
+        "balanced": {
+          "score": 0.0,
+          "confidence": 1.0,
+          "sample_count": 1
+        },
+        "quality": {
+          "score": 0.0,
+          "confidence": 1.0,
+          "sample_count": 2
+        },
+        "speed": {
+          "score": 0.5,
+          "confidence": 0.0,
+          "sample_count": 0
+        }
+      }
+    }
+  },
+  "calibration_deltas": {
+    "groq/llama-3.3-70b-versatile": {
+      "task/analysis": {
+        "declared": 0.5,
+        "empirical": 0.5,
+        "delta": 0.0,
+        "recommendation": "confirm"
+      },
+      "task/creative": {
+        "declared": 0.5,
+        "empirical": 0.5,
+        "delta": 0.0,
+        "recommendation": "confirm"
+      },
+      "task/generation": {
+        "declared": 0.75,
+        "empirical": 0.42857142857142855,
+        "delta": 0.32142857142857145,
+        "recommendation": "update"
+      },
+      "task/lookup": {
+        "declared": 0.5,
+        "empirical": 0.5,
+        "delta": 0.0,
+        "recommendation": "confirm"
+      },
+      "task/reasoning": {
+        "declared": 0.6667,
+        "empirical": 0.5,
+        "delta": 0.16669999999999996,
+        "recommendation": "update"
+      },
+      "task/refactoring": {
+        "declared": 0.25,
+        "empirical": 1.0,
+        "delta": 0.75,
+        "recommendation": "update"
+      },
+      "task/summarization": {
+        "declared": 0.3333,
+        "empirical": 0.5,
+        "delta": 0.16670000000000001,
+        "recommendation": "update"
+      },
+      "task/translation": {
+        "declared": 0.3333,
+        "empirical": 0.5,
+        "delta": 0.16670000000000001,
+        "recommendation": "update"
+      },
+      "domain/business": {
+        "declared": 0.5,
+        "empirical": 0.5,
+        "delta": 0.0,
+        "recommendation": "confirm"
+      },
+      "domain/code": {
+        "declared": 0.5,
+        "empirical": 0.7142857142857143,
+        "delta": 0.2142857142857143,
+        "recommendation": "update"
+      },
+      "domain/creative_writing": {
+        "declared": 0.6667,
+        "empirical": 0.5,
+        "delta": 0.16669999999999996,
+        "recommendation": "update"
+      },
+      "domain/general": {
+        "declared": 0.5,
+        "empirical": 0.5,
+        "delta": 0.0,
+        "recommendation": "confirm"
+      },
+      "domain/legal": {
+        "declared": 1.0,
+        "empirical": 0.5,
+        "delta": 0.5,
+        "recommendation": "update"
+      },
+      "domain/technical": {
+        "declared": 0.5,
+        "empirical": 0.5,
+        "delta": 0.0,
+        "recommendation": "confirm"
+      },
+      "qs/balanced": {
+        "declared": 0.5,
+        "empirical": 0.6666666666666666,
+        "delta": 0.16666666666666663,
+        "recommendation": "update"
+      },
+      "qs/quality": {
+        "declared": 0.75,
+        "empirical": 0.8333333333333334,
+        "delta": 0.08333333333333337,
+        "recommendation": "review"
+      },
+      "qs/speed": {
+        "declared": 0.25,
+        "empirical": 0.5,
+        "delta": 0.25,
+        "recommendation": "update"
+      }
+    }
+  },
+  "rankings": {
+    "task/refactoring": [
+      "groq/llama-3.3-70b-versatile",
+      "groq/allam-2-7b",
+      "groq/openai/gpt-oss-120b",
+      "groq/llama-3.1-8b-instant",
+      "groq/openai/gpt-oss-20b",
+      "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "groq/qwen/qwen3.6-27b",
+      "groq/qwen/qwen3-32b"
+    ],
+    "task/reasoning": [
+      "groq/allam-2-7b",
+      "groq/llama-3.1-8b-instant",
+      "groq/llama-3.3-70b-versatile",
+      "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "groq/openai/gpt-oss-120b",
+      "groq/openai/gpt-oss-20b",
+      "groq/qwen/qwen3-32b",
+      "groq/qwen/qwen3.6-27b"
+    ],
+    "task/generation": [
+      "groq/openai/gpt-oss-20b",
+      "groq/openai/gpt-oss-120b",
+      "groq/llama-3.1-8b-instant",
+      "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "groq/llama-3.3-70b-versatile",
+      "groq/allam-2-7b",
+      "groq/qwen/qwen3-32b",
+      "groq/qwen/qwen3.6-27b"
+    ],
+    "task/translation": [
+      "groq/allam-2-7b",
+      "groq/llama-3.1-8b-instant",
+      "groq/llama-3.3-70b-versatile",
+      "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "groq/openai/gpt-oss-120b",
+      "groq/openai/gpt-oss-20b",
+      "groq/qwen/qwen3-32b",
+      "groq/qwen/qwen3.6-27b"
+    ],
+    "task/summarization": [
+      "groq/allam-2-7b",
+      "groq/llama-3.1-8b-instant",
+      "groq/llama-3.3-70b-versatile",
+      "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "groq/openai/gpt-oss-120b",
+      "groq/openai/gpt-oss-20b",
+      "groq/qwen/qwen3-32b",
+      "groq/qwen/qwen3.6-27b"
+    ],
+    "task/creative": [
+      "groq/allam-2-7b",
+      "groq/llama-3.1-8b-instant",
+      "groq/llama-3.3-70b-versatile",
+      "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "groq/openai/gpt-oss-120b",
+      "groq/openai/gpt-oss-20b",
+      "groq/qwen/qwen3-32b",
+      "groq/qwen/qwen3.6-27b"
+    ],
+    "task/analysis": [
+      "groq/allam-2-7b",
+      "groq/llama-3.1-8b-instant",
+      "groq/llama-3.3-70b-versatile",
+      "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "groq/openai/gpt-oss-120b",
+      "groq/openai/gpt-oss-20b",
+      "groq/qwen/qwen3-32b",
+      "groq/qwen/qwen3.6-27b"
+    ],
+    "task/lookup": [
+      "groq/allam-2-7b",
+      "groq/llama-3.1-8b-instant",
+      "groq/llama-3.3-70b-versatile",
+      "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "groq/openai/gpt-oss-120b",
+      "groq/openai/gpt-oss-20b",
+      "groq/qwen/qwen3-32b",
+      "groq/qwen/qwen3.6-27b"
+    ],
+    "domain/general": [
+      "groq/allam-2-7b",
+      "groq/llama-3.1-8b-instant",
+      "groq/llama-3.3-70b-versatile",
+      "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "groq/openai/gpt-oss-120b",
+      "groq/openai/gpt-oss-20b",
+      "groq/qwen/qwen3-32b",
+      "groq/qwen/qwen3.6-27b"
+    ],
+    "domain/business": [
+      "groq/allam-2-7b",
+      "groq/llama-3.1-8b-instant",
+      "groq/llama-3.3-70b-versatile",
+      "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "groq/openai/gpt-oss-120b",
+      "groq/openai/gpt-oss-20b",
+      "groq/qwen/qwen3-32b",
+      "groq/qwen/qwen3.6-27b"
+    ],
+    "domain/legal": [
+      "groq/allam-2-7b",
+      "groq/llama-3.1-8b-instant",
+      "groq/llama-3.3-70b-versatile",
+      "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "groq/openai/gpt-oss-120b",
+      "groq/openai/gpt-oss-20b",
+      "groq/qwen/qwen3-32b",
+      "groq/qwen/qwen3.6-27b"
+    ],
+    "domain/technical": [
+      "groq/allam-2-7b",
+      "groq/llama-3.1-8b-instant",
+      "groq/llama-3.3-70b-versatile",
+      "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "groq/openai/gpt-oss-120b",
+      "groq/openai/gpt-oss-20b",
+      "groq/qwen/qwen3-32b",
+      "groq/qwen/qwen3.6-27b"
+    ],
+    "domain/creative_writing": [
+      "groq/allam-2-7b",
+      "groq/llama-3.1-8b-instant",
+      "groq/llama-3.3-70b-versatile",
+      "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "groq/openai/gpt-oss-120b",
+      "groq/openai/gpt-oss-20b",
+      "groq/qwen/qwen3-32b",
+      "groq/qwen/qwen3.6-27b"
+    ],
+    "domain/code": [
+      "groq/openai/gpt-oss-20b",
+      "groq/openai/gpt-oss-120b",
+      "groq/llama-3.3-70b-versatile",
+      "groq/allam-2-7b",
+      "groq/llama-3.1-8b-instant",
+      "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "groq/qwen/qwen3-32b",
+      "groq/qwen/qwen3.6-27b"
+    ],
+    "qs/balanced": [
+      "groq/llama-3.1-8b-instant",
+      "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "groq/llama-3.3-70b-versatile",
+      "groq/allam-2-7b",
+      "groq/openai/gpt-oss-20b",
+      "groq/openai/gpt-oss-120b",
+      "groq/qwen/qwen3-32b",
+      "groq/qwen/qwen3.6-27b"
+    ],
+    "qs/quality": [
+      "groq/openai/gpt-oss-120b",
+      "groq/llama-3.3-70b-versatile",
+      "groq/allam-2-7b",
+      "groq/openai/gpt-oss-20b",
+      "groq/qwen/qwen3-32b",
+      "groq/llama-3.1-8b-instant",
+      "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "groq/qwen/qwen3.6-27b"
+    ],
+    "qs/speed": [
+      "groq/openai/gpt-oss-20b",
+      "groq/openai/gpt-oss-120b",
+      "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "groq/llama-3.3-70b-versatile",
+      "groq/qwen/qwen3.6-27b",
+      "groq/llama-3.1-8b-instant",
+      "groq/allam-2-7b",
+      "groq/qwen/qwen3-32b"
+    ]
+  },
+  "per_probe_results": [
+    {
+      "model_id": "groq/allam-2-7b",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": {
+        "completeness": 1,
+        "accuracy": 1,
+        "clarity": 2,
+        "relevance": 1
+      },
+      "normalized_score": 0.0625,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/llama-3.1-8b-instant",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": {
+        "completeness": 2,
+        "accuracy": 2,
+        "clarity": 5,
+        "relevance": 2
+      },
+      "normalized_score": 0.4375,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/llama-3.3-70b-versatile",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": {
+        "completeness": 2,
+        "accuracy": 1,
+        "clarity": 3,
+        "relevance": 2
+      },
+      "normalized_score": 0.25,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": {
+        "completeness": 2,
+        "accuracy": 2,
+        "clarity": 5,
+        "relevance": 2
+      },
+      "normalized_score": 0.4375,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/openai/gpt-oss-120b",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": "empty_model_response"
+    },
+    {
+      "model_id": "groq/openai/gpt-oss-20b",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": "empty_model_response"
+    },
+    {
+      "model_id": "groq/qwen/qwen3-32b",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": {
+        "completeness": 5,
+        "accuracy": 5,
+        "clarity": 5,
+        "relevance": 5
+      },
+      "normalized_score": 1.0,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/qwen/qwen3.6-27b",
+      "probe_id": "disc-generation-code-001",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": {
+        "completeness": 1,
+        "accuracy": 1,
+        "clarity": 1,
+        "relevance": 1
+      },
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/allam-2-7b",
+      "probe_id": "disc-refactoring-code-001",
+      "task_type": "refactoring",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": {
+        "completeness": 5,
+        "accuracy": 5,
+        "clarity": 5,
+        "relevance": 5
+      },
+      "normalized_score": 1.0,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/llama-3.1-8b-instant",
+      "probe_id": "disc-refactoring-code-001",
+      "task_type": "refactoring",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": {
+        "completeness": 2,
+        "accuracy": 1,
+        "clarity": 4,
+        "relevance": 3
+      },
+      "normalized_score": 0.375,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/llama-3.3-70b-versatile",
+      "probe_id": "disc-refactoring-code-001",
+      "task_type": "refactoring",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": {
+        "completeness": 5,
+        "accuracy": 5,
+        "clarity": 5,
+        "relevance": 5
+      },
+      "normalized_score": 1.0,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "probe_id": "disc-refactoring-code-001",
+      "task_type": "refactoring",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": {
+        "completeness": 1,
+        "accuracy": 1,
+        "clarity": 2,
+        "relevance": 3
+      },
+      "normalized_score": 0.1875,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/openai/gpt-oss-120b",
+      "probe_id": "disc-refactoring-code-001",
+      "task_type": "refactoring",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": {
+        "completeness": 5,
+        "accuracy": 5,
+        "clarity": 3,
+        "relevance": 5
+      },
+      "normalized_score": 0.875,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/openai/gpt-oss-20b",
+      "probe_id": "disc-refactoring-code-001",
+      "task_type": "refactoring",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": null,
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": "empty_model_response"
+    },
+    {
+      "model_id": "groq/qwen/qwen3-32b",
+      "probe_id": "disc-refactoring-code-001",
+      "task_type": "refactoring",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": {
+        "completeness": 1,
+        "accuracy": 1,
+        "clarity": 1,
+        "relevance": 1
+      },
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/qwen/qwen3.6-27b",
+      "probe_id": "disc-refactoring-code-001",
+      "task_type": "refactoring",
+      "domain": "code",
+      "quality_speed": "quality",
+      "judge_scores": {
+        "completeness": 1,
+        "accuracy": 1,
+        "clarity": 1,
+        "relevance": 1
+      },
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/allam-2-7b",
+      "probe_id": "disc-generation-code-002",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "balanced",
+      "judge_scores": {
+        "completeness": 2,
+        "accuracy": 2,
+        "clarity": 2,
+        "relevance": 3
+      },
+      "normalized_score": 0.3125,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/llama-3.1-8b-instant",
+      "probe_id": "disc-generation-code-002",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "balanced",
+      "judge_scores": {
+        "completeness": 2,
+        "accuracy": 2,
+        "clarity": 4,
+        "relevance": 4
+      },
+      "normalized_score": 0.5,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/llama-3.3-70b-versatile",
+      "probe_id": "disc-generation-code-002",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "balanced",
+      "judge_scores": {
+        "completeness": 2,
+        "accuracy": 2,
+        "clarity": 3,
+        "relevance": 3
+      },
+      "normalized_score": 0.375,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "probe_id": "disc-generation-code-002",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "balanced",
+      "judge_scores": {
+        "completeness": 2,
+        "accuracy": 2,
+        "clarity": 4,
+        "relevance": 3
+      },
+      "normalized_score": 0.4375,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/openai/gpt-oss-120b",
+      "probe_id": "disc-generation-code-002",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "balanced",
+      "judge_scores": {
+        "completeness": 1,
+        "accuracy": 1,
+        "clarity": 3,
+        "relevance": 2
+      },
+      "normalized_score": 0.1875,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/openai/gpt-oss-20b",
+      "probe_id": "disc-generation-code-002",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "balanced",
+      "judge_scores": null,
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": "empty_model_response"
+    },
+    {
+      "model_id": "groq/qwen/qwen3-32b",
+      "probe_id": "disc-generation-code-002",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "balanced",
+      "judge_scores": {
+        "completeness": 1,
+        "accuracy": 1,
+        "clarity": 2,
+        "relevance": 1
+      },
+      "normalized_score": 0.0625,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/qwen/qwen3.6-27b",
+      "probe_id": "disc-generation-code-002",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "balanced",
+      "judge_scores": {
+        "completeness": 1,
+        "accuracy": 1,
+        "clarity": 1,
+        "relevance": 1
+      },
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/allam-2-7b",
+      "probe_id": "disc-generation-code-003",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "speed",
+      "judge_scores": {
+        "completeness": 5,
+        "accuracy": 5,
+        "clarity": 5,
+        "relevance": 1
+      },
+      "normalized_score": 0.75,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/llama-3.1-8b-instant",
+      "probe_id": "disc-generation-code-003",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "speed",
+      "judge_scores": {
+        "completeness": 5,
+        "accuracy": 5,
+        "clarity": 5,
+        "relevance": 1
+      },
+      "normalized_score": 0.75,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/llama-3.3-70b-versatile",
+      "probe_id": "disc-generation-code-003",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "speed",
+      "judge_scores": {
+        "completeness": 5,
+        "accuracy": 5,
+        "clarity": 5,
+        "relevance": 1
+      },
+      "normalized_score": 0.75,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+      "probe_id": "disc-generation-code-003",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "speed",
+      "judge_scores": {
+        "completeness": 5,
+        "accuracy": 5,
+        "clarity": 5,
+        "relevance": 1
+      },
+      "normalized_score": 0.75,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/openai/gpt-oss-120b",
+      "probe_id": "disc-generation-code-003",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "speed",
+      "judge_scores": {
+        "completeness": 5,
+        "accuracy": 5,
+        "clarity": 5,
+        "relevance": 5
+      },
+      "normalized_score": 1.0,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/openai/gpt-oss-20b",
+      "probe_id": "disc-generation-code-003",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "speed",
+      "judge_scores": {
+        "completeness": 5,
+        "accuracy": 5,
+        "clarity": 5,
+        "relevance": 5
+      },
+      "normalized_score": 1.0,
+      "is_self_eval": false,
+      "error": null
+    },
+    {
+      "model_id": "groq/qwen/qwen3-32b",
+      "probe_id": "disc-generation-code-003",
+      "task_type": "generation",
+      "domain": "code",
+      "quality_speed": "speed",
+      "judge_scores": {
+        "completeness": 1,
+        "accuracy": 1,
+        "clarity": 1,
+        "relevance": 1
+      },
+      "normalized_score": 0.0,
+      "is_self_eval": false,
+      "error": null
+    }
+  ]
+}

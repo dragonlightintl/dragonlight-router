@@ -51,6 +51,7 @@ docs = ["mkdocs-material>=9.0", "mkdocs>=1.6"]
 dragonlight-router = "dragonlight_router.server.app:main"
 dragonlight-router-benchmark = "dragonlight_router.benchmark.runner:main"
 dragonlight-router-calibration-audit = "dragonlight_router.benchmark.calibration_audit:main"
+dragonlight-matrix = "dragonlight_router.cli.matrix_cli:main"
 
 [project.urls]
 Homepage = "https://github.com/dragonlightintl/dragonlight-router"

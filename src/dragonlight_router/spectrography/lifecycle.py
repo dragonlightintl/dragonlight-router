@@ -19,11 +19,11 @@ import yaml
 
 from dragonlight_router.core.types import (
     IBR_DOMAINS,
-    IBR_NEUTRAL_FLAVOR,
+    IBR_NEUTRAL_SPECTROGRAPH,
     IBR_QUALITY_SPEED,
     IBR_TASK_TYPES,
-    FlavorScore,
-    ModelFlavorProfile,
+    ModelSpectrographProfile,
+    SpectrographScore,
 )
 
 logger = structlog.get_logger()
@@ -62,7 +62,7 @@ class StaleProfile:
 # Justification: iterates all profiles checking age and building StaleProfile list;
 # linear guard-clause logic. Approved by: architect. Scope: this function.
 def check_staleness(
-    profiles: dict[str, ModelFlavorProfile],
+    profiles: dict[str, ModelSpectrographProfile],
     threshold_days: int = 30,
 ) -> list[StaleProfile]:
     """Check which profiles are older than threshold_days.
@@ -78,8 +78,8 @@ def check_staleness(
     results: list[StaleProfile] = []
 
     for model_id, profile in profiles.items():
-        assert isinstance(profile, ModelFlavorProfile), (
-            f"profile for {model_id} must be ModelFlavorProfile"
+        assert isinstance(profile, ModelSpectrographProfile), (
+            f"profile for {model_id} must be ModelSpectrographProfile"
         )
 
         updated_at = datetime.fromisoformat(profile.updated_at)
@@ -117,9 +117,9 @@ def check_staleness(
 # Justification: decay computation with clamping across all dimension categories;
 # tightly coupled math. Approved by: architect. Scope: this function.
 def apply_spectrography_decay(
-    profile: ModelFlavorProfile,
+    profile: ModelSpectrographProfile,
     now: datetime | None = None,
-) -> ModelFlavorProfile:
+) -> ModelSpectrographProfile:
     """Apply time-based decay to a spectrography profile.
 
     Profiles older than 30 days decay toward 0.5 at 0.01/day.
@@ -128,7 +128,7 @@ def apply_spectrography_decay(
 
     IBR-FLV-06: Discovery profiles older than 30 days MUST decay toward 0.5.
     """
-    assert isinstance(profile, ModelFlavorProfile), "profile must be ModelFlavorProfile"
+    assert isinstance(profile, ModelSpectrographProfile), "profile must be ModelSpectrographProfile"
 
     if now is None:
         now = datetime.now(UTC)
@@ -149,7 +149,7 @@ def apply_spectrography_decay(
     domain_scores = _decay_dimension(profile.domain_scores, decay_days)
     qs_scores = _decay_dimension(profile.qs_scores, decay_days)
 
-    return ModelFlavorProfile(
+    return ModelSpectrographProfile(
         model_id=profile.model_id,
         version=profile.version,
         updated_at=profile.updated_at,  # Preserve original timestamp
@@ -160,17 +160,17 @@ def apply_spectrography_decay(
 
 
 def _decay_dimension(
-    scores: dict[str, FlavorScore],
+    scores: dict[str, SpectrographScore],
     decay_days: float,
-) -> dict[str, FlavorScore]:
+) -> dict[str, SpectrographScore]:
     """Apply decay to all scores in a dimension dict."""
     assert isinstance(scores, dict), "scores must be a dict"
     assert decay_days > 0, "decay_days must be positive"
 
-    result: dict[str, FlavorScore] = {}
+    result: dict[str, SpectrographScore] = {}
     for key, fs in scores.items():
         decayed_score = _decay_single_score(fs.score, decay_days)
-        result[key] = FlavorScore(
+        result[key] = SpectrographScore(
             score=decayed_score,
             confidence=fs.confidence,
             sample_count=fs.sample_count,
@@ -200,9 +200,9 @@ def _decay_single_score(score: float, decay_days: float) -> float:
 
 
 def merge_incremental(
-    existing: dict[str, ModelFlavorProfile],
-    new_results: dict[str, ModelFlavorProfile],
-) -> dict[str, ModelFlavorProfile]:
+    existing: dict[str, ModelSpectrographProfile],
+    new_results: dict[str, ModelSpectrographProfile],
+) -> dict[str, ModelSpectrographProfile]:
     """Merge new spectrography results into an existing profile set.
 
     Resolution:
@@ -215,19 +215,19 @@ def merge_incremental(
     assert isinstance(existing, dict), "existing must be a dict"
     assert isinstance(new_results, dict), "new_results must be a dict"
 
-    merged: dict[str, ModelFlavorProfile] = {}
+    merged: dict[str, ModelSpectrographProfile] = {}
 
     # Preserve existing profiles, overwriting with new results where available
     for model_id, profile in existing.items():
-        assert isinstance(profile, ModelFlavorProfile), (
-            f"existing profile for {model_id} must be ModelFlavorProfile"
+        assert isinstance(profile, ModelSpectrographProfile), (
+            f"existing profile for {model_id} must be ModelSpectrographProfile"
         )
         merged[model_id] = new_results.get(model_id, profile)
 
     # Add models only in new_results
     for model_id, profile in new_results.items():
-        assert isinstance(profile, ModelFlavorProfile), (
-            f"new profile for {model_id} must be ModelFlavorProfile"
+        assert isinstance(profile, ModelSpectrographProfile), (
+            f"new profile for {model_id} must be ModelSpectrographProfile"
         )
         if model_id not in merged:
             merged[model_id] = profile
@@ -263,7 +263,7 @@ def write_fingerprints_yaml(yaml_content: str, output_path: Path) -> None:
 
 def load_existing_fingerprints(
     fingerprints_path: Path,
-) -> dict[str, ModelFlavorProfile]:
+) -> dict[str, ModelSpectrographProfile]:
     """Load existing fingerprints from a YAML file.
 
     Returns empty dict if the file doesn't exist or is unparseable.
@@ -296,10 +296,10 @@ def load_existing_fingerprints(
 
 def _parse_profiles(
     profiles_raw: dict[str, Any],
-) -> dict[str, ModelFlavorProfile]:
+) -> dict[str, ModelSpectrographProfile]:
     """Parse all profiles from the YAML 'profiles' block."""
     assert isinstance(profiles_raw, dict), "profiles_raw must be a dict"
-    result: dict[str, ModelFlavorProfile] = {}
+    result: dict[str, ModelSpectrographProfile] = {}
     for model_id, model_raw in profiles_raw.items():
         profile = _parse_single_profile(str(model_id), model_raw or {})
         if profile is not None:
@@ -310,7 +310,7 @@ def _parse_profiles(
 def _parse_single_profile(
     model_id: str,
     raw: dict[str, Any],
-) -> ModelFlavorProfile | None:
+) -> ModelSpectrographProfile | None:
     """Parse one model's profile entry. Returns None on bad data."""
     assert isinstance(model_id, str), "model_id must be a string"
     if not isinstance(raw, dict):
@@ -330,7 +330,7 @@ def _parse_single_profile(
         IBR_QUALITY_SPEED,
     )
 
-    return ModelFlavorProfile(
+    return ModelSpectrographProfile(
         model_id=model_id,
         version=int(raw.get("version", 1)),
         updated_at=str(raw.get("updated_at", datetime.now(UTC).isoformat())),
@@ -343,27 +343,27 @@ def _parse_single_profile(
 def _parse_dimension_scores(
     raw_scores: Any,
     allowed_keys: frozenset[str],
-) -> dict[str, FlavorScore]:
-    """Parse a dimension block into FlavorScore entries.
+) -> dict[str, SpectrographScore]:
+    """Parse a dimension block into SpectrographScore entries.
 
     Declared values get confidence=1.0 (known but not observed).
     Missing dimensions filled with neutral default.
     """
     assert isinstance(allowed_keys, frozenset), "allowed_keys must be frozenset"
 
-    scores: dict[str, FlavorScore] = {}
+    scores: dict[str, SpectrographScore] = {}
     parsed = raw_scores if isinstance(raw_scores, dict) else {}
 
     for key in allowed_keys:
         if key in parsed:
             value = _clamp_score(float(parsed[key]))
-            scores[key] = FlavorScore(
+            scores[key] = SpectrographScore(
                 score=value,
                 confidence=1.0,
                 sample_count=0,
             )
         else:
-            scores[key] = IBR_NEUTRAL_FLAVOR
+            scores[key] = IBR_NEUTRAL_SPECTROGRAPH
 
     assert len(scores) == len(allowed_keys), (
         f"Expected {len(allowed_keys)} scores, got {len(scores)}"
@@ -388,7 +388,7 @@ def _clamp_score(value: float) -> float:
 # logs summary; linear flow. Approved by: architect. Scope: this function.
 def get_models_needing_spectrography(
     role_matrix_path: Path,
-    existing_profiles: dict[str, ModelFlavorProfile],
+    existing_profiles: dict[str, ModelSpectrographProfile],
     staleness_days: int = 30,
 ) -> list[str]:
     """Return model IDs that need spectrography (missing or stale profiles).

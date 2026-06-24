@@ -25,7 +25,7 @@ from hypothesis import strategies as st
 from dragonlight_router.budget.tracker import BudgetTracker
 from dragonlight_router.core.types import (
     IBR_DOMAINS,
-    IBR_NEUTRAL_FLAVOR,
+    IBR_NEUTRAL_SPECTROGRAPH,
     IBR_QUALITY_SPEED,
     IBR_TASK_TYPES,
     BackendCapabilities,
@@ -35,18 +35,13 @@ from dragonlight_router.core.types import (
     BackendTier,
     ClassifiedIntent,
     DispatchOrder,
-    FlavorScore,
-    ModelFlavorProfile,
     ModelScore,
+    ModelSpectrographProfile,
     Ok,
     ProviderConfig,
+    SpectrographScore,
 )
 from dragonlight_router.health.tracker import HealthTracker
-from dragonlight_router.selection.flavor import (
-    compute_flavor_match,
-    compute_flavor_scores,
-    should_apply_flavor_match,
-)
 from dragonlight_router.selection.interleave import interleave_providers
 from dragonlight_router.selection.lbr import filter_by_rate_limit
 from dragonlight_router.selection.scoring import (
@@ -54,6 +49,11 @@ from dragonlight_router.selection.scoring import (
     compute_budget_score,
     compute_composite_score,
     compute_health_score,
+)
+from dragonlight_router.selection.spectrograph import (
+    compute_spectrograph_match,
+    compute_spectrograph_scores,
+    should_apply_spectrograph_match,
 )
 
 pytestmark = [pytest.mark.unit, pytest.mark.property]
@@ -1004,10 +1004,10 @@ class TestCascadeDispatchInvariant:
 # --- IBR strategies ---
 
 
-def _ibr_flavor_score_strategy() -> st.SearchStrategy[FlavorScore]:
-    """Strategy for generating FlavorScore instances."""
+def _ibr_spectrograph_score_strategy() -> st.SearchStrategy[SpectrographScore]:
+    """Strategy for generating SpectrographScore instances."""
     return st.builds(
-        FlavorScore,
+        SpectrographScore,
         score=st.floats(min_value=0.0, max_value=1.0),
         confidence=st.floats(min_value=0.0, max_value=1.0),
         sample_count=st.integers(min_value=0, max_value=1000),
@@ -1027,21 +1027,21 @@ def _ibr_classified_intent_strategy() -> st.SearchStrategy[ClassifiedIntent]:
     )
 
 
-def _ibr_model_flavor_profile_strategy(
+def _ibr_model_spectrograph_profile_strategy(
     model_id: str = "test-model",
-) -> st.SearchStrategy[ModelFlavorProfile]:
-    """Strategy for generating ModelFlavorProfile with scores for all dimensions."""
+) -> st.SearchStrategy[ModelSpectrographProfile]:
+    """Strategy for generating ModelSpectrographProfile with scores for all dimensions."""
     task_scores_st = st.fixed_dictionaries(
-        {tt: _ibr_flavor_score_strategy() for tt in sorted(IBR_TASK_TYPES)},
+        {tt: _ibr_spectrograph_score_strategy() for tt in sorted(IBR_TASK_TYPES)},
     )
     domain_scores_st = st.fixed_dictionaries(
-        {d: _ibr_flavor_score_strategy() for d in sorted(IBR_DOMAINS)},
+        {d: _ibr_spectrograph_score_strategy() for d in sorted(IBR_DOMAINS)},
     )
     qs_scores_st = st.fixed_dictionaries(
-        {qs: _ibr_flavor_score_strategy() for qs in sorted(IBR_QUALITY_SPEED)},
+        {qs: _ibr_spectrograph_score_strategy() for qs in sorted(IBR_QUALITY_SPEED)},
     )
     return st.builds(
-        ModelFlavorProfile,
+        ModelSpectrographProfile,
         model_id=st.just(model_id),
         version=st.just(1),
         updated_at=st.just("2026-01-01T00:00:00Z"),
@@ -1052,15 +1052,15 @@ def _ibr_model_flavor_profile_strategy(
 
 
 def valid_scoring_weights_with_flavor() -> st.SearchStrategy[ScoringWeightsConfig]:
-    """Strategy for generating valid ScoringWeightsConfig with flavor_match.
+    """Strategy for generating valid ScoringWeightsConfig with spectrograph_match.
 
     Generates 6 non-negative weights that sum to 1.0.
     """
 
     @st.composite
     def _build(draw: st.DrawFn) -> ScoringWeightsConfig:
-        flavor_match = draw(st.floats(min_value=0.0, max_value=0.30))
-        remainder = 1.0 - flavor_match
+        spectrograph_match = draw(st.floats(min_value=0.0, max_value=0.30))
+        remainder = 1.0 - spectrograph_match
         # Distribute remainder across 5 weights proportionally
         raw = [draw(st.floats(min_value=0.01, max_value=1.0)) for _ in range(5)]
         total_raw = sum(raw)
@@ -1071,7 +1071,7 @@ def valid_scoring_weights_with_flavor() -> st.SearchStrategy[ScoringWeightsConfi
             priority=scaled[2],
             queue=scaled[3],
             health=scaled[4],
-            flavor_match=flavor_match,
+            spectrograph_match=spectrograph_match,
         )
 
     return _build()
@@ -1088,13 +1088,13 @@ class TestIBRFlavorMatchInvariant:
         domain_score=st.floats(min_value=0.0, max_value=1.0),
         qs_score=st.floats(min_value=0.0, max_value=1.0),
     )
-    def test_flavor_match_always_in_unit_interval(
+    def test_spectrograph_match_always_in_unit_interval(
         self,
         task_score: float,
         domain_score: float,
         qs_score: float,
     ) -> None:
-        """[IBR-TEST-02 AC-1] compute_flavor_match always returns [0.0, 1.0]."""
+        """[IBR-TEST-02 AC-1] compute_spectrograph_match always returns [0.0, 1.0]."""
         intent = ClassifiedIntent(
             task_type="analysis",
             domain="code",
@@ -1103,36 +1103,36 @@ class TestIBRFlavorMatchInvariant:
             latency_ms=10.0,
             from_cache=False,
         )
-        profile = ModelFlavorProfile(
+        profile = ModelSpectrographProfile(
             model_id="test",
             version=1,
             updated_at="2026-01-01T00:00:00Z",
-            task_scores=dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_FLAVOR)
-            | {"analysis": FlavorScore(score=task_score, confidence=1.0, sample_count=0)},
-            domain_scores=dict.fromkeys(IBR_DOMAINS, IBR_NEUTRAL_FLAVOR)
-            | {"code": FlavorScore(score=domain_score, confidence=1.0, sample_count=0)},
-            qs_scores=dict.fromkeys(IBR_QUALITY_SPEED, IBR_NEUTRAL_FLAVOR)
-            | {"balanced": FlavorScore(score=qs_score, confidence=1.0, sample_count=0)},
+            task_scores=dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_SPECTROGRAPH)
+            | {"analysis": SpectrographScore(score=task_score, confidence=1.0, sample_count=0)},
+            domain_scores=dict.fromkeys(IBR_DOMAINS, IBR_NEUTRAL_SPECTROGRAPH)
+            | {"code": SpectrographScore(score=domain_score, confidence=1.0, sample_count=0)},
+            qs_scores=dict.fromkeys(IBR_QUALITY_SPEED, IBR_NEUTRAL_SPECTROGRAPH)
+            | {"balanced": SpectrographScore(score=qs_score, confidence=1.0, sample_count=0)},
         )
-        result = compute_flavor_match(intent, profile)
+        result = compute_spectrograph_match(intent, profile)
         assert 0.0 <= result <= 1.0
 
     @given(
         intent=_ibr_classified_intent_strategy(),
-        profile=_ibr_model_flavor_profile_strategy(),
+        profile=_ibr_model_spectrograph_profile_strategy(),
     )
-    def test_flavor_match_bounded_for_arbitrary_profiles(
+    def test_spectrograph_match_bounded_for_arbitrary_profiles(
         self,
         intent: ClassifiedIntent,
-        profile: ModelFlavorProfile,
+        profile: ModelSpectrographProfile,
     ) -> None:
         """[IBR-TEST-02 AC-1] Flavor match is in [0.0, 1.0] for any valid intent+profile."""
-        result = compute_flavor_match(intent, profile)
+        result = compute_spectrograph_match(intent, profile)
         assert 0.0 <= result <= 1.0
 
 
 class TestIBRScoringWeightsInvariant:
-    """Property: Invariant. ScoringWeightsConfig including flavor_match sums to 1.0.
+    """Property: Invariant. ScoringWeightsConfig including spectrograph_match sums to 1.0.
 
     Spec traceability: IBR-TEST-02 (Weight sum invariant)
     """
@@ -1142,14 +1142,14 @@ class TestIBRScoringWeightsInvariant:
         self,
         weights: ScoringWeightsConfig,
     ) -> None:
-        """[IBR-TEST-02 AC-2] ScoringWeightsConfig always sums to 1.0 including flavor_match."""
+        """[IBR-TEST-02 AC-2] ScoringWeightsConfig always sums to 1.0 including spectrograph_match."""
         total = (
             weights.cost
             + weights.latency
             + weights.priority
             + weights.queue
             + weights.health
-            + weights.flavor_match
+            + weights.spectrograph_match
         )
         assert abs(total - 1.0) < 1e-6
 
@@ -1180,8 +1180,8 @@ class TestIBRConfidenceGatingInvariant:
             from_cache=False,
         )
         # Full-confidence profile so profile threshold doesn't gate
-        full_fs = FlavorScore(score=0.8, confidence=1.0, sample_count=10)
-        profile = ModelFlavorProfile(
+        full_fs = SpectrographScore(score=0.8, confidence=1.0, sample_count=10)
+        profile = ModelSpectrographProfile(
             model_id="test",
             version=1,
             updated_at="2026-01-01T00:00:00Z",
@@ -1190,12 +1190,12 @@ class TestIBRConfidenceGatingInvariant:
             qs_scores=dict.fromkeys(IBR_QUALITY_SPEED, full_fs),
         )
 
-        result_low = should_apply_flavor_match(
+        result_low = should_apply_spectrograph_match(
             intent_low,
             profile,
             confidence_threshold=confidence,
         )
-        result_high = should_apply_flavor_match(
+        result_high = should_apply_spectrograph_match(
             intent_high,
             profile,
             confidence_threshold=confidence,
@@ -1216,8 +1216,8 @@ class TestIBRConfidenceGatingInvariant:
             latency_ms=10.0,
             from_cache=False,
         )
-        full_fs = FlavorScore(score=0.8, confidence=1.0, sample_count=10)
-        profile = ModelFlavorProfile(
+        full_fs = SpectrographScore(score=0.8, confidence=1.0, sample_count=10)
+        profile = ModelSpectrographProfile(
             model_id="test",
             version=1,
             updated_at="2026-01-01T00:00:00Z",
@@ -1225,7 +1225,7 @@ class TestIBRConfidenceGatingInvariant:
             domain_scores=dict.fromkeys(IBR_DOMAINS, full_fs),
             qs_scores=dict.fromkeys(IBR_QUALITY_SPEED, full_fs),
         )
-        assert should_apply_flavor_match(intent, profile) is False
+        assert should_apply_spectrograph_match(intent, profile) is False
 
 
 class TestIBRDegradationInvariant:
@@ -1248,24 +1248,24 @@ class TestIBRDegradationInvariant:
     def test_ibr_degradation_invariant(self, model_ids: list[str]) -> None:
         """[IBR-TEST-02 AC-4] None intent produces empty flavor scores (IBR inactive)."""
         profiles = {
-            mid: ModelFlavorProfile(
+            mid: ModelSpectrographProfile(
                 model_id=mid,
                 version=1,
                 updated_at="2026-01-01T00:00:00Z",
-                task_scores=dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_FLAVOR),
-                domain_scores=dict.fromkeys(IBR_DOMAINS, IBR_NEUTRAL_FLAVOR),
-                qs_scores=dict.fromkeys(IBR_QUALITY_SPEED, IBR_NEUTRAL_FLAVOR),
+                task_scores=dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_SPECTROGRAPH),
+                domain_scores=dict.fromkeys(IBR_DOMAINS, IBR_NEUTRAL_SPECTROGRAPH),
+                qs_scores=dict.fromkeys(IBR_QUALITY_SPEED, IBR_NEUTRAL_SPECTROGRAPH),
             )
             for mid in model_ids
         }
         # None intent → empty scores → IBR has no effect
-        scores = compute_flavor_scores(None, profiles, model_ids)
+        scores = compute_spectrograph_scores(None, profiles, model_ids)
         assert scores == {}
 
     def test_none_intent_gating_always_false(self) -> None:
-        """[IBR-TEST-02 AC-4] should_apply_flavor_match always False for None intent."""
-        full_fs = FlavorScore(score=0.8, confidence=1.0, sample_count=10)
-        profile = ModelFlavorProfile(
+        """[IBR-TEST-02 AC-4] should_apply_spectrograph_match always False for None intent."""
+        full_fs = SpectrographScore(score=0.8, confidence=1.0, sample_count=10)
+        profile = ModelSpectrographProfile(
             model_id="test",
             version=1,
             updated_at="2026-01-01T00:00:00Z",
@@ -1273,7 +1273,7 @@ class TestIBRDegradationInvariant:
             domain_scores=dict.fromkeys(IBR_DOMAINS, full_fs),
             qs_scores=dict.fromkeys(IBR_QUALITY_SPEED, full_fs),
         )
-        assert should_apply_flavor_match(None, profile) is False
+        assert should_apply_spectrograph_match(None, profile) is False
 
 
 class TestIBRFlavorMatchMonotonicity:
@@ -1291,7 +1291,7 @@ class TestIBRFlavorMatchMonotonicity:
         low_score: float,
         high_score: float,
     ) -> None:
-        """[IBR-TEST-02 AC-5] Higher task_score produces higher flavor_match, all else equal."""
+        """[IBR-TEST-02 AC-5] Higher task_score produces higher spectrograph_match, all else equal."""
         intent = ClassifiedIntent(
             task_type="analysis",
             domain="code",
@@ -1301,17 +1301,17 @@ class TestIBRFlavorMatchMonotonicity:
             from_cache=False,
         )
 
-        def _profile(task_score: float) -> ModelFlavorProfile:
-            return ModelFlavorProfile(
+        def _profile(task_score: float) -> ModelSpectrographProfile:
+            return ModelSpectrographProfile(
                 model_id="test",
                 version=1,
                 updated_at="2026-01-01T00:00:00Z",
-                task_scores=dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_FLAVOR)
-                | {"analysis": FlavorScore(score=task_score, confidence=1.0, sample_count=0)},
-                domain_scores=dict.fromkeys(IBR_DOMAINS, IBR_NEUTRAL_FLAVOR),
-                qs_scores=dict.fromkeys(IBR_QUALITY_SPEED, IBR_NEUTRAL_FLAVOR),
+                task_scores=dict.fromkeys(IBR_TASK_TYPES, IBR_NEUTRAL_SPECTROGRAPH)
+                | {"analysis": SpectrographScore(score=task_score, confidence=1.0, sample_count=0)},
+                domain_scores=dict.fromkeys(IBR_DOMAINS, IBR_NEUTRAL_SPECTROGRAPH),
+                qs_scores=dict.fromkeys(IBR_QUALITY_SPEED, IBR_NEUTRAL_SPECTROGRAPH),
             )
 
-        low_match = compute_flavor_match(intent, _profile(low_score))
-        high_match = compute_flavor_match(intent, _profile(high_score))
+        low_match = compute_spectrograph_match(intent, _profile(low_score))
+        high_match = compute_spectrograph_match(intent, _profile(high_score))
         assert high_match > low_match

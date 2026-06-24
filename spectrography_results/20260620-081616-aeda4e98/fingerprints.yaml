@@ -1,0 +1,109 @@
+version: 1
+source: spectrography-run-20260620-081616-aeda4e98
+generated_at: '2026-06-21T02:09:55.398355+00:00'
+profiles:
+  gemini/gemini-2.5-flash:
+    task_scores:
+      analysis: 0.0
+      creative: 0.0
+      generation: 0.0
+      lookup: 0.5
+      reasoning: 1.0
+      refactoring: 0.0
+      summarization: 0.5
+      translation: 0.5
+    domain_scores:
+      business: 0.5
+      code: 0.0
+      creative_writing: 0.5
+      general: 0.0
+      legal: 0.5
+      technical: 0.0
+    qs_scores:
+      balanced: 0.0
+      quality: 0.0
+      speed: 0.75
+  groq/llama-3.3-70b-versatile:
+    task_scores:
+      analysis: 0.5
+      creative: 0.5
+      generation: 0.75
+      lookup: 0.5
+      reasoning: 0.6667
+      refactoring: 0.25
+      summarization: 0.3333
+      translation: 0.3333
+    domain_scores:
+      business: 0.5
+      code: 0.5
+      creative_writing: 0.6667
+      general: 0.5
+      legal: 1.0
+      technical: 0.5
+    qs_scores:
+      balanced: 0.5
+      quality: 0.75
+      speed: 0.25
+  nvidia_nim/deepseek-ai/deepseek-v4-pro:
+    task_scores:
+      analysis: 1.0
+      creative: 1.0
+      generation: 0.5
+      lookup: 0.5
+      reasoning: 0.5
+      refactoring: 1.0
+      summarization: 1.0
+      translation: 1.0
+    domain_scores:
+      business: 0.5
+      code: 1.0
+      creative_writing: 1.0
+      general: 1.0
+      legal: 0.3333
+      technical: 1.0
+    qs_scores:
+      balanced: 1.0
+      quality: 1.0
+      speed: 1.0
+  nvidia_nim/moonshotai/kimi-k2.6:
+    task_scores:
+      analysis: 0.25
+      creative: 0.25
+      generation: 0.25
+      lookup: 0.0
+      reasoning: 0.0
+      refactoring: 0.5
+      summarization: 0.0
+      translation: 0.0
+    domain_scores:
+      business: 0.0
+      code: 0.25
+      creative_writing: 0.0
+      general: 0.25
+      legal: 0.0
+      technical: 0.25
+    qs_scores:
+      balanced: 0.25
+      quality: 0.25
+      speed: 0.0
+  nvidia_nim/qwen/qwen3.5-397b-a17b:
+    task_scores:
+      analysis: 0.75
+      creative: 0.75
+      generation: 1.0
+      lookup: 1.0
+      reasoning: 0.3333
+      refactoring: 0.75
+      summarization: 0.6667
+      translation: 0.6667
+    domain_scores:
+      business: 1.0
+      code: 0.75
+      creative_writing: 0.3333
+      general: 0.75
+      legal: 0.6667
+      technical: 0.75
+    qs_scores:
+      balanced: 0.75
+      quality: 0.5
+      speed: 0.5

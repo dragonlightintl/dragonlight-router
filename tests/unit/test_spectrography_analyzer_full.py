@@ -16,8 +16,8 @@ from dragonlight_router.core.types import (
     IBR_DOMAINS,
     IBR_QUALITY_SPEED,
     IBR_TASK_TYPES,
-    FlavorScore,
-    ModelFlavorProfile,
+    ModelSpectrographProfile,
+    SpectrographScore,
 )
 from dragonlight_router.spectrography.analyzer import (
     DimensionStats,
@@ -60,13 +60,13 @@ def _make_probe_result(
     )
 
 
-def _make_flavor_profile(
+def _make_spectrograph_profile(
     model_id: str = "test/model-a",
     score: float = 0.7,
-) -> ModelFlavorProfile:
-    """Build a ModelFlavorProfile with uniform scores."""
-    fs = FlavorScore(score=score, confidence=0.8, sample_count=5)
-    return ModelFlavorProfile(
+) -> ModelSpectrographProfile:
+    """Build a ModelSpectrographProfile with uniform scores."""
+    fs = SpectrographScore(score=score, confidence=0.8, sample_count=5)
+    return ModelSpectrographProfile(
         model_id=model_id,
         version=1,
         updated_at=datetime.now(UTC).isoformat(),
@@ -125,8 +125,8 @@ class TestCalibrationDeltasModelNotDeclared:
 
         # Empirical has m1 and m2
         empirical = {
-            "m1": _make_flavor_profile("m1"),
-            "m2": _make_flavor_profile("m2"),
+            "m1": _make_spectrograph_profile("m1"),
+            "m2": _make_spectrograph_profile("m2"),
         }
         result = compute_calibration_deltas(empirical, declared_path)
         # m1 should be skipped (not in declared)

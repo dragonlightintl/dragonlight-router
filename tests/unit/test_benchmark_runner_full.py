@@ -33,12 +33,12 @@ from dragonlight_router.benchmark.runner import (
 )
 from dragonlight_router.core.types import (
     IBR_DOMAINS,
-    IBR_NEUTRAL_FLAVOR,
+    IBR_NEUTRAL_SPECTROGRAPH,
     IBR_QUALITY_SPEED,
     IBR_TASK_TYPES,
-    FlavorScore,
     GenerativeBackend,
-    ModelFlavorProfile,
+    ModelSpectrographProfile,
+    SpectrographScore,
 )
 
 pytestmark = pytest.mark.unit
@@ -68,12 +68,12 @@ def _make_profile(
     score: float = 0.8,
     confidence: float = 0.6,
     sample_count: int = 10,
-) -> ModelFlavorProfile:
-    """Build a ModelFlavorProfile with uniform scores."""
+) -> ModelSpectrographProfile:
+    """Build a ModelSpectrographProfile with uniform scores."""
     if updated_at is None:
         updated_at = datetime.now(UTC).isoformat()
-    fs = FlavorScore(score=score, confidence=confidence, sample_count=sample_count)
-    return ModelFlavorProfile(
+    fs = SpectrographScore(score=score, confidence=confidence, sample_count=sample_count)
+    return ModelSpectrographProfile(
         model_id=model_id,
         version=1,
         updated_at=updated_at,
@@ -135,8 +135,8 @@ class TestDecayDimension:
 
     def test_all_scores_decayed(self) -> None:
         scores = {
-            "generation": FlavorScore(score=0.9, confidence=0.5, sample_count=10),
-            "analysis": FlavorScore(score=0.2, confidence=0.3, sample_count=5),
+            "generation": SpectrographScore(score=0.9, confidence=0.5, sample_count=10),
+            "analysis": SpectrographScore(score=0.2, confidence=0.3, sample_count=5),
         }
         result = _decay_dimension(scores, decay_days=10)
         assert result["generation"].score < 0.9
@@ -146,7 +146,7 @@ class TestDecayDimension:
         assert result["analysis"].confidence < 0.3
 
     def test_sample_count_preserved(self) -> None:
-        scores = {"gen": FlavorScore(score=0.8, confidence=0.5, sample_count=42)}
+        scores = {"gen": SpectrographScore(score=0.8, confidence=0.5, sample_count=42)}
         result = _decay_dimension(scores, decay_days=5)
         assert result["gen"].sample_count == 42
 
@@ -172,7 +172,7 @@ class TestBenchmarkRunnerSaveProfiles:
         )
         profiles = await runner.benchmark_all({"m1": model_adapter})
         assert "m1" in profiles
-        assert isinstance(profiles["m1"], ModelFlavorProfile)
+        assert isinstance(profiles["m1"], ModelSpectrographProfile)
         # Should have written the file
         output_file = tmp_path / "benchmark_profiles.json"
         assert output_file.exists()
@@ -245,7 +245,7 @@ class TestSerializeProfiles:
 
     def test_serialize_scores(self) -> None:
         scores = {
-            "gen": FlavorScore(score=0.8, confidence=0.5, sample_count=10),
+            "gen": SpectrographScore(score=0.8, confidence=0.5, sample_count=10),
         }
         result = _serialize_scores(scores)
         assert result["gen"]["score"] == 0.8
@@ -335,12 +335,12 @@ class TestDeserializeScores:
     def test_missing_keys_get_neutral(self) -> None:
         result = _deserialize_scores({}, IBR_TASK_TYPES)
         for key in IBR_TASK_TYPES:
-            assert result[key] == IBR_NEUTRAL_FLAVOR
+            assert result[key] == IBR_NEUTRAL_SPECTROGRAPH
 
     def test_non_dict_entry_gets_neutral(self) -> None:
         raw: dict[str, Any] = {"generation": "not a dict"}
         result = _deserialize_scores(raw, IBR_TASK_TYPES)
-        assert result["generation"] == IBR_NEUTRAL_FLAVOR
+        assert result["generation"] == IBR_NEUTRAL_SPECTROGRAPH
 
     def test_scores_clamped(self) -> None:
         raw: dict[str, Any] = {
@@ -354,7 +354,7 @@ class TestDeserializeScores:
     def test_non_dict_raw_treated_as_empty(self) -> None:
         result = _deserialize_scores("bad", IBR_TASK_TYPES)  # type: ignore[arg-type]
         for key in IBR_TASK_TYPES:
-            assert result[key] == IBR_NEUTRAL_FLAVOR
+            assert result[key] == IBR_NEUTRAL_SPECTROGRAPH
 
 
 # ---------------------------------------------------------------------------

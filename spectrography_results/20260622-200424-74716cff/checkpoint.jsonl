@@ -1,0 +1,1 @@
+{"model_id": "gemini/gemini-3.5-flash", "probe_id": "disc-refactoring-code-001", "task_type": "refactoring", "domain": "code", "quality_speed": "quality", "judge_scores": null, "normalized_score": 0.5, "is_self_eval": false, "error": "judge_call_failed"}

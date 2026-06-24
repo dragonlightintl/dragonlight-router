@@ -423,7 +423,7 @@ def _aggregate_model_scores(
     results: list[PromptResult],
     prompts_by_id: dict[str, EvalPrompt],
 ) -> dict[str, dict[str, Any]]:
-    """Aggregate per-model scores into FlavorScore-format profiles."""
+    """Aggregate per-model scores into SpectrographScore-format profiles."""
     from dragonlight_router.core.types import IBR_DOMAINS, IBR_QUALITY_SPEED, IBR_TASK_TYPES
 
     by_model: dict[str, list[PromptResult]] = {}
@@ -451,7 +451,7 @@ def _aggregate_model_scores(
 
 
 def _flavor_dict(accum: dict[str, list[float]]) -> dict[str, dict[str, Any]]:
-    """Build FlavorScore-format dict from accumulated score lists."""
+    """Build SpectrographScore-format dict from accumulated score lists."""
     out: dict[str, dict[str, Any]] = {}
     for k, vs in accum.items():
         if vs:
@@ -469,8 +469,8 @@ def _flavor_dict(accum: dict[str, list[float]]) -> dict[str, dict[str, Any]]:
 
 
 def _load_declared_profiles(cfg: Path) -> dict[str, dict[str, Any]]:
-    """Load operator-declared profiles from model_flavor_profiles.yaml."""
-    path = cfg / "model_flavor_profiles.yaml"
+    """Load operator-declared profiles from model_spectrograph_profiles.yaml."""
+    path = cfg / "model_spectrograph_profiles.yaml"
     if not path.exists():
         return {}
     data = yaml.safe_load(path.read_text())

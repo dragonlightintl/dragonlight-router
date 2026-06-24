@@ -237,8 +237,12 @@ class TestIBRDisabledPath:
         result = await _run_ibr_stage(order, [], ctx)
         assert result is None
 
-    def test_cbr_weights_fallback_to_5_dimension(self):
-        """[IBR-SCORE-03] When IBR result is None, CBR uses 5-dimension weights."""
+    def test_cbr_weights_fallback_to_default_with_spectrograph(self):
+        """[IBR-SCORE-03] When IBR result is None, CBR uses default 6-dimension weights.
+
+        With IBR activation, the default ScoringWeightsConfig includes
+        spectrograph_match=0.15.  All 6 dimensions sum to 1.0.
+        """
         ctx = DispatchContext(
             registry=BackendRegistry(),
             budget_tracker=MagicMock(),
@@ -247,12 +251,15 @@ class TestIBRDisabledPath:
             ibr_config=None,
         )
         weights = _resolve_cbr_weights(None, ctx)
-        assert weights.spectrograph_match == 0.0
-        total = weights.cost + weights.latency + weights.priority + weights.queue + weights.health
+        assert weights.spectrograph_match == 0.15
+        total = (
+            weights.cost + weights.latency + weights.priority
+            + weights.queue + weights.health + weights.spectrograph_match
+        )
         assert abs(total - 1.0) < 1e-9
 
     def test_cbr_weights_fallback_when_ibr_inactive(self):
-        """[IBR-SCORE-03] When ibr_active=False, CBR uses 5-dimension weights."""
+        """[IBR-SCORE-03] When ibr_active=False, CBR uses default 6-dimension weights."""
         ibr_result = IBRResult(
             classified_intent=_make_intent(),
             spectrograph_scores={},
@@ -266,7 +273,7 @@ class TestIBRDisabledPath:
             ibr_config=_make_ibr_config(),
         )
         weights = _resolve_cbr_weights(ibr_result, ctx)
-        assert weights.spectrograph_match == 0.0
+        assert weights.spectrograph_match == 0.15
 
 
 # ---------------------------------------------------------------------------
@@ -725,8 +732,13 @@ class TestIBRScoringWeightGovernor:
         # Score must be in [0.0, 1.0]
         assert 0.0 <= scored[0].score <= 1.0
 
-    def test_zero_spectrograph_match_weight_when_ibr_disabled(self):
-        """[IBR-SCORE-03] spectrograph_match weight is 0.0 when IBR is off."""
+    def test_default_spectrograph_match_weight_when_ibr_disabled(self):
+        """[IBR-SCORE-03] spectrograph_match weight is 0.15 (default) when IBR classifier is off.
+
+        With IBR activation, spectrograph scoring is always included in the
+        default weight vector.  The weight only drops to 0.0 if explicitly
+        configured that way.
+        """
         weights = _resolve_cbr_weights(
             None,
             DispatchContext(
@@ -736,4 +748,4 @@ class TestIBRScoringWeightGovernor:
                 config={},
             ),
         )
-        assert weights.spectrograph_match == 0.0
+        assert weights.spectrograph_match == 0.15

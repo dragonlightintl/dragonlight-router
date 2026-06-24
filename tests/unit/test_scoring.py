@@ -149,21 +149,25 @@ class TestHealthScore:
 
 class TestScoringWeightsEnum:
     def test_enum_members_are_floats(self):
-        """[TM-007 AC-5] ScoringWeights enum members have expected float values."""
-        assert ScoringWeights.COST.value == pytest.approx(0.35)
+        """[TM-007 AC-5] ScoringWeights enum members have expected float values (IBR-active defaults)."""
+        assert ScoringWeights.COST.value == pytest.approx(0.20)
         assert ScoringWeights.LATENCY.value == pytest.approx(0.25)
         assert ScoringWeights.PRIORITY.value == pytest.approx(0.20)
         assert ScoringWeights.QUEUE.value == pytest.approx(0.10)
         assert ScoringWeights.HEALTH.value == pytest.approx(0.10)
+        assert ScoringWeights.SPECTROGRAPH_MATCH.value == pytest.approx(0.15)
 
     def test_cost_adjusted_weights_returns_governor_config(self):
-        """[TM-007 AC-5] cost_adjusted_weights returns ScoringWeightsConfig with cost=0.70."""
+        """[TM-007 AC-5] cost_adjusted_weights returns ScoringWeightsConfig with IBR governor weights."""
         base = ScoringWeightsConfig()
         adjusted = cost_adjusted_weights(base)
-        assert adjusted.cost == pytest.approx(0.70)
+        # With IBR active (spectrograph_match > 0), cost governor uses IBR-SCORE-05 weights
+        assert adjusted.cost == pytest.approx(0.65)
         assert adjusted.latency == pytest.approx(0.10)
+        assert adjusted.spectrograph_match == pytest.approx(0.05)
         total = (
-            adjusted.cost + adjusted.latency + adjusted.priority + adjusted.queue + adjusted.health
+            adjusted.cost + adjusted.latency + adjusted.priority
+            + adjusted.queue + adjusted.health + adjusted.spectrograph_match
         )
         assert abs(total - 1.0) < 1e-9
 

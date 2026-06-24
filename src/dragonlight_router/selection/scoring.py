@@ -93,24 +93,30 @@ def compute_composite_score(rank: int, budget_score: float, health_score: float)
 
 
 class ScoringWeights(Enum):
-    """Canonical scoring weights for the dispatch path (MBR->CBR->LBR cascade).
+    """Legacy canonical scoring weights for the dispatch path (MBR->CBR->LBR cascade).
 
-    Default values per canonical spec:
-    - cost: 0.35
+    NOTE: ScoringWeightsConfig dataclass is the source of truth for weights.
+    This enum is retained for backward compatibility. With IBR activation,
+    the 6-dimension ScoringWeightsConfig (including spectrograph_match) is
+    the authoritative weight vector.
+
+    Default values (IBR-active, 6-dimension):
+    - cost: 0.20
     - latency: 0.25
     - priority: 0.20
     - queue: 0.10
     - health: 0.10
+    - spectrograph_match: 0.15
 
     Note: HEALTH and QUEUE both have value 0.10, which makes HEALTH an alias.
-    The ScoringWeightsConfig dataclass is the source of truth for weights.
     """
 
-    COST = 0.35
+    COST = 0.20
     LATENCY = 0.25
     PRIORITY = 0.20
     QUEUE = 0.10
     HEALTH = 0.10
+    SPECTROGRAPH_MATCH = 0.15
 
 
 assert (
@@ -122,6 +128,7 @@ assert (
                 ScoringWeights.PRIORITY.value,
                 ScoringWeights.QUEUE.value,
                 ScoringWeights.HEALTH.value,
+                ScoringWeights.SPECTROGRAPH_MATCH.value,
             ]
         )
         - 1.0
@@ -139,12 +146,12 @@ class ScoringWeightsConfig:
     disabled (spectrograph_match=0.0), behavior is identical to v0.3.0.
     """
 
-    cost: float = 0.35
+    cost: float = 0.20
     latency: float = 0.25
     priority: float = 0.20
     queue: float = 0.10
     health: float = 0.10
-    spectrograph_match: float = 0.0
+    spectrograph_match: float = 0.15
 
     def __post_init__(self) -> None:
         """Validate that weights sum to 1.0."""
@@ -463,3 +470,71 @@ def cost_adjusted_weights(
         queue=0.05,
         health=0.05,
     )
+
+
+# ---------------------------------------------------------------------------
+# Per-intent-category CBR weight profiles (IBR weight adaptation)
+# ---------------------------------------------------------------------------
+
+# Low-stakes categories: prioritize cost and speed.
+_LOW_STAKES_WEIGHTS = ScoringWeightsConfig(
+    cost=0.35,
+    latency=0.30,
+    priority=0.10,
+    spectrograph_match=0.10,
+    queue=0.10,
+    health=0.05,
+)
+
+# High-stakes categories: prioritize capability and quality.
+_HIGH_STAKES_WEIGHTS = ScoringWeightsConfig(
+    cost=0.10,
+    latency=0.10,
+    priority=0.30,
+    spectrograph_match=0.25,
+    queue=0.10,
+    health=0.15,
+)
+
+# Categories classified as low-stakes — fast, cheap models preferred.
+_LOW_STAKES_INTENTS: frozenset[str] = frozenset({
+    "test_generation",
+    "test_property",
+    "audit",
+    "data_analysis",
+    "summarization",
+})
+
+# Categories classified as high-stakes — capability and precision preferred.
+_HIGH_STAKES_INTENTS: frozenset[str] = frozenset({
+    "implementation",
+    "implementation_complex",
+    "coherence_merge",
+    "complex_reasoning",
+    "strategic_planning",
+    "architecture",
+})
+
+
+def intent_weights_for_category(intent_category: str) -> ScoringWeightsConfig:
+    """Return per-intent-category CBR weight profile.
+
+    Low-stakes intents (test_generation, audit, etc.) shift weight toward
+    cost and speed. High-stakes intents (implementation, coherence_merge,
+    etc.) shift weight toward capability and spectrograph match quality.
+
+    Unrecognized categories receive the default ScoringWeightsConfig.
+
+    Args:
+        intent_category: The intent category from the DispatchOrder.
+
+    Returns:
+        ScoringWeightsConfig tuned for the intent category.
+    """
+    assert isinstance(intent_category, str), "intent_category must be a string"
+
+    if intent_category in _LOW_STAKES_INTENTS:
+        return _LOW_STAKES_WEIGHTS
+    if intent_category in _HIGH_STAKES_INTENTS:
+        return _HIGH_STAKES_WEIGHTS
+    return ScoringWeightsConfig()

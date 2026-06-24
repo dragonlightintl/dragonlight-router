@@ -236,10 +236,11 @@ class TestIBRScoringContext:
 class TestScoringWeightsConfigIBR:
     """[IBR-DATA-03] ScoringWeightsConfig with spectrograph_match dimension."""
 
-    def test_spectrograph_match_zero_backward_compatible(self):
-        """[IBR-DATA-02] spectrograph_match=0.0 sums to 1.0 (v0.3.0)."""
+    def test_default_config_includes_spectrograph_match(self):
+        """[IBR-DATA-02] Default ScoringWeightsConfig includes spectrograph_match=0.15 and sums to 1.0."""
         config = ScoringWeightsConfig()
-        assert config.spectrograph_match == 0.0
+        assert config.spectrograph_match == 0.15
+        assert config.cost == 0.20
         total = (
             config.cost
             + config.latency

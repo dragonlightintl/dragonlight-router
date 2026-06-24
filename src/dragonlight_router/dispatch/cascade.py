@@ -50,6 +50,7 @@ from dragonlight_router.selection.scoring import (
     ScoringWeightsConfig,
     cost_adjusted_weights,
     cost_governor_active,
+    intent_weights_for_category,
 )
 from dragonlight_router.selection.spectrograph import SpectrographProfileLoader
 
@@ -259,7 +260,7 @@ def _run_cbr_stage(
     if not cbr_candidates:
         return Err(BudgetExceededError("No candidates remain after budget filtering"))
 
-    weights = _resolve_cbr_weights(ibr_result, ctx)
+    weights = _resolve_cbr_weights(ibr_result, ctx, order)
     if cost_governor_active(daily_spend, monthly_spend, ctx.config):
         weights = cost_adjusted_weights(weights)
 
@@ -305,13 +306,35 @@ async def _run_ibr_stage(
 def _resolve_cbr_weights(
     ibr_result: IBRResult | None,
     ctx: DispatchContext,
+    order: DispatchOrder | None = None,
 ) -> ScoringWeightsConfig:
-    """Determine CBR scoring weights based on IBR result.
+    """Determine CBR scoring weights based on IBR result and intent category.
 
-    When IBR is active with valid scores, uses 6-dimension weights
-    (IBR-SCORE-02).  Otherwise falls back to v0.3.0 5-dimension
-    weights (IBR-SCORE-03).
+    Weight resolution order:
+    1. If intent_category maps to a per-intent weight profile, use it.
+       This provides content-aware scoring even when the full IBR classifier
+       is disabled — the factory passes fine-grained intent categories.
+    2. If IBR is active with valid spectrograph scores, use 6-dimension
+       weights with the configured spectrograph_match_weight (IBR-SCORE-02).
+    3. Otherwise fall back to default ScoringWeightsConfig.
     """
+    # Per-intent-category weight profiles take priority — they encode
+    # operator knowledge about what matters for each task type.
+    if order is not None:
+        intent_weights = intent_weights_for_category(order.intent_category)
+        # intent_weights_for_category returns default config for unrecognized
+        # categories. Only use the intent-specific profile when it differs
+        # from the default (i.e. the category was actually recognized).
+        default_weights = ScoringWeightsConfig()
+        if intent_weights != default_weights:
+            logger.debug(
+                "cbr_weights_from_intent_category",
+                intent_category=order.intent_category,
+                cost=intent_weights.cost,
+                spectrograph_match=intent_weights.spectrograph_match,
+            )
+            return intent_weights
+
     if ibr_result is not None and ibr_result.ibr_active:
         ibr_cfg = ctx.ibr_config
         weight = ibr_cfg.spectrograph_match_weight if ibr_cfg is not None else 0.15

@@ -4,6 +4,19 @@ budget_flush_interval_s: 5
 default_top_n: 12
 max_consecutive_same_provider: 2
 
+# IBR: Intent-Based Routing — content-aware model selection.
+# When enabled, the router classifies each request's intent and matches
+# it against model spectrograph profiles for capability-aware scoring.
+intent_classification:
+  enabled: true
+  timeout_ms: 100
+  cache_ttl_s: 300
+  cache_max_entries: 5000
+  confidence_threshold: 0.6
+  profile_confidence_threshold: 0.3
+  spectrograph_match_weight: 0.15
+  spectrograph_match_weight_governor: 0.05
+
 providers:
   - name: nvidia_nim
     base_url: https://integrate.api.nvidia.com/v1

@@ -186,6 +186,16 @@ class DispatchOrder:
     # this backend.  Value is the backend name as registered in
     # BackendRegistry (e.g. "anthropic/claude-sonnet-4-20250514").
     model: str | None = None
+    # Tool-use support: OpenAI-format tool definitions and structured messages.
+    # When tools is set, the adapter layer includes them in the API request body.
+    tools: tuple[dict, ...] | None = None
+    tool_choice: str | dict | None = None
+    # Structured message list for multi-turn tool-use conversations.
+    # When set, takes precedence over operator_message/system_prompt for
+    # building the API request body. Each dict follows the OpenAI message
+    # format: {"role": "...", "content": "...", ...} including tool/assistant
+    # messages with tool_calls and tool_call_id.
+    messages: tuple[dict, ...] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -237,8 +247,8 @@ class ClassifiedIntent:
 
 
 @dataclass(frozen=True)
-class FlavorScore:
-    """Single-dimension score within a model flavor profile.
+class SpectrographScore:
+    """Single-dimension score within a model spectrograph profile.
 
     score is the model's relative strength on this dimension (0.0-1.0).
     confidence indicates how much data backs the score (0.0-1.0).
@@ -250,37 +260,39 @@ class FlavorScore:
     sample_count: int  # Number of observations behind this score
 
 
-# Neutral default for missing flavor dimensions.
-IBR_NEUTRAL_FLAVOR: FlavorScore = FlavorScore(score=0.5, confidence=0.0, sample_count=0)
+# Neutral default for missing spectrograph dimensions.
+IBR_NEUTRAL_SPECTROGRAPH: SpectrographScore = SpectrographScore(
+    score=0.5, confidence=0.0, sample_count=0
+)
 
 
 @dataclass(frozen=True)
-class ModelFlavorProfile:
-    """Full flavor profile for a single model.
+class ModelSpectrographProfile:
+    """Full spectrograph profile for a single model.
 
     Maps a model_id to its relative strengths across IBR intent dimensions.
-    Missing dimensions default to IBR_NEUTRAL_FLAVOR.
+    Missing dimensions default to IBR_NEUTRAL_SPECTROGRAPH.
     """
 
     model_id: str
     version: int  # Profile schema version (for migration)
     updated_at: str  # ISO-8601 timestamp of last update
-    task_scores: dict[str, FlavorScore]  # task_type -> FlavorScore
-    domain_scores: dict[str, FlavorScore]  # domain -> FlavorScore
-    qs_scores: dict[str, FlavorScore]  # quality_speed -> FlavorScore
+    task_scores: dict[str, SpectrographScore]  # task_type -> SpectrographScore
+    domain_scores: dict[str, SpectrographScore]  # domain -> SpectrographScore
+    qs_scores: dict[str, SpectrographScore]  # quality_speed -> SpectrographScore
 
 
 @dataclass(frozen=True)
 class IBRScoringContext:
     """Context passed from IBR into CBR scoring.
 
-    Carries the classification result, loaded flavor profiles, and the
-    effective flavor_match weight so CBR can incorporate the signal.
+    Carries the classification result, loaded spectrograph profiles, and the
+    effective spectrograph_match weight so CBR can incorporate the signal.
     """
 
     classified_intent: ClassifiedIntent | None
-    flavor_profiles: dict[str, ModelFlavorProfile]
-    flavor_match_weight: float
+    spectrograph_profiles: dict[str, ModelSpectrographProfile]
+    spectrograph_match_weight: float
 
 
 @dataclass(frozen=True)
@@ -297,9 +309,14 @@ class EngineResponse:
     was_fallback: bool
     fallback_chain: list[str]
     classified_intent: ClassifiedIntent | None = None
-    flavor_match_score: float | None = None
+    spectrograph_match_score: float | None = None
     ibr_active: bool = False
     dispatch_mode: str = "cascade"
+    # Tool-use support: raw tool_call objects from the LLM API response.
+    # Present when the model returns tool_calls instead of (or alongside) text content.
+    tool_calls: list[dict] | None = None
+    # Finish reason from the API: "stop", "tool_calls", "length", etc.
+    finish_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -418,9 +435,12 @@ class StreamChunk:
     fallback_chain: list[str] | None = None
     error_message: str = ""
     classified_intent_json: str = ""
-    flavor_match_score: float | None = None
+    spectrograph_match_score: float | None = None
     ibr_active: bool = False
     dispatch_mode: str = "cascade"
+    # Tool-use support in streaming metadata chunks.
+    tool_calls: list[dict] | None = None
+    finish_reason: str | None = None
 
 
 @dataclass(frozen=True)

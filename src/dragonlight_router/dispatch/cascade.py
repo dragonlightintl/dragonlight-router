@@ -40,7 +40,6 @@ from dragonlight_router.selection.context_filter import (
     ProviderTrustTier,
     filter_context_for_provider,
 )
-from dragonlight_router.selection.flavor import FlavorProfileLoader
 from dragonlight_router.selection.ibr import IBRResult, run_ibr_stage
 from dragonlight_router.selection.lbr import filter_by_rate_limit, select_final_candidate
 from dragonlight_router.selection.mbr import (
@@ -52,6 +51,7 @@ from dragonlight_router.selection.scoring import (
     cost_adjusted_weights,
     cost_governor_active,
 )
+from dragonlight_router.selection.spectrograph import SpectrographProfileLoader
 
 logger = structlog.get_logger(__name__)
 
@@ -132,7 +132,7 @@ class DispatchContext:
     health_tracker: HealthTracker
     config: dict[str, Any]
     ibr_config: IntentClassificationConfig | None = None
-    flavor_loader: FlavorProfileLoader | None = None
+    spectrograph_loader: SpectrographProfileLoader | None = None
     classification_adapter: GenerativeBackend | None = None
     pinned_dispatch_config: PinnedDispatchConfig = PinnedDispatchConfig()
 
@@ -284,7 +284,7 @@ async def _run_ibr_stage(
     IBR must NEVER block or fail the cascade (IBR-SYS-03).
     All errors are caught and degraded to inactive result.
     """
-    if ctx.ibr_config is None or ctx.flavor_loader is None:
+    if ctx.ibr_config is None or ctx.spectrograph_loader is None:
         return None
 
     try:
@@ -292,7 +292,7 @@ async def _run_ibr_stage(
             order=order,
             candidates=candidates,
             ibr_config=ctx.ibr_config,
-            flavor_loader=ctx.flavor_loader,
+            spectrograph_loader=ctx.spectrograph_loader,
             classification_adapter=ctx.classification_adapter,
         )
         logger.debug("IBR stage complete", ibr_active=result.ibr_active)
@@ -314,14 +314,14 @@ def _resolve_cbr_weights(
     """
     if ibr_result is not None and ibr_result.ibr_active:
         ibr_cfg = ctx.ibr_config
-        weight = ibr_cfg.flavor_match_weight if ibr_cfg is not None else 0.15
+        weight = ibr_cfg.spectrograph_match_weight if ibr_cfg is not None else 0.15
         return ScoringWeightsConfig(
             cost=0.30,
             latency=0.20,
             priority=0.15,
             queue=0.10,
             health=0.10,
-            flavor_match=weight,
+            spectrograph_match=weight,
         )
     return ScoringWeightsConfig()
 
@@ -338,7 +338,7 @@ def _score_and_rank_candidates(
     assert isinstance(candidates, list), "candidates must be a list"
     assert len(candidates) > 0, "candidates must not be empty"
 
-    flavor_scores = ibr_result.flavor_scores if ibr_result is not None else {}
+    spectrograph_scores = ibr_result.spectrograph_scores if ibr_result is not None else {}
 
     scored_candidates: list[ScoredCandidate] = []
     for candidate in candidates:
@@ -349,9 +349,9 @@ def _score_and_rank_candidates(
             budget_tracker=ctx.budget_tracker,
             health_tracker=ctx.health_tracker,
         )
-        # Add flavor_match contribution when IBR is active
-        flavor_match = flavor_scores.get(candidate.name, 0.0)
-        score = score + flavor_match * weights.flavor_match
+        # Add spectrograph_match contribution when IBR is active
+        spectrograph_match = spectrograph_scores.get(candidate.name, 0.0)
+        score = score + spectrograph_match * weights.spectrograph_match
         score = min(1.0, max(0.0, score))
         score = _apply_degraded_penalty(score, candidate, ctx.registry)
         scored_candidates.append(ScoredCandidate(config=candidate, score=score))
@@ -674,19 +674,36 @@ async def _pinned_dispatch_full(
 
     provider_trust = _tier_to_provider_trust(backend_config.tier)
     filtered_context = filter_context_for_provider(base_context, provider_trust)
-    messages = _build_messages(filtered_context, order.operator_message)
+    messages = _resolve_messages(order, filtered_context)
 
     # Dispatch to adapter
     t0 = time.monotonic()
+    tool_calls_resp: list[dict] | None = None
+    finish_reason: str | None = None
     try:
-        content_parts: list[str] = []
-        async for chunk in adapter.generate(
-            messages,
-            max_tokens=4096,
-            temperature=0.7,
-            stream=True,
-        ):
-            content_parts.append(chunk)
+        # Tool-use path: non-streaming, returns full message with tool_calls
+        if order.tools and hasattr(adapter, "generate_with_tools"):
+            tools_list = list(order.tools)
+            result_msg = await adapter.generate_with_tools(
+                messages,
+                max_tokens=4096,
+                temperature=0.7,
+                tools=tools_list,
+                tool_choice=order.tool_choice,
+            )
+            content = result_msg.get("content", "") or ""
+            tool_calls_resp = result_msg.get("tool_calls")
+            finish_reason = result_msg.get("finish_reason")
+        else:
+            content_parts: list[str] = []
+            async for chunk in adapter.generate(
+                messages,
+                max_tokens=4096,
+                temperature=0.7,
+                stream=True,
+            ):
+                content_parts.append(chunk)
+            content = "".join(content_parts)
     except (RuntimeError, ValueError, ConnectionError, OSError, TypeError) as exc:
         latency_ms = (time.monotonic() - t0) * 1000.0
         _record_adapter_failure(exc, backend_config, ctx)
@@ -708,7 +725,6 @@ async def _pinned_dispatch_full(
         )
 
     latency_ms = (time.monotonic() - t0) * 1000.0
-    content = "".join(content_parts)
     tokens_in, tokens_out = _estimate_and_log_tokens(messages, content, backend_config.name)
     cost_usd = _compute_cost_usd(tokens_in, tokens_out, backend_config.cost)
 
@@ -735,6 +751,8 @@ async def _pinned_dispatch_full(
         was_fallback=False,
         fallback_chain=[],
         dispatch_mode="pinned",
+        tool_calls=tool_calls_resp,
+        finish_reason=finish_reason,
     )
 
     logger.info(
@@ -818,7 +836,7 @@ async def _pinned_dispatch_stream(
     )
     provider_trust = _tier_to_provider_trust(backend_config.tier)
     filtered_context = filter_context_for_provider(base_context, provider_trust)
-    messages = _build_messages(filtered_context, order.operator_message)
+    messages = _resolve_messages(order, filtered_context)
 
     t0 = time.monotonic()
     tokens_out_chars = 0
@@ -902,7 +920,7 @@ async def route(
     config: dict[str, Any],
     *,
     ibr_config: IntentClassificationConfig | None = None,
-    flavor_loader: FlavorProfileLoader | None = None,
+    spectrograph_loader: SpectrographProfileLoader | None = None,
     classification_adapter: GenerativeBackend | None = None,
     pinned_dispatch_config: PinnedDispatchConfig | None = None,
 ) -> Result[BackendConfig, Exception]:
@@ -931,7 +949,7 @@ async def route(
         health_tracker=health_tracker,
         config=config,
         ibr_config=ibr_config,
-        flavor_loader=flavor_loader,
+        spectrograph_loader=spectrograph_loader,
         classification_adapter=classification_adapter,
         pinned_dispatch_config=pinned_dispatch_config or PinnedDispatchConfig(),
     )
@@ -986,13 +1004,34 @@ def _build_messages(
     return messages
 
 
+def _resolve_messages(
+    order: DispatchOrder,
+    base_context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Resolve the message list for an adapter call.
+
+    When the order carries structured messages (tool-use conversations),
+    returns those directly. Otherwise falls back to _build_messages()
+    for the legacy system+user text path.
+    """
+    if order.messages is not None:
+        return list(order.messages)
+    return _build_messages(base_context, order.operator_message)
+
+
 def _estimate_and_log_tokens(
-    messages: list[dict[str, str]],
+    messages: list[dict],
     content: str,
     backend_name: str,
 ) -> tuple[int, int]:
     """HAZ-010: Estimate input/output token counts and log for observability."""
-    input_chars = sum(len(m.get("content", "")) for m in messages)
+    input_chars = 0
+    for m in messages:
+        msg_content = m.get("content", "")
+        if isinstance(msg_content, str):
+            input_chars += len(msg_content)
+        elif msg_content is not None:
+            input_chars += len(str(msg_content))
     tokens_in = _estimate_token_count(input_chars)
     tokens_out = _estimate_token_count(len(content))
     _log_token_estimation(tokens_in, input_chars, backend_name, "input")
@@ -1057,6 +1096,9 @@ async def _try_adapter_dispatch(
 
     HAZ-014 mitigation: Creates a fresh adapter per dispatch attempt so
     concurrent requests do not share mutable adapter state (_status).
+
+    When the order carries tool definitions, uses the adapter's
+    generate_with_tools() method for non-streaming tool-use dispatch.
     """
     assert isinstance(backend_config, BackendConfig), "backend_config must be BackendConfig"
 
@@ -1068,9 +1110,42 @@ async def _try_adapter_dispatch(
 
     provider_trust = _tier_to_provider_trust(backend_config.tier)
     filtered_context = filter_context_for_provider(base_context, provider_trust)
-    messages = _build_messages(filtered_context, order.operator_message)
+    messages = _resolve_messages(order, filtered_context)
 
     t0 = time.monotonic()
+
+    # Tool-use path: non-streaming, returns full message with tool_calls
+    if order.tools and hasattr(adapter, "generate_with_tools"):
+        tools_list = list(order.tools)
+        result_msg = await adapter.generate_with_tools(
+            messages,
+            max_tokens=4096,
+            temperature=0.7,
+            tools=tools_list,
+            tool_choice=order.tool_choice,
+        )
+        latency_ms = (time.monotonic() - t0) * 1000.0
+        content = result_msg.get("content", "") or ""
+        tool_calls_resp = result_msg.get("tool_calls")
+        finish_reason = result_msg.get("finish_reason")
+        tokens_in, tokens_out = _estimate_and_log_tokens(messages, content, backend_config.name)
+        cost_usd = _compute_cost_usd(tokens_in, tokens_out, backend_config.cost)
+
+        _record_dispatch_success(
+            backend_config, ctx, adapter,
+            tokens_in, tokens_out, cost_usd, latency_ms, fallback_chain,
+        )
+
+        return Ok(
+            _build_engine_response(
+                backend_config, content,
+                tokens_in, tokens_out, cost_usd, latency_ms, fallback_chain,
+                tool_calls=tool_calls_resp,
+                finish_reason=finish_reason,
+            )
+        )
+
+    # Standard text-only path: streaming generation
     content_parts: list[str] = []
     async for chunk in adapter.generate(
         messages,
@@ -1109,7 +1184,7 @@ async def _try_adapter_dispatch(
     )
 
 
-# DEVIATION CS-PARAM-001: _build_engine_response takes 7 params — dataclass would break API.
+# DEVIATION CS-PARAM-001: _build_engine_response takes 9 params — dataclass would break API.
 def _build_engine_response(
     backend_config: BackendConfig,
     content: str,
@@ -1118,6 +1193,8 @@ def _build_engine_response(
     cost_usd: float,
     latency_ms: float,
     fallback_chain: list[str],
+    tool_calls: list[dict] | None = None,
+    finish_reason: str | None = None,
 ) -> EngineResponse:
     """Assemble the final EngineResponse from generation results."""
     return EngineResponse(
@@ -1130,6 +1207,8 @@ def _build_engine_response(
         latency_ms=latency_ms,
         was_fallback=len(fallback_chain) > 0,
         fallback_chain=list(fallback_chain),
+        tool_calls=tool_calls,
+        finish_reason=finish_reason,
     )
 
 
@@ -1369,7 +1448,7 @@ async def dispatch(
     config: dict[str, Any],
     *,
     ibr_config: IntentClassificationConfig | None = None,
-    flavor_loader: FlavorProfileLoader | None = None,
+    spectrograph_loader: SpectrographProfileLoader | None = None,
     classification_adapter: GenerativeBackend | None = None,
     pinned_dispatch_config: PinnedDispatchConfig | None = None,
 ) -> Result[EngineResponse, Exception]:
@@ -1394,7 +1473,7 @@ async def dispatch(
         health_tracker=health_tracker,
         config=config,
         ibr_config=ibr_config,
-        flavor_loader=flavor_loader,
+        spectrograph_loader=spectrograph_loader,
         classification_adapter=classification_adapter,
         pinned_dispatch_config=pinned_dispatch_config or PinnedDispatchConfig(),
     )
@@ -1481,7 +1560,7 @@ async def _try_streaming_dispatch(
     )
     provider_trust = _tier_to_provider_trust(backend_config.tier)
     filtered_context = filter_context_for_provider(base_context, provider_trust)
-    messages = _build_messages(filtered_context, order.operator_message)
+    messages = _resolve_messages(order, filtered_context)
 
     t0 = time.monotonic()
     tokens_out_chars = 0
@@ -1571,7 +1650,7 @@ async def dispatch_stream(
     config: dict[str, Any],
     *,
     ibr_config: IntentClassificationConfig | None = None,
-    flavor_loader: FlavorProfileLoader | None = None,
+    spectrograph_loader: SpectrographProfileLoader | None = None,
     classification_adapter: GenerativeBackend | None = None,
     pinned_dispatch_config: PinnedDispatchConfig | None = None,
 ) -> AsyncIterator[StreamChunk]:
@@ -1594,7 +1673,7 @@ async def dispatch_stream(
         health_tracker=health_tracker,
         config=config,
         ibr_config=ibr_config,
-        flavor_loader=flavor_loader,
+        spectrograph_loader=spectrograph_loader,
         classification_adapter=classification_adapter,
         pinned_dispatch_config=pinned_dispatch_config or PinnedDispatchConfig(),
     )

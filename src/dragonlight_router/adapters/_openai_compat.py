@@ -73,9 +73,21 @@ class OpenAICompatibleBackend(GenerativeBackend):
         return self._status
 
     def _resolve_base_url(self) -> str:
-        """Resolve the base URL from config or fall back to the provider default."""
+        """Resolve the base URL from config or fall back to the provider default.
+
+        Strips trailing version path (e.g. /v1, /v2) from config base URLs
+        when _completions_path already contains a version prefix, preventing
+        doubled paths like /v1/v1/chat/completions.
+        """
         if self._config.base_url:
-            return self._config.base_url.rstrip("/")
+            url = self._config.base_url.rstrip("/")
+            # Deduplicate version path: if completions_path starts with /v1
+            # and base_url ends with /v1, strip it from base_url
+            if self._completions_path.startswith("/v"):
+                version_prefix = self._completions_path.split("/")[1]  # e.g. "v1"
+                if url.endswith(f"/{version_prefix}"):
+                    url = url[: -len(version_prefix) - 1]
+            return url
         return self._default_base_url
 
     def _build_auth_headers(self) -> dict[str, str]:
@@ -98,17 +110,24 @@ class OpenAICompatibleBackend(GenerativeBackend):
         max_tokens: int,
         temperature: float,
         stream: bool,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
     ) -> dict[str, object]:
         """Construct the JSON body for chat completions."""
         assert isinstance(messages, list), "messages must be a list"
         assert len(messages) > 0, "messages must not be empty"
-        return {
+        body: dict[str, object] = {
             "model": self._config.model,
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": stream,
         }
+        if tools:
+            body["tools"] = tools
+        if tool_choice is not None:
+            body["tool_choice"] = tool_choice
+        return body
 
     @staticmethod
     def _is_retryable_status(status_code: int) -> bool:
@@ -195,6 +214,8 @@ class OpenAICompatibleBackend(GenerativeBackend):
         max_tokens: int,
         temperature: float,
         stream: bool,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
     ) -> tuple[str, dict[str, str], dict[str, object]]:
         """Validate API key and build (url, headers, payload) for a request."""
         if not self._api_key:
@@ -211,6 +232,8 @@ class OpenAICompatibleBackend(GenerativeBackend):
             max_tokens=max_tokens,
             temperature=temperature,
             stream=stream,
+            tools=tools,
+            tool_choice=tool_choice,
         )
         return url, headers, payload
 
@@ -286,6 +309,99 @@ class OpenAICompatibleBackend(GenerativeBackend):
 
         self._raise_retries_exhausted(last_exc)
 
+    async def generate_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
+    ) -> dict[str, Any]:
+        """Generate a non-streaming response with tool-use support.
+
+        Unlike generate(), this returns the full parsed message dict from the
+        API response, including tool_calls when present. Uses non-streaming
+        mode because tool_call accumulation from SSE deltas adds significant
+        complexity for minimal latency benefit in agentic loops.
+
+        Returns a dict with keys:
+            content: str | None — text content (may be None for pure tool calls)
+            tool_calls: list[dict] | None — tool_call objects from the API
+            finish_reason: str | None — "stop", "tool_calls", etc.
+        """
+        assert isinstance(messages, list), "messages must be a list"
+        assert len(messages) > 0, "messages must not be empty"
+
+        url, headers, payload = self._validate_and_prepare_request(
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            stream=False,
+            tools=tools,
+            tool_choice=tool_choice,
+        )
+
+        last_exc: Exception | None = None
+        for attempt in range(self._max_retries):
+            try:
+                async with self._make_client(timeout=60.0) as client:
+                    response = await client.post(
+                        url,
+                        headers=headers,
+                        json=payload,
+                        timeout=60.0,
+                    )
+                    response.raise_for_status()
+                    return self._extract_non_stream_full_message(response.json())
+            except httpx.HTTPStatusError as e:
+                last_exc = e
+                delay = self._handle_http_retry(e, attempt)
+                if delay is not None:
+                    await asyncio.sleep(delay)
+                    continue
+            except (httpx.ConnectError, httpx.TimeoutException) as e:
+                last_exc = e
+                delay = self._handle_connection_retry(e, attempt)
+                if delay is not None:
+                    await asyncio.sleep(delay)
+                    continue
+            except RuntimeError:
+                raise
+            except (json.JSONDecodeError, KeyError, ValueError) as e:
+                self._status = BackendStatus.ERROR
+                raise RuntimeError(f"{self._provider_name} request failed: {e}") from e
+
+        self._raise_retries_exhausted(last_exc)
+        # Unreachable — _raise_retries_exhausted always raises — but keeps mypy happy
+        raise RuntimeError("retries exhausted")  # pragma: no cover
+
+    def _extract_non_stream_full_message(self, response_data: dict[str, Any]) -> dict[str, Any]:
+        """Extract the full message dict from a non-streaming API response.
+
+        Returns a dict with content, tool_calls, and finish_reason suitable
+        for tool-use conversations.
+        """
+        choices = response_data.get("choices")
+        if not choices:
+            return {"content": "", "tool_calls": None, "finish_reason": None}
+
+        choice = choices[0]
+        message = choice.get("message", {})
+        finish_reason = choice.get("finish_reason")
+
+        content = message.get("content")
+        if content is not None and not isinstance(content, str):
+            content = str(content) if content else None
+
+        tool_calls = message.get("tool_calls")
+
+        return {
+            "content": content or "",
+            "tool_calls": tool_calls,
+            "finish_reason": finish_reason,
+        }
+
     async def _parse_sse_stream(self, response: httpx.Response) -> AsyncIterator[str]:
         """Parse SSE stream from response and yield content chunks."""
         async for line in response.aiter_lines():
@@ -320,9 +436,11 @@ class OpenAICompatibleBackend(GenerativeBackend):
         if not choices:
             return None
         delta = choices[0].get("delta", {})
-        content: str | None = delta.get("content")
-        if content is not None:
-            assert isinstance(content, str), "streamed content must be a string"
+        content = delta.get("content")
+        if content is None:
+            return None
+        if not isinstance(content, str):
+            return str(content) if content else None
         return content
 
     def _extract_non_stream_content(self, response_data: dict[str, Any]) -> str:
@@ -331,7 +449,8 @@ class OpenAICompatibleBackend(GenerativeBackend):
         if not choices:
             return ""
         content = choices[0].get("message", {}).get("content", "")
-        assert isinstance(content, str), "response content must be a string"
+        if not isinstance(content, str):
+            return str(content) if content else ""
         return content
 
     async def health_check(self) -> bool:

@@ -1214,17 +1214,22 @@ class TestBudgetStatePersistence:
         engine1._budget.record_request("groq", tokens_used=300)
         engine1.save_state()
 
-        # Create a new engine from the same config — it should restore state
+        # Create a new engine from the same config — it should restore state.
+        # In shared (SQLite) mode, the new engine reads from the same budget.db,
+        # so state is visible via get_state() rather than in-memory attributes.
         engine2 = RouterEngine(config_path=config_path)
-        assert engine2._budget._rpd_counts["groq"] == 2
-        assert engine2._budget._daily_token_counts["groq"] == 800
+        state = engine2._budget.get_state()
+        assert state["rpd_counts"]["groq"] == 2
+        assert state["daily_token_counts"]["groq"] == 800
 
     def test_restore_handles_missing_file(self, tmp_path: Path):
         """[TM-010 AC-21] _restore_budget_state handles missing file gracefully."""
         config_path = _setup_config(tmp_path)
         # No budget_state.json exists — should not raise
         engine = RouterEngine(config_path=config_path)
-        assert engine._budget._rpd_counts.get("groq", 0) == 0
+        # In shared mode, no prior requests means zero RPD count
+        state = engine._budget.get_state()
+        assert state["rpd_counts"].get("groq", 0) == 0
 
     def test_save_state_error_does_not_raise(self, tmp_path: Path):
         """[TM-010 AC-21] save_state logs warning but does not raise on write error."""

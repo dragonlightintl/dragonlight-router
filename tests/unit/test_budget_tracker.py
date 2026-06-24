@@ -6,6 +6,7 @@ Spec traceability: TM-012 (BudgetTracker)
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import pytest
 from hypothesis import given
@@ -660,3 +661,292 @@ class TestPropertyTests:
         assert isinstance(result, Ok)
         score = result.value
         assert 0.0 <= score <= 100.0
+
+
+# ==========================================================================
+# SQLite shared-mode tests
+# ==========================================================================
+
+
+class TestSQLiteInit:
+    def test_creates_db_file(self, tmp_path: Path):
+        """[TM-012 AC-10] SQLite mode creates budget.db on init."""
+        db_path = tmp_path / "budget.db"
+        BudgetTracker(providers=[_provider("groq")], db_path=db_path)
+        assert db_path.exists()
+
+    def test_creates_parent_dirs(self, tmp_path: Path):
+        """[TM-012 AC-10] SQLite mode creates parent directories for db_path."""
+        db_path = tmp_path / "sub" / "dir" / "budget.db"
+        BudgetTracker(providers=[_provider("groq")], db_path=db_path)
+        assert db_path.exists()
+
+    def test_in_memory_mode_has_no_db(self):
+        """[TM-012 AC-10] In-memory mode does not create a database."""
+        bt = BudgetTracker(providers=[_provider("groq")])
+        assert bt._shared_mode is False
+
+
+class TestSQLiteRecordAndScore:
+    def test_full_capacity_is_100(self, tmp_path: Path):
+        """[TM-012 AC-11] Full capacity yields score 100 in shared mode."""
+        db_path = tmp_path / "budget.db"
+        bt = BudgetTracker(
+            providers=[_provider("groq", rpm=30, rpd=14400)],
+            db_path=db_path,
+        )
+        result = bt.score("groq")
+        assert isinstance(result, Ok)
+        assert result.value == pytest.approx(100.0)
+
+    def test_score_decreases_with_requests(self, tmp_path: Path):
+        """[TM-012 AC-11] Score decreases as requests consume capacity in shared mode."""
+        db_path = tmp_path / "budget.db"
+        bt = BudgetTracker(
+            providers=[_provider("groq", rpm=30, rpd=14400)],
+            db_path=db_path,
+        )
+        for _ in range(15):
+            bt.record_request("groq")
+        result = bt.score("groq")
+        assert isinstance(result, Ok)
+        assert 0.0 < result.value < 100.0
+
+    def test_records_tokens(self, tmp_path: Path):
+        """[TM-012 AC-11] Token usage is tracked in shared mode."""
+        db_path = tmp_path / "budget.db"
+        bt = BudgetTracker(
+            providers=[_provider("groq", rpm=100, rpd=1000, tpm=500, daily_token_cap=10000)],
+            db_path=db_path,
+        )
+        bt.record_request("groq", tokens_used=100)
+        bt.record_request("groq", tokens_used=200)
+        result = bt.score("groq")
+        assert isinstance(result, Ok)
+        assert result.value == pytest.approx(40.0)
+
+
+class TestSQLiteHasCapacity:
+    def test_has_capacity_initially(self, tmp_path: Path):
+        """[TM-012 AC-12] Fresh shared tracker reports capacity available."""
+        db_path = tmp_path / "budget.db"
+        bt = BudgetTracker(
+            providers=[_provider("groq", rpm=2, rpd=100)],
+            db_path=db_path,
+        )
+        assert bt.has_capacity("groq") is True
+
+    def test_no_capacity_after_rpm_exhausted(self, tmp_path: Path):
+        """[TM-012 AC-12] RPM exhaustion detected in shared mode."""
+        db_path = tmp_path / "budget.db"
+        bt = BudgetTracker(
+            providers=[_provider("groq", rpm=2, rpd=100)],
+            db_path=db_path,
+        )
+        bt.record_request("groq")
+        bt.record_request("groq")
+        assert bt.has_capacity("groq") is False
+
+    def test_no_capacity_after_rpd_exhausted(self, tmp_path: Path):
+        """[TM-012 AC-12] RPD exhaustion detected in shared mode."""
+        db_path = tmp_path / "budget.db"
+        bt = BudgetTracker(
+            providers=[_provider("groq", rpm=100, rpd=2)],
+            db_path=db_path,
+        )
+        bt.record_request("groq")
+        bt.record_request("groq")
+        assert bt.has_capacity("groq") is False
+
+
+class TestSQLiteCheckAndReserve:
+    @pytest.mark.asyncio
+    async def test_succeeds_with_capacity(self, tmp_path: Path):
+        """[TM-012 AC-13] check_and_reserve returns True with capacity in shared mode."""
+        db_path = tmp_path / "budget.db"
+        bt = BudgetTracker(
+            providers=[_provider("groq", rpm=10, rpd=1000)],
+            db_path=db_path,
+        )
+        result = await bt.check_and_reserve("groq", estimated_tokens=100)
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_fails_without_capacity(self, tmp_path: Path):
+        """[TM-012 AC-13] check_and_reserve returns False when exhausted in shared mode."""
+        db_path = tmp_path / "budget.db"
+        bt = BudgetTracker(
+            providers=[_provider("groq", rpm=2, rpd=1000)],
+            db_path=db_path,
+        )
+        bt.record_request("groq")
+        bt.record_request("groq")
+        result = await bt.check_and_reserve("groq", estimated_tokens=100)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_prevents_race_condition(self, tmp_path: Path):
+        """[TM-012 AC-13] Concurrent check_and_reserve calls do not exceed capacity (shared mode)."""
+        import asyncio
+
+        db_path = tmp_path / "budget.db"
+        bt = BudgetTracker(
+            providers=[_provider("groq", rpm=3, rpd=100000)],
+            db_path=db_path,
+        )
+        # SQLite transactions provide cross-process atomicity. Within a single
+        # process, concurrent asyncio tasks calling check_and_reserve should
+        # still respect limits.
+        results = await asyncio.gather(
+            *[bt.check_and_reserve("groq", estimated_tokens=1) for _ in range(10)]
+        )
+        successes = sum(1 for r in results if r is True)
+        assert successes == 3
+
+
+class TestSQLiteCrossInstanceVisibility:
+    """The core value proposition: two BudgetTracker instances sharing the same DB
+    coordinate rate limits as a single source of truth."""
+
+    def test_second_instance_sees_first_requests(self, tmp_path: Path):
+        """[TM-012 AC-14] A second tracker instance sees requests from the first."""
+        db_path = tmp_path / "budget.db"
+        bt1 = BudgetTracker(
+            providers=[_provider("groq", rpm=10, rpd=1000)],
+            db_path=db_path,
+        )
+        bt2 = BudgetTracker(
+            providers=[_provider("groq", rpm=10, rpd=1000)],
+            db_path=db_path,
+        )
+        # Instance 1 records 5 requests
+        for _ in range(5):
+            bt1.record_request("groq")
+        # Instance 2 should see them
+        result = bt2.score("groq")
+        assert isinstance(result, Ok)
+        assert result.value == pytest.approx(50.0)
+
+    def test_cross_instance_rpm_exhaustion(self, tmp_path: Path):
+        """[TM-012 AC-14] RPM exhaustion from one instance is visible to another."""
+        db_path = tmp_path / "budget.db"
+        bt1 = BudgetTracker(
+            providers=[_provider("groq", rpm=4, rpd=1000)],
+            db_path=db_path,
+        )
+        bt2 = BudgetTracker(
+            providers=[_provider("groq", rpm=4, rpd=1000)],
+            db_path=db_path,
+        )
+        # Each instance records 2 requests
+        bt1.record_request("groq")
+        bt1.record_request("groq")
+        bt2.record_request("groq")
+        bt2.record_request("groq")
+        # Both should see RPM exhausted
+        assert bt1.has_capacity("groq") is False
+        assert bt2.has_capacity("groq") is False
+
+    def test_cross_instance_token_tracking(self, tmp_path: Path):
+        """[TM-012 AC-14] Token usage from multiple instances accumulates correctly."""
+        db_path = tmp_path / "budget.db"
+        bt1 = BudgetTracker(
+            providers=[_provider("groq", rpm=100, rpd=1000, tpm=500)],
+            db_path=db_path,
+        )
+        bt2 = BudgetTracker(
+            providers=[_provider("groq", rpm=100, rpd=1000, tpm=500)],
+            db_path=db_path,
+        )
+        bt1.record_request("groq", tokens_used=200)
+        bt2.record_request("groq", tokens_used=200)
+        # Both should see 400 of 500 TPM used -> 100 remaining -> 20%
+        result1 = bt1.score("groq")
+        result2 = bt2.score("groq")
+        assert isinstance(result1, Ok)
+        assert isinstance(result2, Ok)
+        assert result1.value == pytest.approx(20.0)
+        assert result2.value == pytest.approx(20.0)
+
+
+class TestSQLiteDailySpend:
+    def test_daily_spend_from_sqlite(self, tmp_path: Path):
+        """[TM-012 AC-15] daily_spend_usd reads from SQLite in shared mode."""
+        db_path = tmp_path / "budget.db"
+        bt = BudgetTracker(
+            providers=[_provider("groq", rpm=100, rpd=1000)],
+            db_path=db_path,
+        )
+        bt.record_request("groq", tokens_used=1000)
+        bt.record_request("groq", tokens_used=500)
+        spend = bt.daily_spend_usd("groq", avg_cost_per_token=0.00001)
+        assert spend == pytest.approx(0.015)
+
+
+class TestSQLiteGetState:
+    def test_get_state_reads_from_sqlite(self, tmp_path: Path):
+        """[TM-012 AC-16] get_state returns SQLite-sourced counters in shared mode."""
+        db_path = tmp_path / "budget.db"
+        bt = BudgetTracker(
+            providers=[_provider("groq", rpm=100, rpd=1000, daily_token_cap=10000)],
+            db_path=db_path,
+        )
+        bt.record_request("groq", tokens_used=500)
+        bt.record_request("groq", tokens_used=300)
+        state = bt.get_state()
+        assert state["rpd_counts"]["groq"] == 2
+        assert state["daily_token_counts"]["groq"] == 800
+        assert "day_reset_at" in state
+
+    def test_restore_state_is_noop_in_shared_mode(self, tmp_path: Path):
+        """[TM-012 AC-16] restore_state is a no-op in shared mode (SQLite IS persistence)."""
+        db_path = tmp_path / "budget.db"
+        bt = BudgetTracker(
+            providers=[_provider("groq", rpm=100, rpd=1000)],
+            db_path=db_path,
+        )
+        # This should not raise
+        bt.restore_state({"rpd_counts": {"groq": 99}, "day_reset_at": time.time() + 3600})
+        # State should still be empty (restore_state is a no-op)
+        state = bt.get_state()
+        assert state["rpd_counts"]["groq"] == 0
+
+
+class TestSQLiteCleanup:
+    def test_old_entries_cleaned_on_init(self, tmp_path: Path):
+        """[TM-012 AC-17] Old request_log entries are cleaned on init."""
+        import sqlite3
+
+        db_path = tmp_path / "budget.db"
+        # Create DB manually with an old entry
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS request_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider TEXT NOT NULL,
+                timestamp REAL NOT NULL,
+                tokens_used INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        old_ts = time.time() - 90000  # 25 hours ago
+        conn.execute(
+            "INSERT INTO request_log (provider, timestamp, tokens_used) VALUES (?, ?, ?)",
+            ("groq", old_ts, 100),
+        )
+        conn.commit()
+        # Verify the old entry exists
+        row = conn.execute("SELECT COUNT(*) FROM request_log").fetchone()
+        assert row[0] == 1
+        conn.close()
+
+        # Init BudgetTracker — should clean old entries
+        bt = BudgetTracker(
+            providers=[_provider("groq", rpm=100, rpd=1000)],
+            db_path=db_path,
+        )
+        # The old entry should be gone
+        conn2 = bt._connect()
+        row = conn2.execute("SELECT COUNT(*) FROM request_log").fetchone()
+        assert row[0] == 0
+        conn2.close()

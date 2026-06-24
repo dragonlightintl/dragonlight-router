@@ -297,7 +297,10 @@ class RouterEngine:
             )
             for p in self._config.providers
         ]
-        self._budget = BudgetTracker(providers=provider_configs)
+        self._budget = BudgetTracker(
+            providers=provider_configs,
+            db_path=state_dir / "budget.db",
+        )
         self._health = HealthTracker()
         self._catalog = CatalogCache(
             cache_path=state_dir / "provider_catalog.json",

@@ -51,8 +51,11 @@ from dragonlight_router.selection.mbr import (
     MBRNoCandidatesError,
     filter_by_capabilities,
 )
+from dragonlight_router.selection.feedback import FeedbackStore
 from dragonlight_router.selection.scoring import (
     ScoringWeightsConfig,
+    _STAKES_TO_WEIGHTS,
+    classify_request_stakes,
     cost_adjusted_weights,
     cost_governor_active,
     intent_weights_for_category,
@@ -172,6 +175,7 @@ class DispatchContext:
     spectrograph_loader: SpectrographProfileLoader | None = None
     classification_adapter: GenerativeBackend | None = None
     pinned_dispatch_config: PinnedDispatchConfig = PinnedDispatchConfig()
+    feedback_store: FeedbackStore | None = None
 
 
 def _estimate_token_count(char_count: int) -> int:
@@ -331,6 +335,7 @@ async def _run_ibr_stage(
             ibr_config=ctx.ibr_config,
             spectrograph_loader=ctx.spectrograph_loader,
             classification_adapter=ctx.classification_adapter,
+            feedback_store=ctx.feedback_store,
         )
         logger.debug("IBR stage complete", ibr_active=result.ibr_active)
         return result
@@ -344,32 +349,63 @@ def _resolve_cbr_weights(
     ctx: DispatchContext,
     order: DispatchOrder | None = None,
 ) -> ScoringWeightsConfig:
-    """Determine CBR scoring weights based on IBR result and intent category.
+    """Determine CBR scoring weights based on IBR result, intent category, and context signals.
 
     Weight resolution order:
-    1. If intent_category maps to a per-intent weight profile, use it.
-       This provides content-aware scoring even when the full IBR classifier
-       is disabled — the factory passes fine-grained intent categories.
+    1. Compute both intent-based and context-escalation weights.
+       If both are active, use whichever is higher-stakes (higher
+       spectrograph_match weight = higher stakes).
     2. If IBR is active with valid spectrograph scores, use 6-dimension
        weights with the configured spectrograph_match_weight (IBR-SCORE-02).
     3. Otherwise fall back to default ScoringWeightsConfig.
     """
-    # Per-intent-category weight profiles take priority — they encode
-    # operator knowledge about what matters for each task type.
     if order is not None:
+        # Try intent-based classification first
         intent_weights = intent_weights_for_category(order.intent_category)
-        # intent_weights_for_category returns default config for unrecognized
-        # categories. Only use the intent-specific profile when it differs
-        # from the default (i.e. the category was actually recognized).
         default_weights = ScoringWeightsConfig()
-        if intent_weights != default_weights:
+
+        # Context-based escalation
+        stakes = classify_request_stakes(order)
+        stakes_weights = _STAKES_TO_WEIGHTS.get(stakes)
+
+        if intent_weights != default_weights and stakes_weights is not None:
+            # Both signals active: use whichever is higher-stakes
+            # (higher spectrograph_match weight = higher stakes)
+            if stakes_weights.spectrograph_match > intent_weights.spectrograph_match:
+                logger.debug(
+                    "cbr_weights_escalated_by_context",
+                    intent_category=order.intent_category,
+                    stakes=stakes,
+                    cost=stakes_weights.cost,
+                    spectrograph_match=stakes_weights.spectrograph_match,
+                )
+                return stakes_weights
             logger.debug(
                 "cbr_weights_from_intent_category",
                 intent_category=order.intent_category,
+                stakes=stakes,
                 cost=intent_weights.cost,
                 spectrograph_match=intent_weights.spectrograph_match,
             )
             return intent_weights
+        elif intent_weights != default_weights:
+            logger.debug(
+                "cbr_weights_from_intent_category",
+                intent_category=order.intent_category,
+                stakes=stakes,
+                cost=intent_weights.cost,
+                spectrograph_match=intent_weights.spectrograph_match,
+            )
+            return intent_weights
+        elif stakes_weights is not None:
+            logger.debug(
+                "cbr_weights_from_context_stakes",
+                intent_category=order.intent_category,
+                stakes=stakes,
+                cost=stakes_weights.cost,
+                spectrograph_match=stakes_weights.spectrograph_match,
+            )
+            return stakes_weights
 
     if ibr_result is not None and ibr_result.ibr_active:
         ibr_cfg = ctx.ibr_config
@@ -574,6 +610,7 @@ async def route(
     spectrograph_loader: SpectrographProfileLoader | None = None,
     classification_adapter: GenerativeBackend | None = None,
     pinned_dispatch_config: PinnedDispatchConfig | None = None,
+    feedback_store: FeedbackStore | None = None,
 ) -> Result[BackendConfig, Exception]:
     """Run the MBR -> IBR -> CBR -> LBR cascade and return the selected BackendConfig.
 
@@ -603,6 +640,7 @@ async def route(
         spectrograph_loader=spectrograph_loader,
         classification_adapter=classification_adapter,
         pinned_dispatch_config=pinned_dispatch_config or PinnedDispatchConfig(),
+        feedback_store=feedback_store,
     )
 
     # Pinned dispatch early branch — bypass cascade entirely.
@@ -1153,6 +1191,7 @@ async def dispatch(
     spectrograph_loader: SpectrographProfileLoader | None = None,
     classification_adapter: GenerativeBackend | None = None,
     pinned_dispatch_config: PinnedDispatchConfig | None = None,
+    feedback_store: FeedbackStore | None = None,
 ) -> Result[EngineResponse, Exception]:
     """Execute the full dispatch pipeline with fallback and return an EngineResponse.
 
@@ -1178,6 +1217,7 @@ async def dispatch(
         spectrograph_loader=spectrograph_loader,
         classification_adapter=classification_adapter,
         pinned_dispatch_config=pinned_dispatch_config or PinnedDispatchConfig(),
+        feedback_store=feedback_store,
     )
 
     # Pinned dispatch early branch — bypass cascade entirely.
@@ -1365,6 +1405,7 @@ async def dispatch_stream(
     spectrograph_loader: SpectrographProfileLoader | None = None,
     classification_adapter: GenerativeBackend | None = None,
     pinned_dispatch_config: PinnedDispatchConfig | None = None,
+    feedback_store: FeedbackStore | None = None,
 ) -> AsyncIterator[StreamChunk]:
     """Execute the cascade and stream tokens as they arrive from the LLM.
 
@@ -1388,6 +1429,7 @@ async def dispatch_stream(
         spectrograph_loader=spectrograph_loader,
         classification_adapter=classification_adapter,
         pinned_dispatch_config=pinned_dispatch_config or PinnedDispatchConfig(),
+        feedback_store=feedback_store,
     )
 
     # Pinned dispatch early branch — bypass cascade entirely.

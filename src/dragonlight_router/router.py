@@ -408,6 +408,14 @@ class RouterEngine:
         )
         self._classification_adapter = self._resolve_classification_adapter()
 
+        if self._classification_adapter is None:
+            logger.warning(
+                "ibr_degraded_no_classifier",
+                reason="no_classification_role_or_no_available_backend",
+                ibr_enabled=True,
+                impact="IBR will be inactive for all requests until a classification backend is available",
+            )
+
         logger.info(
             "ibr_initialized",
             spectrograph_profiles=len(self._spectrograph_loader.profiles),
@@ -1155,6 +1163,7 @@ class RouterEngine:
             ibr_config=ibr_cfg if ibr_cfg.enabled else None,
             spectrograph_loader=self._spectrograph_loader,
             classification_adapter=self._classification_adapter,
+            feedback_store=self._feedback_store,
         )
 
     async def dispatch_stream(self, order: DispatchOrder) -> AsyncIterator[StreamChunk]:
@@ -1176,6 +1185,7 @@ class RouterEngine:
             ibr_config=ibr_cfg if ibr_cfg.enabled else None,
             spectrograph_loader=self._spectrograph_loader,
             classification_adapter=self._classification_adapter,
+            feedback_store=self._feedback_store,
         ):
             yield chunk
 

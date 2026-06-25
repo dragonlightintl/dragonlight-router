@@ -45,6 +45,8 @@ _INTENT_TIER_FLOOR: dict[str, BackendTier] = {
     "strategic_planning": BackendTier.COMPLEX,
     "architecture": BackendTier.COMPLEX,
     "implementation_complex": BackendTier.COMPLEX,
+    "security_review": BackendTier.COMPLEX,
+    "performance_optimization": BackendTier.COMPLEX,
     # Engineering tasks require at least MODERATE tier
     "engineering_build": BackendTier.MODERATE,
     "code_review": BackendTier.MODERATE,
@@ -53,10 +55,15 @@ _INTENT_TIER_FLOOR: dict[str, BackendTier] = {
     "code_generation": BackendTier.MODERATE,
     "implementation": BackendTier.MODERATE,
     "coherence_merge": BackendTier.MODERATE,
+    "refactoring": BackendTier.MODERATE,
+    "migration": BackendTier.MODERATE,
+    "api_design": BackendTier.MODERATE,
     # Low-stakes tasks — fast model is fine
     "test_generation": BackendTier.SIMPLE,
     "test_property": BackendTier.SIMPLE,
     "audit": BackendTier.SIMPLE,
+    "documentation": BackendTier.SIMPLE,
+    "test_fix": BackendTier.SIMPLE,
     # Analytical tasks benefit from SIMPLE at minimum
     "data_analysis": BackendTier.SIMPLE,
     "summarization": BackendTier.SIMPLE,

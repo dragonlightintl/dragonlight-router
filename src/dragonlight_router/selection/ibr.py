@@ -24,6 +24,7 @@ from dragonlight_router.core.types import (
     ModelSpectrographProfile,
 )
 from dragonlight_router.selection.classifier import classify_intent
+from dragonlight_router.selection.feedback import FeedbackStore
 from dragonlight_router.selection.spectrograph import (
     SpectrographProfileLoader,
     compute_spectrograph_scores,
@@ -66,13 +67,14 @@ _INACTIVE_RESULT = IBRResult(
 # ---------------------------------------------------------------------------
 
 
-# DEVIATION CS-PARAM-001: run_ibr_stage takes 5 params — dataclass grouping would break API.
+# DEVIATION CS-PARAM-001: run_ibr_stage takes 6 params — dataclass grouping would break API.
 async def run_ibr_stage(
     order: DispatchOrder,
     candidates: list[BackendConfig],
     ibr_config: IntentClassificationConfig,
     spectrograph_loader: SpectrographProfileLoader,
     classification_adapter: GenerativeBackend | None,
+    feedback_store: FeedbackStore | None = None,
 ) -> IBRResult:
     """Run the IBR pipeline stage: classify intent and compute spectrograph scores.
 
@@ -93,6 +95,7 @@ async def run_ibr_stage(
             ibr_config,
             spectrograph_loader,
             classification_adapter,
+            feedback_store=feedback_store,
         )
     except (KeyError, ValueError, TypeError, RuntimeError, OSError, TimeoutError):
         logger.warning("ibr_stage_unexpected_error", exc_info=True)
@@ -104,13 +107,14 @@ async def run_ibr_stage(
 # ---------------------------------------------------------------------------
 
 
-# DEVIATION CS-PARAM-001: _execute_ibr takes 5 params — dataclass grouping would break API.
+# DEVIATION CS-PARAM-001: _execute_ibr takes 6 params — dataclass grouping would break API.
 async def _execute_ibr(
     order: DispatchOrder,
     candidates: list[BackendConfig],
     ibr_config: IntentClassificationConfig,
     spectrograph_loader: SpectrographProfileLoader,
     adapter: GenerativeBackend,
+    feedback_store: FeedbackStore | None = None,
 ) -> IBRResult:
     """Core IBR execution: classify + load profiles concurrently, then score.
 
@@ -132,7 +136,9 @@ async def _execute_ibr(
         logger.debug("ibr_classification_returned_none")
         return _INACTIVE_RESULT
 
-    return _build_ibr_result(intent, candidates, ibr_config, spectrograph_loader)
+    return _build_ibr_result(
+        intent, candidates, ibr_config, spectrograph_loader, feedback_store=feedback_store
+    )
 
 
 async def _reload_profiles(loader: SpectrographProfileLoader) -> None:
@@ -167,12 +173,23 @@ def _build_ibr_result(
     candidates: list[BackendConfig],
     ibr_config: IntentClassificationConfig,
     spectrograph_loader: SpectrographProfileLoader,
+    feedback_store: FeedbackStore | None = None,
 ) -> IBRResult:
-    """Apply confidence gating and compute spectrograph scores."""
+    """Apply confidence gating and compute spectrograph scores.
+
+    GAP-SPEC-01: When feedback_store is provided, merges feedback-learned
+    profiles with operator-declared profiles before scoring. This means
+    operational feedback improves routing over time.
+    """
     assert isinstance(intent, ClassifiedIntent), "intent must be ClassifiedIntent"
     assert len(candidates) > 0, "candidates must not be empty"
 
     profiles = spectrograph_loader.profiles
+    if feedback_store is not None:
+        learned = feedback_store.get_learned_profiles()
+        if learned:
+            profiles = spectrograph_loader.get_merged_profiles(learned)
+
     candidate_ids = [c.name for c in candidates]
 
     if not _passes_confidence_gate(intent, candidate_ids, profiles, ibr_config):

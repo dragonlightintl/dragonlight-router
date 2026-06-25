@@ -509,6 +509,16 @@ _HIGH_STAKES_WEIGHTS = ScoringWeightsConfig(
     health=0.15,
 )
 
+# Balanced / mid-stakes weight profile — quality matters but not burning money.
+_MID_STAKES_WEIGHTS = ScoringWeightsConfig(
+    cost=0.15,
+    latency=0.20,
+    priority=0.25,
+    spectrograph_match=0.20,
+    queue=0.10,
+    health=0.10,
+)
+
 # Categories classified as low-stakes — fast, cheap models preferred.
 _LOW_STAKES_INTENTS: frozenset[str] = frozenset(
     {
@@ -517,6 +527,9 @@ _LOW_STAKES_INTENTS: frozenset[str] = frozenset(
         "audit",
         "data_analysis",
         "summarization",
+        "documentation",
+        "test_fix",
+        "code_generation",
     }
 )
 
@@ -529,16 +542,37 @@ _HIGH_STAKES_INTENTS: frozenset[str] = frozenset(
         "complex_reasoning",
         "strategic_planning",
         "architecture",
+        "security_review",
+        "performance_optimization",
+        "debugging",
+        "migration",
     }
 )
+
+# Categories classified as mid-stakes — balanced with a slight capability bias.
+_MID_STAKES_INTENTS: frozenset[str] = frozenset(
+    {
+        "engineering_build",
+        "code_review",
+        "spec_writing",
+        "refactoring",
+        "api_design",
+    }
+)
+
+# Mapping from stakes classification string to weight profile.
+_STAKES_TO_WEIGHTS: dict[str, ScoringWeightsConfig] = {
+    "cost_optimized": _LOW_STAKES_WEIGHTS,
+    "balanced": _MID_STAKES_WEIGHTS,
+    "capability_optimized": _HIGH_STAKES_WEIGHTS,
+}
 
 
 def intent_weights_for_category(intent_category: str) -> ScoringWeightsConfig:
     """Return per-intent-category CBR weight profile.
 
-    Low-stakes intents (test_generation, audit, etc.) shift weight toward
-    cost and speed. High-stakes intents (implementation, coherence_merge,
-    etc.) shift weight toward capability and spectrograph match quality.
+    Three tiers: low-stakes (cost/speed), mid-stakes (balanced with
+    slight capability bias), high-stakes (capability and spectrograph match).
 
     Unrecognized categories receive the default ScoringWeightsConfig.
 
@@ -554,4 +588,51 @@ def intent_weights_for_category(intent_category: str) -> ScoringWeightsConfig:
         return _LOW_STAKES_WEIGHTS
     if intent_category in _HIGH_STAKES_INTENTS:
         return _HIGH_STAKES_WEIGHTS
+    if intent_category in _MID_STAKES_INTENTS:
+        return _MID_STAKES_WEIGHTS
     return ScoringWeightsConfig()
+
+
+def classify_request_stakes(order: DispatchOrder) -> str:
+    """Classify a request into cost-optimized / balanced / capability-optimized.
+
+    Primary signal: intent_category mapping to LOW/MID/HIGH stakes.
+    Secondary signals (escalation only):
+    - context_tokens > 8000 -> escalate to at least balanced
+    - requires_tool_use -> escalate to at least balanced
+    - context_tokens > 32000 -> escalate to capability_optimized
+    - context_trust_tier == "local" or "trusted" -> escalate to capability_optimized
+      (security-sensitive context implies high-stakes work)
+
+    Returns:
+        One of "cost_optimized", "balanced", "capability_optimized"
+    """
+    assert isinstance(order, DispatchOrder), "order must be DispatchOrder"
+
+    # Primary classification from intent_category
+    if order.intent_category in _HIGH_STAKES_INTENTS:
+        base_tier = "capability_optimized"
+    elif order.intent_category in _MID_STAKES_INTENTS:
+        base_tier = "balanced"
+    elif order.intent_category in _LOW_STAKES_INTENTS:
+        base_tier = "cost_optimized"
+    else:
+        base_tier = "balanced"  # unknown intents get balanced
+
+    # Escalation (never reduces)
+    _TIER_RANK = {"cost_optimized": 0, "balanced": 1, "capability_optimized": 2}
+    current_rank = _TIER_RANK[base_tier]
+
+    if order.context_tokens > 32000:
+        current_rank = max(current_rank, 2)
+    elif order.context_tokens > 8000:
+        current_rank = max(current_rank, 1)
+
+    if order.requires_tool_use:
+        current_rank = max(current_rank, 1)
+
+    if order.context_trust_tier in ("local", "trusted"):
+        current_rank = max(current_rank, 2)
+
+    _RANK_TO_TIER = {0: "cost_optimized", 1: "balanced", 2: "capability_optimized"}
+    return _RANK_TO_TIER[current_rank]

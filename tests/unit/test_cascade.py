@@ -1052,8 +1052,8 @@ class TestRetiredModelFiltering:
         order = _make_order()
 
         health_tracker = HealthTracker()
-        # Retire model-a via 404
-        health_tracker.record_error("model-a", http_status=404)
+        # Retire b1 via 404 (keyed by backend name, not bare model)
+        health_tracker.record_error("b1", http_status=404)
 
         ctx = _make_ctx(health_tracker=health_tracker)
 
@@ -1069,7 +1069,7 @@ class TestRetiredModelFiltering:
             result = await _run_cascade(order, ctx)
 
         assert result.is_ok()
-        # CBR should only have received model-b (model-a was retired)
+        # CBR should only have received b2 (b1 was retired)
         cbr_candidates = mock_cbr.call_args[0][1]  # second positional arg
         assert len(cbr_candidates) == 1
         assert cbr_candidates[0].model == "model-b"
@@ -1083,7 +1083,7 @@ class TestRetiredModelFiltering:
         order = _make_order()
 
         health_tracker = HealthTracker()
-        health_tracker.record_error("model-a", http_status=404)
+        health_tracker.record_error("b1", http_status=404)
 
         ctx = _make_ctx(health_tracker=health_tracker)
 
@@ -1107,8 +1107,8 @@ class TestRetiredModelFiltering:
         order = _make_order(min_output_tokens=0)
 
         health_tracker = HealthTracker()
-        # model-a is retired before fallback chain starts
-        health_tracker.record_error("model-a", http_status=403)
+        # b1 is retired before fallback chain starts (keyed by backend name)
+        health_tracker.record_error("b1", http_status=403)
 
         ctx = _make_ctx(health_tracker=health_tracker)
 

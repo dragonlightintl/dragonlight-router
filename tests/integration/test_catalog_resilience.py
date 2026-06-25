@@ -185,7 +185,7 @@ class TestCatalogRefreshFailureDegracefully:
         # select_models uses the cached catalog — no refresh needed
         models = engine.select_models("coding", top_n=5)
         assert len(models) > 0, "Should return models from the cached catalog"
-        assert "groq_llama70b" in models
+        assert "groq-llama70b" in models
 
     def test_select_models_degrades_when_refresh_raises(
         self,

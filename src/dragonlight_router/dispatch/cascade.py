@@ -561,7 +561,7 @@ async def _run_cascade(
     # MBR checks registry state but not the health tracker's retirement list,
     # so retired models can slip through MBR on subsequent dispatches.
     non_retired = [
-        c for c in mbr_result.value if not ctx.health_tracker.is_retired(c.model)
+        c for c in mbr_result.value if not ctx.health_tracker.is_retired(c.name)
     ]
     if not non_retired:
         return Err(
@@ -571,7 +571,7 @@ async def _run_cascade(
         "retired_model_filter",
         before=len(mbr_result.value),
         after=len(non_retired),
-        retired=[c.name for c in mbr_result.value if ctx.health_tracker.is_retired(c.model)],
+        retired=[c.name for c in mbr_result.value if ctx.health_tracker.is_retired(c.name)],
     )
 
     # HAZ-001: Enforce caller-specified trust floor before cost/rate scoring
@@ -751,7 +751,7 @@ def _record_dispatch_success(
     fallback_chain: list[str],
 ) -> None:
     """Record a successful dispatch in health/budget trackers and log it."""
-    ctx.health_tracker.record_success(backend_config.model, latency_ms)
+    ctx.health_tracker.record_success(backend_config.name, latency_ms)
     ctx.budget_tracker.record_request(backend_config.provider, tokens_in + tokens_out)
     adapter.record_usage(tokens_in, tokens_out)
 
@@ -925,7 +925,7 @@ def _record_adapter_failure(
         or getattr(cause, "status_code", None)
         or getattr(getattr(cause, "response", None), "status_code", None)
     )
-    ctx.health_tracker.record_error(backend_config.model, http_status=http_status)
+    ctx.health_tracker.record_error(backend_config.name, http_status=http_status)
 
     # Structured dispatch failure logging
     logger.info(
@@ -1006,7 +1006,7 @@ async def _handle_fallback_chain(
         # Skip candidates retired mid-cascade (e.g. a prior candidate in this
         # dispatch returned 404/403, triggering retirement — subsequent
         # candidates with the same model should be skipped).
-        if ctx.health_tracker.is_retired(backend_config.model):
+        if ctx.health_tracker.is_retired(backend_config.name):
             logger.debug(
                 "skipping_retired_model_in_fallback",
                 backend=backend_config.name,
@@ -1048,7 +1048,7 @@ async def _handle_fallback_chain(
                     min_output_tokens=min_tokens,
                 )
                 ctx.health_tracker.record_error(
-                    backend_config.model, http_status=None,
+                    backend_config.name, http_status=None,
                 )
                 fallback_chain.append(backend_config.name)
                 continue
@@ -1324,7 +1324,7 @@ async def _try_streaming_dispatch(
     )
     cost_usd = _compute_cost_usd(tokens_in, tokens_out, backend_config.cost)
 
-    ctx.health_tracker.record_success(backend_config.model, latency_ms)
+    ctx.health_tracker.record_success(backend_config.name, latency_ms)
     ctx.budget_tracker.record_request(backend_config.provider, tokens_in + tokens_out)
     adapter.record_usage(tokens_in, tokens_out)
 
@@ -1352,7 +1352,7 @@ async def _stream_with_fallback(
 
     for backend_config in eligible:
         # Skip candidates retired mid-cascade (404/403 from prior candidate).
-        if ctx.health_tracker.is_retired(backend_config.model):
+        if ctx.health_tracker.is_retired(backend_config.name):
             logger.debug(
                 "skipping_retired_model_in_stream_fallback",
                 backend=backend_config.name,

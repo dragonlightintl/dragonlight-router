@@ -237,11 +237,18 @@ class TestRetirement403:
         assert ht.is_retired("m1") is True
         assert ht.is_retired("m2") is True
 
-    def test_other_4xx_do_not_retire(self):
-        """[TM-008] Other HTTP 4xx codes (e.g. 429) do NOT trigger retirement."""
+    def test_other_4xx_do_not_permanently_retire(self):
+        """[TM-008] Other HTTP 4xx codes (e.g. 429) do NOT permanently retire.
+
+        429 now triggers a temporary suspension (TTL-based cooldown) rather
+        than permanent retirement. The model is unavailable during the
+        cooldown but returns to the pool after it expires.
+        """
         ht = HealthTracker()
         ht.record_error("m1", http_status=429)
-        assert ht.is_retired("m1") is False
+        # Not permanently retired, but temporarily suspended
+        assert "m1" not in ht._retired
+        assert "m1" in ht._suspended
         assert ht.get_error_count("m1") == 1
 
 

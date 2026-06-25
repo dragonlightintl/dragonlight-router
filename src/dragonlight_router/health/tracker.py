@@ -1,7 +1,8 @@
 """Health tracker — per-model health scoring and availability.
 
 Uses CircuitBreaker for each tracked model. Provides health scores
-based on error count and circuit state. Handles model retirement on 404.
+based on error count and circuit state. Handles model retirement on 404
+and TTL-based cooldown for transient failures (403, 429, 5xx).
 
 Supports two modes:
 - In-memory (db_path=None): Original behavior using dicts.
@@ -10,6 +11,12 @@ Supports two modes:
   to a shared health.db with WAL mode. Solves the multi-process problem
   where factory builds lose retirement state because save_state() is only
   called on server shutdown.
+
+HTTP status classification:
+- 404/410 (model gone) → permanent retirement
+- 403 (forbidden/auth) → temporary suspension (default 300s)
+- 429 (rate limited) → short suspension (default 60s)
+- 500+ (server error) → medium suspension (default 120s)
 """
 
 from __future__ import annotations
@@ -41,12 +48,20 @@ class HealthTracker:
     used for backward compatibility (tests, benchmarks).
     """
 
+    # DEVIATION CS-PARAM-001: __init__ takes 8 params (excl. self).
+    # Justification: all params are scalar config with defaults; grouping
+    # into a config dataclass would add indirection without clarity gain.
+    # Approved by: architect. Scope: this function. Expiration: revisit 2026-09-01.
     def __init__(
         self,
         error_threshold: int = 3,
         error_window_s: float = 120.0,
         cooldown_s: float = 60.0,
         db_path: Path | None = None,
+        suspend_ttl_403_s: float = 300.0,
+        suspend_ttl_429_s: float = 60.0,
+        suspend_ttl_5xx_s: float = 120.0,
+        provider_suspend_ttl_s: float = 3600.0,
     ) -> None:
         self._error_threshold = error_threshold
         self._error_window_s = error_window_s
@@ -69,11 +84,16 @@ class HealthTracker:
         self._latency_alpha: float = 0.2
         self._retired: dict[str, float] = {}
         self._suspended: dict[str, float] = {}
-        self._suspend_ttl_s: float = 300.0
+        self._suspended_ttls: dict[str, float] = {}
+        self._suspend_ttl_403_s: float = suspend_ttl_403_s
+        self._suspend_ttl_429_s: float = suspend_ttl_429_s
+        self._suspend_ttl_5xx_s: float = suspend_ttl_5xx_s
+        # Back-compat alias used by _suspend_model_with_ttl and restore_state
+        self._suspend_ttl_s: float = suspend_ttl_403_s
         self._provider_403_counts: dict[str, int] = defaultdict(int)
         self._suspended_providers: dict[str, float] = {}
         self._provider_suspend_threshold: int = 2
-        self._provider_suspend_ttl_s: float = 3600.0
+        self._provider_suspend_ttl_s: float = provider_suspend_ttl_s
 
     def score(self, model_id: str) -> Result[float, ModelNotFoundError]:
         """Health score (0-100) for a model.
@@ -137,11 +157,14 @@ class HealthTracker:
         *,
         http_status: int | None = None,
     ) -> None:
-        """Record a failed request — may trip circuit breaker or retire model.
+        """Record a failed request — may retire, suspend, or trip circuit breaker.
 
-        HTTP 404 (not found) and 403 (forbidden/unauthorized) at inference
-        time trigger immediate retirement (eviction from active catalog).
-        All other errors follow normal circuit breaker path.
+        HTTP status classification:
+        - 404/410 (model gone) → permanent retirement
+        - 403 (forbidden/auth) → temporary suspension (configurable TTL)
+        - 429 (rate limited) → short suspension (configurable TTL)
+        - 500+ (server error) → medium suspension (configurable TTL)
+        - Other/None → circuit breaker path only
 
         When a HealthDB is available, retirement/suspension is persisted
         to SQLite in addition to the in-memory dicts.
@@ -150,15 +173,23 @@ class HealthTracker:
         assert http_status is None or isinstance(http_status, int), (
             f"http_status must be None or int, got {type(http_status)}"
         )
-        if http_status == 404:
+        if http_status in (404, 410):
             self._retire_model(model_id, http_status=http_status)
             if self._db is not None:
                 self._db.retire_model(model_id, http_status=http_status)
             return
         if http_status == 403:
-            self._suspend_model(model_id)
-            if self._db is not None:
-                self._db.suspend_model(model_id, ttl_s=self._suspend_ttl_s)
+            self._suspend_model_with_ttl(
+                model_id, ttl_s=self._suspend_ttl_403_s, reason="403_at_inference",
+            )
+        elif http_status == 429:
+            self._suspend_model_with_ttl(
+                model_id, ttl_s=self._suspend_ttl_429_s, reason="429_rate_limited",
+            )
+        elif http_status is not None and http_status >= 500:
+            self._suspend_model_with_ttl(
+                model_id, ttl_s=self._suspend_ttl_5xx_s, reason=f"{http_status}_server_error",
+            )
         self._error_counts[model_id] = self._error_counts.get(model_id, 0) + 1
         if self._db is not None:
             self._db.record_error(model_id)
@@ -170,24 +201,42 @@ class HealthTracker:
         reason = f"{http_status}_at_inference"
         logger.info("model_retired", model_id=model_id, reason=reason)
 
-    def _suspend_model(self, model_id: str) -> None:
-        """Temporarily suspend a model (403 — may be transient auth/budget).
+    def _suspend_model_with_ttl(
+        self,
+        model_id: str,
+        ttl_s: float,
+        reason: str,
+    ) -> None:
+        """Temporarily suspend a model with a specific TTL.
 
-        Also tracks per-provider 403 counts. When a provider accumulates
-        enough 403s, the entire provider is suspended to avoid burning
-        cascade slots on budget-exhausted providers.
+        Stores both the suspension timestamp and the per-model TTL so
+        different failure types (403, 429, 5xx) expire independently.
+
+        For 403 errors, also tracks per-provider counts. When a provider
+        accumulates enough 403s, the entire provider is suspended.
         """
-        self._suspended[model_id] = time.time()
+        assert ttl_s > 0, f"ttl_s must be positive, got {ttl_s}"
+        assert reason, "reason must be non-empty"
+        now = time.time()
+        self._suspended[model_id] = now
+        self._suspended_ttls[model_id] = ttl_s
+        if self._db is not None:
+            self._db.suspend_model(model_id, ttl_s=ttl_s)
         provider = model_id.split("/", 1)[0] if "/" in model_id else model_id
-        self._provider_403_counts[provider] += 1
         logger.info(
             "model_suspended",
             model_id=model_id,
             provider=provider,
-            provider_403_count=self._provider_403_counts[provider],
-            ttl_s=self._suspend_ttl_s,
-            reason="403_at_inference",
+            ttl_s=ttl_s,
+            reason=reason,
         )
+        self._track_provider_suspension(provider, reason)
+
+    def _track_provider_suspension(self, provider: str, reason: str) -> None:
+        """Track provider-level 403 counts and suspend provider if threshold hit."""
+        if not reason.startswith("403"):
+            return
+        self._provider_403_counts[provider] += 1
         if self._provider_403_counts[provider] >= self._provider_suspend_threshold:
             self._suspended_providers[provider] = time.time()
             logger.warning(
@@ -204,15 +253,20 @@ class HealthTracker:
         to the DB if available. This ensures that state persisted by
         other processes is visible even if this process hasn't seen
         the retirement/suspension event.
+
+        Per-model TTLs are stored in ``_suspended_ttls`` so different
+        failure types (403, 429, 5xx) expire at different rates.
         """
         # In-memory fast path
         if model_id in self._retired:
             return True
         if model_id in self._suspended:
+            ttl = self._suspended_ttls.get(model_id, self._suspend_ttl_s)
             elapsed = time.time() - self._suspended[model_id]
-            if elapsed < self._suspend_ttl_s:
+            if elapsed < ttl:
                 return True
             del self._suspended[model_id]
+            self._suspended_ttls.pop(model_id, None)
         # Provider-level suspension (budget exhaustion)
         provider = model_id.split("/", 1)[0] if "/" in model_id else model_id
         if provider in self._suspended_providers:
@@ -239,6 +293,7 @@ class HealthTracker:
             del self._retired[model_id]
         if model_id in self._suspended:
             del self._suspended[model_id]
+            self._suspended_ttls.pop(model_id, None)
         self._error_counts[model_id] = 0
         self._breakers[model_id].record_success()
         if self._db is not None:

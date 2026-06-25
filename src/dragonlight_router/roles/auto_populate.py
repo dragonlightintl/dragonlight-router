@@ -143,7 +143,8 @@ _HIGH_GENERAL: tuple[str, ...] = (
     "gpt-5",
     "gpt-4",
     "gemini-3",
-    "gemini-2.5-pro",
+    "gemini-2.5",
+    "gemini-2.0-flash",
     "compound",
     "fusion",
     "glm-5",
@@ -188,6 +189,26 @@ def _name_lower(model_id: str) -> str:
     return suffix.lower()
 
 
+_WORD_SEPARATORS = frozenset("-_/. ")
+
+
+def _has_word_boundary_match(name: str, pattern: str) -> bool:
+    """Check if pattern appears in name at a word boundary.
+
+    Prevents "mini" from matching inside "gemini", "8b" from matching
+    inside "8bit-something", etc. Pattern must be preceded by a separator
+    character (or be at the start) to match.
+    """
+    idx = 0
+    while True:
+        idx = name.find(pattern, idx)
+        if idx < 0:
+            return False
+        if idx == 0 or name[idx - 1] in _WORD_SEPARATORS:
+            return True
+        idx += 1
+
+
 def _should_exclude(model_id: str) -> bool:
     """Return True if this model should be excluded from the matrix entirely."""
     name = _name_lower(model_id)
@@ -220,12 +241,7 @@ def classify_model(model_id: str) -> dict[str, int]:
     is_high_reasoner = any(pat in name for pat in _HIGH_REASONING)
     is_large = any(pat in name for pat in _LARGE_MODEL_SIGNALS)
     is_high_general = any(pat in name for pat in _HIGH_GENERAL)
-    is_low = any(pat in name for pat in _LOW_SIGNALS)
-
-    # Prevent small-size tokens from dragging large models down.
-    # e.g. "mistral-large" has "large" in HIGH_GENERAL AND could match "large"
-    # from LOW_SIGNALS via substring — but "large" is not in _LOW_SIGNALS.
-    # "gemma-3n-e2b-it" has "2b" which is in LOW_SIGNALS — correctly low.
+    is_low = any(_has_word_boundary_match(name, pat) for pat in _LOW_SIGNALS)
 
     # ── Build per-role ranks ──────────────────────────────────────────────────
     ranks: dict[str, int] = {}

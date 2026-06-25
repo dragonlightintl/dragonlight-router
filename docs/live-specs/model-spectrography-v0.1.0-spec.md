@@ -1,8 +1,16 @@
+> **HISTORICAL -- SUPERSEDED BY v0.3.0 IMPLEMENTATION**
+>
+> This spec (v0.1.0) was written during initial design. The implemented system
+> follows this spec's architecture and probe design, but the codebase has evolved
+> beyond this document. For current behavior, see `docs/spectrography.md` (user
+> guide) and the source in `src/dragonlight_router/spectrography/`. A full v0.3.0
+> spec rewrite is tracked as SPEC-01 in the audit tracker.
+
 # Model Spectrography v0.1.0 Live Spec
 
 **Version:** 0.1.0
 **Effective:** 2026-06-18
-**Status:** Implemented (v0.3.0)
+**Status:** Historical (superseded by v0.3.0 implementation)
 **Depends on:** Model Pinning v0.1.0, Dragonlight Router v0.3.0, IBR v0.1.0
 
 ## 1. Problem Statement

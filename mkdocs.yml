@@ -34,7 +34,9 @@ nav:
   - Configuration: configuration.md
   - API Reference: api-reference.md
   - Architecture: architecture.md
+  - Spectrography: spectrography.md
   - Providers: providers.md
+  - CLI Tools: cli.md
   - Deployment: deployment.md
   - Security: security.md
   - Contributing: contributing.md

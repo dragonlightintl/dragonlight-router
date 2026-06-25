@@ -160,6 +160,7 @@ class ProviderConfig:
     rpd_limit: int | None
     tpm_limit: int | None
     daily_token_cap: int | None
+    max_cost_per_mtok: float | None = None
 
 
 @dataclass(frozen=True)

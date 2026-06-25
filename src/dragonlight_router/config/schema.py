@@ -33,6 +33,7 @@ class ProviderSchema(BaseModel):
     env_key: str | None = None
     model_prefix: str
     rate_limits: RateLimitSchema
+    max_cost_per_mtok: float | None = None
 
 
 class IntentClassificationConfig(BaseModel):

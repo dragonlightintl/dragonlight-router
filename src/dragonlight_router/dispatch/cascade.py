@@ -535,11 +535,55 @@ def _filter_by_trust_floor(
     return filtered
 
 
+def _filter_by_cost_ceiling(
+    candidates: list[BackendConfig],
+    config: dict[str, Any],
+) -> list[BackendConfig]:
+    """Filter candidates whose cost exceeds their provider's max_cost_per_mtok ceiling.
+
+    Reads per-provider cost ceilings from the router config's providers list.
+    When a provider sets max_cost_per_mtok, only models whose input cost falls
+    at or below that ceiling are retained. Providers without a ceiling (None)
+    pass all models through.
+
+    Setting max_cost_per_mtok to 0.0 enforces free-only models for that provider.
+    """
+    providers = config.get("providers", [])
+    ceiling_by_provider: dict[str, float] = {}
+    for p in providers:
+        ceiling = p.get("max_cost_per_mtok")
+        if ceiling is not None:
+            ceiling_by_provider[p["name"]] = ceiling
+
+    if not ceiling_by_provider:
+        return candidates
+
+    filtered: list[BackendConfig] = []
+    for candidate in candidates:
+        ceiling = ceiling_by_provider.get(candidate.provider)
+        if ceiling is None:
+            filtered.append(candidate)
+            continue
+        if candidate.cost.input_per_mtok <= ceiling:
+            filtered.append(candidate)
+        else:
+            logger.debug(
+                "candidate_filtered_by_cost_ceiling",
+                backend=candidate.name,
+                provider=candidate.provider,
+                input_cost=candidate.cost.input_per_mtok,
+                ceiling=ceiling,
+            )
+
+    assert len(filtered) <= len(candidates), "cost ceiling filter must not add candidates"
+    return filtered
+
+
 async def _run_cascade(
     order: DispatchOrder,
     ctx: DispatchContext,
 ) -> Result[list[ScoredCandidate], Exception]:
-    """Run MBR -> trust floor -> IBR -> CBR -> LBR cascade and return the full ranked list.
+    """Run MBR -> trust floor -> cost ceiling -> IBR -> CBR -> LBR cascade and return the full ranked list.
 
     Unlike route(), this returns ALL surviving candidates so dispatch() can
     implement fallback across the ranked list.
@@ -584,10 +628,17 @@ async def _run_cascade(
             MBRNoCandidatesError("No candidates meet the requested context_trust_tier floor")
         )
 
-    # IBR stage: classify intent and compute flavor scores (IBR-PIPE-01)
-    ibr_result = await _run_ibr_stage(order, trust_filtered, ctx)
+    # Provider-level cost ceiling: enforce max_cost_per_mtok from config
+    cost_filtered = _filter_by_cost_ceiling(trust_filtered, ctx.config)
+    if not cost_filtered:
+        return Err(
+            MBRNoCandidatesError("No candidates remain after provider cost ceiling filtering")
+        )
 
-    cbr_result = _run_cbr_stage(order, trust_filtered, ctx, ibr_result=ibr_result)
+    # IBR stage: classify intent and compute flavor scores (IBR-PIPE-01)
+    ibr_result = await _run_ibr_stage(order, cost_filtered, ctx)
+
+    cbr_result = _run_cbr_stage(order, cost_filtered, ctx, ibr_result=ibr_result)
     if isinstance(cbr_result, Err):
         return cbr_result
 

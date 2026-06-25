@@ -333,6 +333,7 @@ class RouterEngine:
                 rpd_limit=p.rate_limits.rpd,
                 tpm_limit=p.rate_limits.tpm,
                 daily_token_cap=p.rate_limits.daily_token_cap,
+                max_cost_per_mtok=p.max_cost_per_mtok,
             )
             for p in self._config.providers
         ]

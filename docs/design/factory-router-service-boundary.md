@@ -1,8 +1,9 @@
 # Factory-Router Service Boundary Design
 
-**Status:** Proposed
+**Status:** Revised — SQLite WAL + Library Import
 **Authors:** GOIBNIU (engineering), LUGH (interface design)
 **Date:** 2026-06-24
+**Revised:** 2026-06-25
 
 ## Problem Statement
 
@@ -42,20 +43,385 @@ path delegates everything to the in-process `RouterEngine`.
 | `_FALLBACK_CHAIN` duplicates router's model-role matrix | Hardcoded list in `factory.py:257` drifts from the router's curated rankings |
 | `_resolve_via_router()` reads matrix JSON directly | Bypasses the router's catalog-aware filtering and health scoring (factory.py:2739) |
 
-## Recommendation: Option C — HTTP Select + Direct Execute + HTTP Record
+---
 
-Option C is the correct boundary because of an irreducible constraint: **pydantic-ai
-requires a `Model` object with a `.request()` method for multi-turn tool-use agent
-loops.** The router's `/v1/dispatch` endpoint is single-turn — it takes a prompt and
-returns a completion. Multi-turn agentic conversations (tool calls, retries, context
-accumulation) happen inside pydantic-ai's `Agent.run()` loop, which needs a live
-connection to the model API.
+## Chosen Architecture: SQLite WAL + Library Import
 
-This means the factory must call provider APIs directly for execution. But model
-**selection** and **outcome recording** should be centralized in the router to get
-shared health, budget, and rate-limit state across all concurrent factory processes.
+The operator chose a simpler architecture than the originally proposed HTTP service
+model. Instead of running the router as a persistent HTTP server for state
+coordination, all shared state lives in **SQLite WAL databases** that multiple
+processes access directly via filesystem. Model selection uses **library import**
+of `RouterEngine` rather than HTTP calls.
+
+### Why This Over HTTP
+
+- **No server process to manage.** No systemd/launchd unit, no port binding, no
+  health checks for the router itself. One fewer process that can go down.
+- **SQLite WAL already solves the multi-process problem.** WAL mode gives concurrent
+  readers with serialized writers. `BEGIN IMMEDIATE` transactions provide atomicity
+  for check-then-act sequences (rate limiting, budget reservation). This is the
+  same mechanism a single-process HTTP server would use internally, minus the
+  HTTP layer.
+- **Library import is simpler than HTTP for in-process selection.** The factory
+  already has `dragonlight-router` as a dependency. Calling
+  `router.select_for_task()` is a direct Python function call with zero
+  serialization overhead, no network round-trips, and full type safety via the
+  `ModelCandidate` dataclass.
+- **State survives process restarts by default.** SQLite files persist on disk.
+  No need for explicit state-save hooks on shutdown.
 
 ### Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Factory Process (1..N concurrent)                      │
+│                                                         │
+│  1. from dragonlight_router.router import RouterEngine  │
+│     router = RouterEngine(config)                       │
+│     candidates = router.select_for_task(                │
+│         intent_category="implementation",               │
+│         complexity="standard",                          │
+│     )                                                   │
+│                                                         │
+│  2. Build pydantic-ai Model from candidates[0]          │
+│     Run Agent.run() with multi-turn tool-use loop       │
+│     (direct API calls to provider)                      │
+│                                                         │
+│  3. router.record_request(outcome)                      │
+│     → success/failure, tokens, latency, model_id        │
+│                                                         │
+│  4. If failed + retryable: try candidates[1], goto 2    │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+         │              │              │
+         ▼              ▼              ▼
+┌─────────────────────────────────────────────────────────┐
+│  SQLite WAL Databases (~/.dragonlight/router/)          │
+│                                                         │
+│  health.db   — retirement, suspension, error counts,    │
+│                circuit breaker states                    │
+│  budget.db   — request_log (RPM/RPD/TPM/daily tokens)   │
+│  rate.db     — rate_slots (sliding-window RPM per key)  │
+│                                                         │
+│  All three use:                                         │
+│  - PRAGMA journal_mode=WAL (concurrent readers)         │
+│  - PRAGMA busy_timeout=5000 (writer contention)         │
+│  - BEGIN IMMEDIATE (atomic check-then-act)              │
+│  - Short-lived connections (open/close per operation)   │
+│  - os.chmod(0o600) (owner-only file permissions)        │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### What's Already Built
+
+Three SQLite WAL modules implement the shared-state layer. All follow the same
+pattern and are operational:
+
+**`health/health_db.py` — `HealthDB` class.**
+Persistent retirement/suspension decisions, error counts, and circuit breaker
+states. Replaces the in-memory health tracking that was lost on process restart
+and invisible across concurrent factory runs.
+
+| Table | Purpose |
+|-------|---------|
+| `retired_models` | Permanently retired models (e.g. 404 at inference) |
+| `suspended_models` | Temporarily suspended models with TTL (e.g. 403 auth/budget) |
+| `error_counts` | Per-model error counters with last-error timestamps |
+| `breaker_states` | Circuit breaker state, opened_at, error_timestamps (JSON) |
+
+Key operations: `retire_model()`, `is_retired()`, `reinstate_model()`,
+`suspend_model()`, `is_suspended()`, `is_unavailable()`,
+`save_breaker_state()`, `load_breaker_state()`, `prune_expired_suspensions()`.
+
+**`rate/limiter.py` — `RateLimiter` class.**
+Cross-process RPM coordination via sliding-window slot tracking. Rate limits are
+enforced per API key (not per provider name), because providers rate-limit by key.
+Solves the N-process multiplier problem: 3 concurrent factory runs sharing one
+NIM key collectively cannot exceed the 60 RPM limit.
+
+| Table | Purpose |
+|-------|---------|
+| `rate_slots` | Active rate slots with rate_key, provider, model_id, process_id, acquired_at, expires_at |
+
+Key operations: `acquire(provider, model_id, api_key_env=)` returns a `RateSlot`
+(granted/denied with retry_after_ms hint), `release(slot_id)`,
+`get_usage(provider)` returns a `RateUsage` snapshot.
+
+Crash safety: slots have a 30-second TTL. If a process crashes without calling
+`release()`, the slot expires and is pruned on the next `acquire()` call. The
+`BEGIN IMMEDIATE` transaction in `acquire()` prevents concurrent writers from
+inserting between the count check and the insert.
+
+**`budget/tracker.py` — `BudgetTracker` class (pre-existing, enhanced).**
+Budget tracking with RPM, RPD, TPM, and daily token cap dimensions. The original
+in-memory implementation was enhanced with a SQLite WAL backend (`db_path` param).
+In shared mode, all instances coordinate through a single `budget.db`. The
+`check_and_reserve()` method uses `BEGIN IMMEDIATE` for atomic check-then-record.
+
+| Table | Purpose |
+|-------|---------|
+| `request_log` | All requests with provider, timestamp, tokens_used |
+
+Key operations: `score(provider)` returns 0-100 budget availability,
+`record_request(provider, tokens)`, `check_and_reserve(provider, tokens)` for
+atomic budget reservation, `has_capacity(provider)`, `daily_spend_usd()`.
+
+### Model Selection via Library Import
+
+The factory imports `RouterEngine` and calls `select_for_task()` directly. This
+method runs the full selection pipeline: health check, budget scoring,
+CBR/IBR/MBR composite scoring, cascade ordering, tool-use filtering. It returns
+a list of `ModelCandidate` dataclasses with connection configs.
+
+```python
+from dragonlight_router.router import RouterEngine
+from dragonlight_router.core.types import ModelCandidate
+
+router = RouterEngine(config)
+
+candidates: list[ModelCandidate] = router.select_for_task(
+    intent_category="implementation",
+    complexity="standard",
+    stakes="mid",
+    requires_tool_use=True,
+    context_tokens=12000,
+    exclude_models=["nvidia_nim/qwen3-coder-480b"],
+)
+
+# Each ModelCandidate contains:
+#   model_id: str          — e.g. "nvidia_nim/moonshotai/kimi-k2.6"
+#   provider: str          — e.g. "nvidia_nim"
+#   base_url: str          — e.g. "https://integrate.api.nvidia.com/v1"
+#   api_key_env: str       — e.g. "NVIDIA_NIM_API_KEY" (env var name, not the key)
+#   protocol: str          — "openai" | "anthropic"
+#   health_score: float
+#   composite_score: float
+```
+
+The `api_key_env` field references the environment variable name. API keys never
+leave the process boundary. The factory reads `os.environ[candidate.api_key_env]`
+to construct the pydantic-ai `Model` object.
+
+### How Multi-Turn pydantic-ai Conversations Work
+
+The factory's `run_coding_agent()` function creates a pydantic-ai `Agent` and
+calls `agent.run()`. This internally loops:
+
+1. Send messages to model via `model.request(messages, settings, params)`
+2. Parse response for tool calls
+3. Execute tools locally (file writes, shell commands)
+4. Append tool results to messages
+5. Send updated messages back to model
+6. Repeat until model returns final text (no tool calls)
+
+The `Model` object passed to `Agent(model=...)` is a standard pydantic-ai
+`OpenAIChatModel` or `AnthropicModel` constructed from the `ModelCandidate`'s
+connection config. There is no `RouterModel` adapter in the loop. The model
+talks directly to the provider API.
+
+The router's role is bookending: **select before, record after.**
+
+```
+Router: select_for_task() → candidates
+  ↓
+Factory: build pydantic-ai Model from candidates[0]
+Factory: agent = Agent(model=model, tools=[...])
+Factory: result = await agent.run(prompt)
+  │  ↑↓ multi-turn tool-use loop (direct to provider API)
+  ↓
+Router: record_request(outcome)
+  ↓
+If failed + retryable:
+  Factory: build pydantic-ai Model from candidates[1]
+  (repeat)
+```
+
+### How Rate Limiting Works Across Concurrent Runs
+
+Previous state: Each factory process creates its own `httpx.AsyncClient` with a
+`ThrottleTransport` that rate-limits RPM per-process. Three concurrent runs hitting
+NIM at 60 RPM each = 180 RPM actual, exceeding the provider limit.
+
+Current state: All factory processes share `rate.db` via SQLite WAL. Before each
+LLM API call, the factory calls `rate_limiter.acquire(provider, model_id,
+api_key_env=key_env)`. The `RateLimiter` uses a `BEGIN IMMEDIATE` transaction to
+atomically check the sliding-window count against the configured RPM limit and
+insert a slot if under limit, or deny with a `retry_after_ms` hint if at/over
+limit. After the API call completes, the factory calls `rate_limiter.release(slot_id)`.
+
+If a process crashes without releasing, the slot auto-expires after 30 seconds
+and is pruned on the next `acquire()` call.
+
+### Concurrency Model
+
+With SQLite WAL as the coordination layer:
+
+- **Health tracking:** Shared `health.db`. A model retired by factory run A is
+  immediately visible to factory run B on its next `is_unavailable()` check. Circuit
+  breaker states persist across process restarts.
+
+- **Budget tracking:** Shared `budget.db`. Token spend from all concurrent runs is
+  aggregated via `request_log` table. `check_and_reserve()` uses `BEGIN IMMEDIATE`
+  for cross-process atomicity.
+
+- **Rate limiting:** Shared `rate.db`. Slot acquisition serializes via
+  `BEGIN IMMEDIATE`. If NIM allows 60 RPM, 3 concurrent factory runs collectively
+  cannot exceed 60 RPM.
+
+- **Catalog:** Each `RouterEngine` instance has its own catalog state (model
+  availability). Catalog refresh is per-process but reads from the same config.
+
+### Migration Path (Actual)
+
+**Completed:**
+
+1. `health/health_db.py` — `HealthDB` class with retirement, suspension, error
+   count, and breaker state tables. Follows WAL pattern.
+2. `rate/limiter.py` — `RateLimiter` class with sliding-window RPM, per-key
+   rate limiting, slot TTL crash safety. Follows WAL pattern.
+3. `budget/tracker.py` — `BudgetTracker` enhanced with SQLite WAL backend
+   (original in-memory mode preserved for tests/benchmarks).
+4. `router.py` — `select_for_task()` method on `RouterEngine` returns
+   `ModelCandidate` objects with full connection config.
+5. `core/types.py` — `ModelCandidate` dataclass with model_id, provider,
+   base_url, api_key_env, protocol, health_score, composite_score.
+
+**Remaining (factory-side):**
+
+1. Replace `_get_factory_router()` singleton with `RouterEngine` configured to
+   use shared SQLite WAL databases at a well-known path (e.g. `~/.dragonlight/router/`).
+2. Replace `_select_next_model()` and `_resolve_via_router()` with
+   `router.select_for_task()`.
+3. Replace `_create_model()` with model construction from `ModelCandidate` config.
+4. Add `rate_limiter.acquire()`/`release()` around LLM API calls.
+5. Remove `_FALLBACK_CHAIN`, `_MODEL_ROUTING`, `ROUTER_ENABLED`, `ROUTER_DISPATCH`.
+6. Delete `scripts/router_model.py`.
+
+---
+
+## Future Direction: Transparent LLM Proxy
+
+The emerging preferred pattern moves beyond library import to make the router a
+**transparent LLM proxy** that exposes a standard OpenAI-compatible
+`/v1/chat/completions` endpoint. Under this model, pydantic-ai connects to the
+router as if it were any OpenAI-compatible provider. The router transparently
+handles model selection, health tracking, fallback, and rate limiting behind the
+scenes.
+
+### Why This Is the End State
+
+- **Zero factory-side routing logic.** The factory sets one URL
+  (`DRAGONLIGHT_ROUTER_URL`) and one API key. No `select_for_task()`, no
+  `ModelCandidate`, no model construction. pydantic-ai's `OpenAIChatModel` points
+  at the router and the router figures out the rest.
+- **Works with any pydantic-ai consumer.** Any tool that speaks the OpenAI protocol
+  can use the router without importing `dragonlight-router` as a library. DAOS
+  sessions, ad-hoc scripts, notebook agents all get smart routing for free.
+- **Multi-turn conversations work naturally.** The router proxies each
+  `.request()` call independently. Model selection can adapt mid-conversation
+  (e.g., fall back to a different model on 429/500 without the consumer knowing).
+- **Rate limiting is invisible.** The router queues or delays requests internally
+  rather than returning deny/retry-after to the caller. The factory never needs
+  to implement retry-on-rate-limit logic.
+
+### Architecture (Transparent Proxy)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Factory Process (1..N concurrent)                      │
+│                                                         │
+│  model = OpenAIChatModel(                               │
+│      "auto",  # or a role hint like "coding"            │
+│      provider=OpenAIProvider(                           │
+│          base_url="http://127.0.0.1:8100/v1",           │
+│          api_key="local",                               │
+│      ),                                                 │
+│  )                                                      │
+│  agent = Agent(model=model, tools=[...])                │
+│  result = await agent.run(prompt)                       │
+│  # That's it. No select, no record, no rate-slot.       │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────────────────────────┐
+│  Router Proxy (port 8100)                               │
+│                                                         │
+│  POST /v1/chat/completions                              │
+│  1. Parse model field for role/intent hints             │
+│  2. select_for_task() → ranked candidates               │
+│  3. acquire rate slot for top candidate                 │
+│  4. Forward request to actual provider API              │
+│  5. On success: stream/return response, record outcome  │
+│  6. On failure: try next candidate (transparent retry)  │
+│  7. Release rate slot                                   │
+│                                                         │
+│  All backed by the same SQLite WAL databases:           │
+│  health.db, budget.db, rate.db                          │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### What Needs to Be Built
+
+| Component | Description |
+|-----------|-------------|
+| Proxy endpoint | `POST /v1/chat/completions` handler that accepts OpenAI-format requests, selects a backend, forwards the request, streams the response back |
+| Model field routing | Parse the `model` field for routing hints (e.g. `"coding"`, `"testing"`, `"reasoning"`) and map to `select_for_task()` intent categories |
+| Streaming passthrough | SSE streaming from provider to caller, with buffering for retry on mid-stream failure |
+| Transparent fallback | On provider error (429, 500, timeout), retry with next candidate without the caller seeing the failure |
+| Token counting | Extract token usage from provider response to feed into budget tracking |
+
+### Open Questions (Proxy)
+
+1. **How does the factory communicate intent/complexity to the proxy?** The
+   OpenAI `/v1/chat/completions` spec has no field for intent category or task
+   complexity. Options: encode in the `model` field (e.g. `"coding/complex"`),
+   use a custom header (`X-Dragonlight-Intent`), or use extra_body parameters.
+
+2. **How does the factory record outcome quality?** Quality ratings (pass/fail of
+   generated code) come after the agent run completes, not during the API call.
+   The proxy would need a separate outcome-recording endpoint or the factory
+   would need to call `record_request()` via library import alongside the proxy.
+
+3. **Streaming retry on mid-stream failure.** If the provider fails partway through
+   a streamed response, the proxy has already sent partial data to the caller.
+   Options: buffer the entire response before sending (defeats streaming latency),
+   or accept that mid-stream failures surface to the caller (acceptable for
+   current scale).
+
+---
+
+## Superseded: Option C — HTTP Select + Direct Execute + HTTP Record
+
+> **Note:** This section documents the originally proposed HTTP service architecture.
+> It was superseded by the SQLite WAL + library import approach described above.
+> Retained as reference for the design reasoning that led to the current direction.
+
+Option C proposed running the router as a persistent HTTP service with dedicated
+endpoints for model selection, rate-slot management, and outcome recording. The
+factory would communicate with the router exclusively over HTTP.
+
+The core insight was correct: **pydantic-ai requires a `Model` object with a
+`.request()` method for multi-turn tool-use agent loops**, so the factory must
+call provider APIs directly for execution. The question was how to coordinate
+selection and state across concurrent processes.
+
+The HTTP approach would have required:
+- A persistent router server process (systemd/launchd managed)
+- New endpoints: `POST /v1/select-for-factory`, `POST /v1/acquire-rate-slot`,
+  `POST /v1/release-rate-slot`
+- An HTTP client module in the factory (`router_client.py`)
+- Server availability as a hard dependency for the factory
+
+The SQLite WAL approach achieves the same coordination guarantees (shared health,
+budget, rate limiting across processes) without the operational overhead of running
+and monitoring a persistent HTTP service. The tradeoff is that the factory must
+import `dragonlight-router` as a Python library dependency, which the transparent
+proxy future direction would eventually eliminate.
+
+### Original HTTP Architecture (for reference)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -101,14 +467,10 @@ shared health, budget, and rate-limit state across all concurrent factory proces
 └─────────────────────────────────────────────────────────┘
 ```
 
-## New Endpoints
+### Original HTTP Endpoint Specs (for reference)
 
-### `POST /v1/select-for-factory`
-
-A factory-specific selection endpoint that returns not just ranked model IDs but
-the **provider configuration** needed to construct pydantic-ai `Model` objects
-client-side. This is the key difference from the existing `/v1/select` which returns
-only model IDs.
+<details>
+<summary>POST /v1/select-for-factory</summary>
 
 **Request:**
 
@@ -144,41 +506,15 @@ only model IDs.
       "composite_score": 91.6,
       "tier": "complex",
       "trust_tier": "trusted"
-    },
-    {
-      "model_id": "mistral/codestral-latest",
-      "provider": "mistral",
-      "provider_config": {
-        "base_url": "https://api.mistral.ai/v1",
-        "api_key_env": "MISTRAL_API_KEY",
-        "protocol": "openai",
-        "rpm_limit": null,
-        "max_tokens": 8192
-      },
-      "health_score": 90.0,
-      "budget_score": 92.5,
-      "composite_score": 91.2,
-      "tier": "moderate",
-      "trust_tier": "semi_trusted"
     }
   ],
   "request_id": "sel_abc123"
 }
 ```
+</details>
 
-The `provider_config` block gives the factory everything it needs to call
-`OpenAIProvider(base_url=..., api_key=os.environ[api_key_env])` and construct a
-pydantic-ai `OpenAIChatModel` or `AnthropicModel` directly. The factory no longer
-needs its own provider-routing `if/elif` chain in `_create_model()`.
-
-**Key design choice:** The `api_key_env` field names the environment variable, not
-the key value itself. API keys never transit the HTTP boundary. The factory process
-already has the keys in its environment.
-
-### `POST /v1/acquire-rate-slot`
-
-Centralized rate limiting. Before each LLM API call, the factory asks the router
-for permission. The router maintains a sliding-window counter per provider.
+<details>
+<summary>POST /v1/acquire-rate-slot</summary>
 
 **Request:**
 
@@ -211,14 +547,10 @@ for permission. The router maintains a sliding-window counter per provider.
   "limit_rpm": 60
 }
 ```
+</details>
 
-The `slot_id` is used for release/timeout. If the factory crashes without releasing,
-the slot expires at `expires_at` (30s default).
-
-### `POST /v1/release-rate-slot`
-
-Called after each LLM API call completes (success or failure) to release the rate
-slot and report actual token usage.
+<details>
+<summary>POST /v1/release-rate-slot</summary>
 
 **Request:**
 
@@ -230,497 +562,9 @@ slot and report actual token usage.
   "latency_ms": 4521.0
 }
 ```
-
-This merges rate-slot release with outcome recording for the common case. The
-existing `/v1/record` endpoint remains for recording outcomes without a rate slot
-(e.g., for non-factory consumers).
-
-### `POST /v1/record` (existing, unchanged)
-
-Continues to accept outcome data as-is. The factory uses this for recording
-aggregate build outcomes or for cases where rate-slot acquisition was skipped.
-
-```json
-{
-  "provider": "nvidia_nim",
-  "model_id": "nvidia_nim/moonshotai/kimi-k2.6",
-  "success": true,
-  "tokens_used": 3842,
-  "latency_ms": 4521.0,
-  "quality_rating": 4
-}
-```
-
-## Factory Client Design
-
-### New module: `factory/scripts/router_client.py`
-
-Replaces both `router_model.py` (the pydantic-ai `RouterModel` adapter) and the
-in-process `_get_factory_router()` singleton. The factory communicates with the
-router exclusively over HTTP.
-
-```python
-"""HTTP client for the Dragonlight Router service.
-
-Replaces in-process RouterEngine usage. All model selection, rate limiting,
-and outcome recording go through the router's HTTP API. The factory constructs
-pydantic-ai Model objects locally using provider configs from the router.
-"""
-from __future__ import annotations
-
-import os
-from dataclasses import dataclass
-from typing import Any
-
-import httpx
-from pydantic_ai.models import Model
-from pydantic_ai.models.openai import OpenAIChatModel, OpenAIProvider
-from pydantic_ai.models.anthropic import AnthropicModel, AnthropicProvider
-from pydantic_ai.settings import ModelSettings
-
-
-ROUTER_BASE_URL = os.environ.get("DRAGONLIGHT_ROUTER_URL", "http://127.0.0.1:8100")
-
-# Shared HTTP client for router API calls (not LLM calls).
-_router_http: httpx.AsyncClient | None = None
-
-
-def _get_router_http() -> httpx.AsyncClient:
-    global _router_http
-    if _router_http is None:
-        _router_http = httpx.AsyncClient(
-            base_url=ROUTER_BASE_URL,
-            timeout=httpx.Timeout(10.0),
-        )
-    return _router_http
-
-
-@dataclass(frozen=True)
-class ModelCandidate:
-    """A ranked model candidate from the router."""
-    model_id: str
-    provider: str
-    base_url: str
-    api_key_env: str
-    protocol: str  # "openai" | "anthropic"
-    rpm_limit: int | None
-    max_tokens: int | None
-    health_score: float
-    budget_score: float
-    composite_score: float
-    tier: str
-    trust_tier: str
-
-
-@dataclass(frozen=True)
-class RateSlot:
-    """An acquired rate-limit slot."""
-    slot_id: str
-    expires_at: str
-    granted: bool
-    retry_after_ms: int | None = None
-
-
-async def select_models(
-    role: str,
-    *,
-    intent_category: str = "coding",
-    complexity: str = "standard",
-    top_n: int = 5,
-    exclude_models: list[str] | None = None,
-    requires_tool_use: bool = True,
-    context_tokens: int = 0,
-) -> list[ModelCandidate]:
-    """Ask the router for ranked model candidates."""
-    client = _get_router_http()
-    body = {
-        "role": role,
-        "intent_category": intent_category,
-        "complexity": complexity,
-        "top_n": top_n,
-        "exclude_models": exclude_models or [],
-        "requires_tool_use": requires_tool_use,
-        "context_tokens": context_tokens,
-    }
-    resp = await client.post("/v1/select-for-factory", json=body)
-    resp.raise_for_status()
-    data = resp.json()
-
-    return [
-        ModelCandidate(
-            model_id=c["model_id"],
-            provider=c["provider"],
-            base_url=c["provider_config"]["base_url"],
-            api_key_env=c["provider_config"]["api_key_env"],
-            protocol=c["provider_config"]["protocol"],
-            rpm_limit=c["provider_config"].get("rpm_limit"),
-            max_tokens=c["provider_config"].get("max_tokens"),
-            health_score=c["health_score"],
-            budget_score=c["budget_score"],
-            composite_score=c["composite_score"],
-            tier=c["tier"],
-            trust_tier=c["trust_tier"],
-        )
-        for c in data["candidates"]
-    ]
-
-
-def build_pydantic_model(candidate: ModelCandidate) -> Model:
-    """Construct a pydantic-ai Model from a router-provided candidate.
-
-    This replaces _create_model() in coding_agent.py. The provider config
-    comes from the router, so the factory no longer needs provider-specific
-    if/elif chains.
-    """
-    api_key = os.environ.get(candidate.api_key_env, "")
-    max_tokens = candidate.max_tokens
-    settings = ModelSettings(max_tokens=max_tokens) if max_tokens else None
-
-    # Strip provider prefix from model_id for the API call.
-    # e.g. "nvidia_nim/moonshotai/kimi-k2.6" -> "moonshotai/kimi-k2.6"
-    name = candidate.model_id
-    prefix = candidate.provider + "/"
-    if name.startswith(prefix):
-        name = name[len(prefix):]
-
-    if candidate.protocol == "anthropic":
-        return AnthropicModel(
-            name,
-            provider=AnthropicProvider(api_key=api_key),
-            settings=settings,
-        )
-
-    # Default: OpenAI-compatible protocol
-    return OpenAIChatModel(
-        name,
-        provider=OpenAIProvider(
-            base_url=candidate.base_url,
-            api_key=api_key,
-            http_client=httpx.AsyncClient(timeout=httpx.Timeout(300.0)),
-        ),
-        settings=settings,
-    )
-
-
-async def acquire_rate_slot(
-    provider: str,
-    model_id: str,
-    estimated_tokens: int = 4000,
-) -> RateSlot:
-    """Acquire a rate-limit slot from the router before calling the LLM API."""
-    client = _get_router_http()
-    resp = await client.post("/v1/acquire-rate-slot", json={
-        "provider": provider,
-        "model_id": model_id,
-        "estimated_tokens": estimated_tokens,
-    })
-    resp.raise_for_status()
-    data = resp.json()
-    return RateSlot(
-        slot_id=data.get("slot_id", ""),
-        expires_at=data.get("expires_at", ""),
-        granted=data["granted"],
-        retry_after_ms=data.get("retry_after_ms"),
-    )
-
-
-async def release_rate_slot(
-    slot_id: str,
-    *,
-    actual_tokens: int,
-    success: bool,
-    latency_ms: float,
-) -> None:
-    """Release a rate-limit slot and report outcome."""
-    client = _get_router_http()
-    await client.post("/v1/release-rate-slot", json={
-        "slot_id": slot_id,
-        "actual_tokens": actual_tokens,
-        "success": success,
-        "latency_ms": latency_ms,
-    })
-
-
-async def record_outcome(
-    provider: str,
-    model_id: str,
-    *,
-    success: bool,
-    tokens_used: int = 0,
-    latency_ms: float = 0.0,
-    quality_rating: int | None = None,
-) -> None:
-    """Record a model outcome with the router (non-rate-slot path)."""
-    client = _get_router_http()
-    body: dict[str, Any] = {
-        "provider": provider,
-        "model_id": model_id,
-        "success": success,
-        "tokens_used": tokens_used,
-        "latency_ms": latency_ms,
-    }
-    if quality_rating is not None:
-        body["quality_rating"] = quality_rating
-    await client.post("/v1/record", json=body)
-```
-
-### How Multi-Turn pydantic-ai Conversations Work
-
-The factory's `run_coding_agent()` function (coding_agent.py:2155) creates a
-pydantic-ai `Agent` and calls `agent.run()`. This internally loops:
-
-1. Send messages to model via `model.request(messages, settings, params)`
-2. Parse response for tool calls
-3. Execute tools locally (file writes, shell commands)
-4. Append tool results to messages
-5. Send updated messages back to model
-6. Repeat until model returns final text (no tool calls)
-
-Under Option C, the `Model` object passed to `Agent(model=...)` is a standard
-pydantic-ai `OpenAIChatModel` or `AnthropicModel` constructed from the router's
-provider config. There is no `RouterModel` adapter in the loop. The model talks
-directly to the provider API.
-
-The router's role is bookending: **select before, record after.**
-
-```
-Router: select candidates
-  ↓
-Factory: build_pydantic_model(candidates[0])
-Factory: agent = Agent(model=model, tools=[...])
-Factory: result = await agent.run(prompt)
-  │  ↑↓ multi-turn tool-use loop (direct to provider API)
-  ↓
-Router: record outcome (success/fail, tokens, latency)
-  ↓
-If failed + retryable:
-  Factory: build_pydantic_model(candidates[1])
-  (repeat)
-```
-
-### How Rate Limiting Works Across Concurrent Runs
-
-Current state: Each factory process creates its own `httpx.AsyncClient` with a
-`ThrottleTransport` that rate-limits RPM per-process. Three concurrent runs hitting
-NIM at 60 RPM each = 180 RPM actual, exceeding the provider limit.
-
-New state: The router maintains a single sliding-window RPM counter per provider.
-Each factory process must `acquire_rate_slot()` before each LLM API call. The router
-either grants the slot (under the RPM limit) or denies it with a `retry_after_ms`
-hint.
-
-**Implementation in the router:**
-
-```python
-# New file: dragonlight_router/rate_limiter.py
-
-@dataclass
-class RateLimiter:
-    """Sliding-window rate limiter with slot tracking.
-
-    Shared across all consumers via the router process. Slots expire
-    automatically if not released (crash safety).
-    """
-
-    # Provider -> list of (timestamp, slot_id) for active window
-    _windows: dict[str, list[tuple[float, str]]]
-    # slot_id -> (provider, expires_at) for outstanding slots
-    _active_slots: dict[str, tuple[str, float]]
-    # Provider -> RPM limit (from config)
-    _limits: dict[str, int]
-
-    def acquire(self, provider: str, model_id: str) -> RateSlot: ...
-    def release(self, slot_id: str) -> None: ...
-    def _prune_expired(self, provider: str) -> None: ...
-```
-
-The factory integration point is in the agent execution path. Since pydantic-ai's
-`Model.request()` is async, the rate-slot acquisition wraps each request:
-
-**Phase 1 (pragmatic):** Rate-slot acquisition happens at the factory level, once
-per `run_coding_agent()` call. This is coarse-grained (one slot per entire agent
-run, not per turn) but simple and catches the main concurrency problem.
-
-**Phase 2 (precise):** A thin pydantic-ai `Model` wrapper acquires a slot before
-each `.request()` call and releases it after, giving per-turn rate limiting. This
-is a `RateLimitedModel` wrapper:
-
-```python
-class RateLimitedModel(Model):
-    """Wraps a pydantic-ai Model with router-based rate limiting."""
-
-    def __init__(self, inner: Model, provider: str, model_id: str):
-        self._inner = inner
-        self._provider = provider
-        self._model_id = model_id
-
-    async def request(self, messages, model_settings, model_request_parameters):
-        slot = await acquire_rate_slot(self._provider, self._model_id)
-        if not slot.granted:
-            await asyncio.sleep(slot.retry_after_ms / 1000)
-            slot = await acquire_rate_slot(self._provider, self._model_id)
-            if not slot.granted:
-                raise RuntimeError(f"Rate limited by router: retry after {slot.retry_after_ms}ms")
-        try:
-            result = await self._inner.request(messages, model_settings, model_request_parameters)
-            await release_rate_slot(slot.slot_id, actual_tokens=..., success=True, latency_ms=...)
-            return result
-        except Exception:
-            await release_rate_slot(slot.slot_id, actual_tokens=0, success=False, latency_ms=...)
-            raise
-```
-
-## Router-Side Changes
-
-### New files
-
-| File | Purpose |
-|------|---------|
-| `dragonlight_router/rate_limiter.py` | `RateLimiter` class with sliding-window RPM tracking and slot management |
-| `dragonlight_router/server/factory_routes.py` | Route handlers for `/v1/select-for-factory`, `/v1/acquire-rate-slot`, `/v1/release-rate-slot` |
-
-### Modified files
-
-| File | Change |
-|------|--------|
-| `server/app.py` | Import and register new routes from `factory_routes.py` |
-| `server/routes.py` | Add `_ALLOWED_INTENT_CATEGORIES` entries for factory intent categories (`"coding"`, `"test_generation"`, `"test_property"`, `"implementation"`, `"implementation_complex"`, `"coherence_merge"`, `"audit"`) |
-| `router.py` | Add `get_provider_config(model_id) -> dict` method that returns base_url, api_key_env, protocol for a model. Add `RateLimiter` as a component on `RouterEngine` |
-| `core/types.py` | Add `ProviderConnectionInfo` dataclass |
-
-### New type: `ProviderConnectionInfo`
-
-```python
-@dataclass(frozen=True)
-class ProviderConnectionInfo:
-    """Connection details for a provider, returned by select-for-factory.
-
-    api_key_env is the environment variable name, never the key value.
-    """
-    base_url: str
-    api_key_env: str
-    protocol: str  # "openai" | "anthropic"
-    rpm_limit: int | None
-    max_tokens: int | None
-```
-
-### Provider config mapping
-
-The router already knows provider details from its config (`router.yaml` provider
-entries). The mapping from provider name to `ProviderConnectionInfo` is:
-
-```yaml
-# Already in router.yaml under providers:
-- name: nvidia_nim
-  base_url: https://integrate.api.nvidia.com/v1
-  api_key_env: NVIDIA_NIM_API_KEY
-  # New fields to add:
-  protocol: openai
-  rpm_limit: 60
-
-- name: groq
-  base_url: https://api.groq.com/openai/v1
-  api_key_env: GROQ_API_KEY
-  protocol: openai
-  rpm_limit: 28
-```
-
-The `api_key_env` and `rpm_limit` fields are additions to the existing provider
-config schema. Currently the router knows base_url and api_key from config, but
-doesn't expose them via HTTP. The new endpoint surfaces this information (minus
-the actual key value) so the factory can construct clients.
-
-## Factory-Side Changes
-
-### Files to create
-
-| File | Purpose |
-|------|---------|
-| `scripts/router_client.py` | HTTP client for router API (replaces in-process `RouterEngine` usage) |
-
-### Files to modify
-
-| File | Change |
-|------|--------|
-| `scripts/factory.py` | Replace `_get_factory_router()`, `_select_next_model()`, `_resolve_via_router()`, `_record_router_outcome()` with calls to `router_client` |
-| `scripts/factory.py` | Remove `_FALLBACK_CHAIN`, `_MODEL_ROUTING` (router owns model rankings) |
-| `scripts/factory.py` | Replace `ROUTER_ENABLED` / `ROUTER_DISPATCH` env vars with `DRAGONLIGHT_ROUTER_URL` |
-| `scripts/coding_agent.py` | Replace `_create_model()` with `router_client.build_pydantic_model()` |
-| `scripts/coding_agent.py` | Remove direct `from dragonlight_router.health.circuit_breaker import CircuitBreaker` import |
-| `scripts/coding_agent.py` | Remove all provider-specific throttle transport construction |
-
-### Files to delete
-
-| File | Reason |
-|------|--------|
-| `scripts/router_model.py` | The `RouterModel` pydantic-ai adapter is replaced by direct model construction from router-provided configs. The router no longer dispatches LLM calls for the factory. |
-
-### Environment variable changes
-
-| Old | New | Notes |
-|-----|-----|-------|
-| `ROUTER_ENABLED=1` | Removed | Router is always used when `DRAGONLIGHT_ROUTER_URL` is set |
-| `ROUTER_DISPATCH=1` | Removed | Full dispatch mode eliminated; factory always does select+execute+record |
-| (none) | `DRAGONLIGHT_ROUTER_URL=http://127.0.0.1:8100` | Router service address |
-
-## Migration Path
-
-### Phase 0: Router service readiness (router repo)
-
-1. Add `api_key_env`, `protocol`, `rpm_limit` fields to provider config schema in
-   `router.yaml` and the config model
-2. Implement `RateLimiter` class in `dragonlight_router/rate_limiter.py`
-3. Add `get_provider_config(model_id)` method to `RouterEngine`
-4. Implement `POST /v1/select-for-factory` handler in `server/factory_routes.py`
-5. Implement `POST /v1/acquire-rate-slot` and `POST /v1/release-rate-slot` handlers
-6. Register new routes in `server/app.py`
-7. Add factory intent categories to `_ALLOWED_INTENT_CATEGORIES`
-8. Test: router serves `select-for-factory` with correct provider configs
-9. Test: rate-slot acquire/release works under concurrency
-10. Deploy router as a persistent service (systemd unit or launchd plist)
-
-### Phase 1: Factory client introduction (factory repo)
-
-1. Create `scripts/router_client.py` with `select_models()`, `build_pydantic_model()`,
-   `acquire_rate_slot()`, `release_rate_slot()`, `record_outcome()`
-2. Add `DRAGONLIGHT_ROUTER_URL` to factory environment
-3. Modify `_select_next_model()` to call `router_client.select_models()` when
-   `DRAGONLIGHT_ROUTER_URL` is set, falling back to static chain otherwise
-4. Modify `_create_model()` to use `router_client.build_pydantic_model()` when
-   a `ModelCandidate` is available
-5. Modify `_record_router_outcome()` to call `router_client.record_outcome()`
-6. Test: factory works with router service running
-7. Test: factory still works without router (static chain fallback)
-
-### Phase 2: Remove legacy paths (factory repo)
-
-1. Remove `_get_factory_router()` (in-process `RouterEngine` singleton)
-2. Remove `from dragonlight_router` imports from `factory.py` and `coding_agent.py`
-3. Remove `_FALLBACK_CHAIN` and `_MODEL_ROUTING` dicts
-4. Remove `ROUTER_ENABLED` and `ROUTER_DISPATCH` env var checks
-5. Delete `scripts/router_model.py`
-6. Remove `dragonlight-router` from factory's Python dependencies (only HTTP client
-   remains as the integration point)
-7. Remove per-provider throttle transports from `_create_model()` (replaced by
-   router-managed rate limiting)
-8. Test: factory operates correctly with router as sole model selection authority
-
-### Phase 3: Per-turn rate limiting (factory repo, optional)
-
-1. Implement `RateLimitedModel` wrapper in `router_client.py`
-2. Wrap models from `build_pydantic_model()` in `RateLimitedModel`
-3. This gives per-API-call rate limiting instead of per-agent-run
+</details>
 
 ## What This Does Not Change
-
-- **`select_model_for_ticket()`** — This complexity-to-model routing function moves
-  its logic to the router's `select-for-factory` handler, which receives complexity
-  as a parameter and uses it alongside health/budget/catalog to rank candidates.
-  The function itself is removed from the factory.
-
-- **`_run_via_router()` / full dispatch path** — Eliminated entirely. The factory
-  never sends prompts through the router. The router never calls LLM APIs on behalf
-  of the factory.
 
 - **pydantic-ai agent loop** — Unchanged. `run_coding_agent()` still creates an
   `Agent` and calls `agent.run()`. The only difference is how the `Model` object is
@@ -730,49 +574,32 @@ the actual key value) so the factory can construct clients.
   executed in the factory, and never transit the router.
 
 - **Non-factory router consumers** — The existing `/v1/select`, `/v1/dispatch`, and
-  `/v1/record` endpoints are unchanged. DAOS sessions, ad-hoc queries, and other
-  router consumers continue to use the existing API.
-
-## Concurrency Model
-
-With the router as a single HTTP service:
-
-- **Health tracking:** Single process, single set of circuit breakers. All factory
-  runs see the same health state. A model that fails in run A is immediately
-  circuit-broken for run B.
-
-- **Budget tracking:** Single process, single budget counter. Token spend from all
-  concurrent runs is aggregated in real-time.
-
-- **Rate limiting:** Single sliding-window counter per provider. Slot acquisition
-  serializes access across all factory processes. If NIM allows 60 RPM, 3 concurrent
-  factory runs collectively cannot exceed 60 RPM.
-
-- **Catalog:** Single catalog refresh cycle. All factory runs share the same live
-  model availability data.
+  `/v1/record` HTTP endpoints are unchanged. DAOS sessions, ad-hoc queries, and
+  other router consumers continue to use the existing HTTP API.
 
 ## Failure Modes
 
 | Scenario | Behavior |
 |----------|----------|
-| Router unreachable | Factory falls back to static chain (Phase 1 only; Phase 2 removes fallback, factory fails fast) |
-| Router returns 5xx | Factory retries with exponential backoff (3 attempts, 1s/3s/9s) |
-| Rate slot denied | Factory sleeps `retry_after_ms` and retries |
-| Rate slot not released (factory crash) | Slot expires after 30s; router prunes on next acquire |
-| Router restarts | Health/budget state loaded from disk on startup; rate-slot state is lost (slots expire naturally) |
+| SQLite busy (writer contention) | `busy_timeout=5000` — SQLite retries internally for up to 5 seconds before raising `OperationalError` |
+| Rate slot denied | `acquire()` returns `RateSlot(granted=False, retry_after_ms=N)` — caller sleeps and retries |
+| Rate slot not released (process crash) | Slot expires after 30s; pruned on next `acquire()` call |
+| Database file corrupted | SQLite WAL has built-in crash recovery; WAL checkpoint restores consistent state |
+| Process restarts | All state is on disk in SQLite; no warm-up needed. Rate slot window may briefly allow a burst (expired slots from crashed processes haven't been pruned yet) |
 
-## Open Questions
+## Resolved Questions
 
-1. **Should the factory fall back to static chain permanently, or only during
-   migration?** Post-Phase 2, the factory has no hardcoded model list. If the router
-   is down, the factory cannot select models. This is arguably correct (the router
-   IS the model authority) but makes the factory dependent on the router being up.
+1. **Should the factory fall back to static chain?** No. The router library is
+   always available as a Python import. There is no "router down" scenario because
+   there is no server — the SQLite databases are always accessible via filesystem.
+   The static chain can be removed.
 
-2. **Should rate-slot acquisition be blocking or async-with-retry?** The current
-   design has the factory sleep on denial. An alternative is a queue-based approach
-   where the factory submits work to the router and gets called back, but this adds
-   significant complexity.
+2. **Should rate-slot acquisition be blocking or async-with-retry?** The
+   `RateLimiter.acquire()` method is synchronous and returns immediately with
+   either a granted slot or a denied result with `retry_after_ms`. The caller
+   decides whether to sleep-and-retry or try a different provider. This keeps the
+   rate limiter simple and the retry policy in the factory's control.
 
-3. **Should the router persist rate-slot state to disk?** Currently in-memory only.
-   On router restart, all slots are lost and the window resets. This means a brief
-   burst above RPM limits after restart. Acceptable for current scale.
+3. **Should the router persist rate-slot state to disk?** Yes — it does. Rate
+   slots are in SQLite WAL, which persists to disk. On process restart, the
+   existing window is preserved. Expired slots are pruned lazily.

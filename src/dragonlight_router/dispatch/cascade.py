@@ -1009,6 +1009,9 @@ async def _handle_fallback_chain(
                     output_tokens=result.value.tokens_out,
                     min_output_tokens=min_tokens,
                 )
+                ctx.health_tracker.record_error(
+                    backend_config.model, http_status=None,
+                )
                 fallback_chain.append(backend_config.name)
                 continue
 

@@ -325,7 +325,9 @@ class RouterEngine:
             providers=provider_configs,
             db_path=state_dir / "budget.db",
         )
-        self._health = HealthTracker()
+        self._health = HealthTracker(
+            db_path=state_dir / "health.db",
+        )
         self._catalog = CatalogCache(
             cache_path=state_dir / "provider_catalog.json",
             ttl_hours=self._config.catalog_ttl_hours,

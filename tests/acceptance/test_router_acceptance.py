@@ -68,7 +68,7 @@ def _setup_acceptance_config(tmp_path: Path) -> Path:
             "groq_llama70b": 80,
             "nvidia_nemotron": 70,
         },
-        "drafting": {
+        "review": {
             "groq_mixtral": 85,
             "nvidia_nemotron": 75,
             "groq_llama8b": 55,
@@ -102,7 +102,7 @@ class TestSelectModelsForAllRoles:
         config_path = _setup_acceptance_config(tmp_path)
         engine = RouterEngine(config_path=config_path)
 
-        for role in ("coding", "testing", "drafting"):
+        for role in ("coding", "testing", "review"):
             result = engine.select_models(role)
             assert len(result) >= 1, f"Role '{role}' returned no models"
             # All returned model IDs should be strings
@@ -437,5 +437,6 @@ class TestSaveAndRestoreState:
 
         # Create a new engine from the same config — should restore state
         engine2 = RouterEngine(config_path=config_path)
-        assert engine2._budget._rpd_counts["groq"] == 2
-        assert engine2._budget._daily_token_counts["groq"] == 800
+        state = engine2._budget.get_state()
+        assert state["rpd_counts"]["groq"] == 2
+        assert state["daily_token_counts"]["groq"] == 800

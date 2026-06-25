@@ -202,19 +202,21 @@ class HealthTracker:
         return self._is_retired_or_suspended(model_id)
 
     def reinstate_model(self, model_id: str) -> None:
-        """Restore a retired model to active status."""
+        """Restore a retired or suspended model to active status."""
         assert isinstance(model_id, str) and model_id, "model_id must be non-empty string"
         assert isinstance(self._retired, dict), "_retired must be a dict"
-        was_retired = model_id in self._retired
+        was_unavailable = model_id in self._retired or model_id in self._suspended
         if model_id in self._retired:
             del self._retired[model_id]
+        if model_id in self._suspended:
+            del self._suspended[model_id]
         self._error_counts[model_id] = 0
         self._breakers[model_id].record_success()
         if self._db is not None:
             self._db.reinstate_model(model_id)
             self._db.reset_error_count(model_id)
-            was_retired = True  # DB may have had it retired even if in-memory didn't
-        if was_retired:
+            was_unavailable = True  # DB may have had it retired even if in-memory didn't
+        if was_unavailable:
             logger.info("model_reinstated", model_id=model_id)
 
     def get_retired_models(self) -> dict[str, float]:

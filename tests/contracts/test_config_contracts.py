@@ -97,6 +97,7 @@ class TestRouterConfigFields:
         "max_consecutive_same_provider",
         "providers",
         "admin_api_key",
+        "admin_open",
         "intent_classification",
         "pinned_dispatch",
     }

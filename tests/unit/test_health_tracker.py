@@ -208,21 +208,21 @@ class TestRetirement403:
         ht.record_error("m1", http_status=403)
         assert ht.is_available("m1") is False
 
-    def test_403_retired_model_in_retired_list(self):
-        """[TM-008] 403-retired model appears in get_retired_models."""
+    def test_403_suspended_model_is_unavailable(self):
+        """[TM-008] 403 suspends the model (not retired), making it unavailable."""
         ht = HealthTracker()
         ht.record_error("m1", http_status=403)
-        retired = ht.get_retired_models()
-        assert "m1" in retired
+        assert "m1" in ht._suspended
+        assert "m1" not in ht._retired
 
-    def test_403_does_not_increment_error_count(self):
-        """[TM-008] 403 retires immediately without incrementing error count."""
+    def test_403_increments_error_count(self):
+        """[TM-008] 403 suspends and also increments error count."""
         ht = HealthTracker()
         ht.record_error("m1", http_status=403)
-        assert ht.get_error_count("m1") == 0
+        assert ht.get_error_count("m1") == 1
 
     def test_reinstate_after_403_works(self):
-        """[TM-008] 403-retired model can be reinstated."""
+        """[TM-008] 403-suspended model can be reinstated."""
         ht = HealthTracker()
         ht.record_error("m1", http_status=403)
         assert ht.is_available("m1") is False

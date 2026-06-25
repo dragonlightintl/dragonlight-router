@@ -196,6 +196,7 @@ VALID_DISPATCH_BODY = {
     "context_tokens": 100,
     "requires_tool_use": False,
     "requires_long_context": False,
+    "min_output_tokens": 0,
 }
 
 

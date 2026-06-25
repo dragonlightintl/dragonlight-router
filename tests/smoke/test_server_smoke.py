@@ -189,6 +189,7 @@ class TestDispatchSmoke:
                     "operator_message": "Say hello",
                     "system_prompt": "You are helpful",
                     "context_tokens": 50,
+                    "min_output_tokens": 0,
                 },
             )
         assert resp.status_code == 200

@@ -50,7 +50,7 @@ from dragonlight_router.health.check_loop import HealthCheckLoop
 from dragonlight_router.health.tracker import HealthTracker
 from dragonlight_router.rate.limiter import RateLimiter
 from dragonlight_router.result import Ok, Result
-from dragonlight_router.roles.matrix import RoleMatrix
+from dragonlight_router.roles.matrix import _DEFAULT_RANK, RoleMatrix
 from dragonlight_router.selection.feedback import FeedbackStore
 from dragonlight_router.selection.interleave import interleave_providers
 from dragonlight_router.selection.scoring import (
@@ -637,11 +637,22 @@ class RouterEngine:
         return BackendTier.SIMPLE
 
     def _collect_unique_model_ids(self) -> set[str]:
-        """Iterate the role matrix and return the set of all unique model IDs."""
+        """Collect model IDs from role matrix AND live catalog.
+
+        The role matrix provides curated high-rank models. The catalog
+        provides the full set of available models from all providers.
+        The union ensures every reachable model gets registered as a
+        backend, so the selection pipeline can consider the full catalog.
+        """
         all_model_ids: set[str] = set()
         for _role, entries in self._matrix._matrix.items():
             for model_id in entries:
                 all_model_ids.add(model_id)
+        catalog_result = self._catalog.get()
+        if isinstance(catalog_result, Ok):
+            for _provider_name, entries in catalog_result.value.items():
+                for entry in entries:
+                    all_model_ids.add(entry.model_id)
         assert isinstance(all_model_ids, set), "result must be a set"
         return all_model_ids
 
@@ -791,7 +802,7 @@ class RouterEngine:
         self,
         role: str,
         *,
-        top_n: int = 12,
+        top_n: int = 25,
         exclude_providers: frozenset[str] | None = None,
     ) -> list[str]:
         assert isinstance(role, str) and len(role) > 0, "role must be a non-empty string"
@@ -800,10 +811,25 @@ class RouterEngine:
             exclude_providers,
             frozenset,
         ), "exclude_providers must be a frozenset or None"
-        """Return ranked model IDs for a role. Factory's primary entry point."""
+        """Return ranked model IDs for a role. Factory's primary entry point.
+
+        Candidates come from the full set of registered backends (which
+        includes all catalog models). Models in the role matrix get their
+        curated rank; all others get default_rank (20). This ensures the
+        cascade can reach any healthy model, not just the curated few.
+        """
         self._matrix.reload_if_changed()
 
-        candidates = self._matrix.get_ranked_models(role)
+        all_backends = set(self._registry.all_model_ids())
+        matrix_ranks = dict(self._matrix.get_ranked_models(role))
+
+        if all_backends:
+            candidates = [
+                (model_id, matrix_ranks.get(model_id, _DEFAULT_RANK))
+                for model_id in all_backends
+            ]
+        else:
+            candidates = list(matrix_ranks.items())
         if not candidates:
             return []
 
@@ -1017,8 +1043,7 @@ class RouterEngine:
         }
         role = _INTENT_TO_ROLE.get(intent_category, "coding")
 
-        # Use the existing select_models pipeline for ranked model IDs.
-        ranked_ids = self.select_models(role, top_n=12)
+        ranked_ids = self.select_models(role, top_n=25)
 
         # Apply exclusion filter
         excluded = set(exclude_models) if exclude_models else set()

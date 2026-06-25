@@ -64,6 +64,10 @@ class BackendRegistry:
         """Return all registered backends with state."""
         return [(name, self._backends[name], self._states[name]) for name in self._backends]
 
+    def all_model_ids(self) -> list[str]:
+        """Return all registered model IDs."""
+        return list(self._backends.keys())
+
     def get_by_tier(self, tier: BackendTier) -> list[BackendConfig]:
         """Get all backends matching the specified tier.
 

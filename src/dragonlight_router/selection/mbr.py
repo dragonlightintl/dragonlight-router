@@ -375,6 +375,7 @@ def _has_any_requirements(order: DispatchOrder) -> bool:
         or order.requires_tool_use
         or order.requires_long_context
         or bool(order.system_prompt)
+        or bool(order.tools)
     )
 
 
@@ -387,6 +388,12 @@ def _meets_requirements(caps: BackendCapabilities, order: DispatchOrder) -> bool
         return False
 
     if order.requires_tool_use and not caps.supports_tool_use:
+        return False
+
+    # Also filter when the order carries tool definitions, even if
+    # requires_tool_use was not explicitly set — the model must still
+    # support tool use to handle the tools payload.
+    if order.tools and not caps.supports_tool_use:
         return False
 
     return not (bool(order.system_prompt) and not caps.supports_system_prompts)

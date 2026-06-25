@@ -77,6 +77,16 @@ _router_instance: RouterEngine | None = None
 class RouterEngine:
     """Central router — serves both daos-engine and factory consumers."""
 
+    # Model name patterns for backends that do NOT support tool use (function calling).
+    # Matched case-insensitively against the full model_id. If any pattern appears
+    # as a substring, the backend is registered with supports_tool_use=False.
+    _NON_TOOL_CAPABLE_PATTERNS: frozenset[str] = frozenset({
+        "dracarys",
+        "mixtral-8x7b",
+        "mistral-7b",
+        "mistral-nemo-minitron",
+    })
+
     # Maps config provider names to adapter factory keys.
     # Config uses descriptive names (nvidia_nim, gemini, ollama);
     # the adapter _PROVIDER_MAP uses canonical short keys.
@@ -599,6 +609,10 @@ class RouterEngine:
             default=0,
         )
 
+        _supports_tools = not any(
+            pat in model_id.lower() for pat in self._NON_TOOL_CAPABLE_PATTERNS
+        )
+
         return BackendConfig(
             name=model_id,
             provider=adapter_key,
@@ -609,7 +623,7 @@ class RouterEngine:
             priority=max_rank,
             capabilities=BackendCapabilities(
                 max_context_tokens=131072,
-                supports_tool_use=True,
+                supports_tool_use=_supports_tools,
                 supports_streaming=True,
                 supports_json_mode=True,
                 supports_system_prompts=True,

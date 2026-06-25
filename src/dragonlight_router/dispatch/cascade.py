@@ -880,8 +880,12 @@ def _record_adapter_failure(
     ctx: DispatchContext,
 ) -> None:
     """Record a backend generation failure in the health tracker."""
-    http_status = getattr(exc, "status_code", None) or getattr(
-        getattr(exc, "__cause__", None), "status_code", None
+    cause = getattr(exc, "__cause__", None)
+    http_status = (
+        getattr(exc, "status_code", None)
+        or getattr(getattr(exc, "response", None), "status_code", None)
+        or getattr(cause, "status_code", None)
+        or getattr(getattr(cause, "response", None), "status_code", None)
     )
     ctx.health_tracker.record_error(backend_config.model, http_status=http_status)
 

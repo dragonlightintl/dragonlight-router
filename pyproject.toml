@@ -52,6 +52,7 @@ dragonlight-router = "dragonlight_router.server.app:main"
 dragonlight-router-benchmark = "dragonlight_router.benchmark.runner:main"
 dragonlight-router-calibration-audit = "dragonlight_router.benchmark.calibration_audit:main"
 dragonlight-matrix = "dragonlight_router.cli.matrix_cli:main"
+dragonlight-status = "dragonlight_router.cli.status_cli:main"
 
 [project.urls]
 Homepage = "https://github.com/dragonlightintl/dragonlight-router"

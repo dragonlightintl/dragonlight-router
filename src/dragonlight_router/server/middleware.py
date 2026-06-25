@@ -229,7 +229,7 @@ def get_cors_config() -> dict[str, Any] | None:
         DRAGONLIGHT_CORS_METHODS: Comma-separated list of allowed HTTP methods.
             Default: ``GET,POST,OPTIONS``.
         DRAGONLIGHT_CORS_HEADERS: Comma-separated list of allowed request headers.
-            Default: ``*`` (allow all headers).
+            Default: ``Content-Type,Authorization,X-Request-ID,Accept``.
         DRAGONLIGHT_CORS_CREDENTIALS: Whether to allow credentials (cookies, auth headers).
             Default: ``false``. Set to ``true`` to enable.
 
@@ -239,7 +239,9 @@ def get_cors_config() -> dict[str, Any] | None:
     """
     origins_env = os.environ.get("DRAGONLIGHT_CORS_ORIGINS", "")
     methods_env = os.environ.get("DRAGONLIGHT_CORS_METHODS", "GET,POST,OPTIONS")
-    headers_env = os.environ.get("DRAGONLIGHT_CORS_HEADERS", "*")
+    headers_env = os.environ.get(
+        "DRAGONLIGHT_CORS_HEADERS", "Content-Type,Authorization,X-Request-ID,Accept"
+    )
     credentials_env = os.environ.get("DRAGONLIGHT_CORS_CREDENTIALS", "false")
 
     allow_origins = [o.strip() for o in origins_env.split(",") if o.strip()]

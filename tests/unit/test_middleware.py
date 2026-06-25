@@ -309,7 +309,12 @@ class TestCORSConfig:
         assert "GET" in config["allow_methods"]
         assert "POST" in config["allow_methods"]
         assert "OPTIONS" in config["allow_methods"]
-        assert config["allow_headers"] == ["*"]
+        assert config["allow_headers"] == [
+            "Content-Type",
+            "Authorization",
+            "X-Request-ID",
+            "Accept",
+        ]
 
     def test_custom_cors_origins(self, monkeypatch):
         """Custom origins are parsed from comma-separated env var."""

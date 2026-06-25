@@ -196,6 +196,7 @@ class HealthTracker:
 
         return {
             "retired": dict(self._retired),
+            "suspended": dict(self._suspended),
             "error_counts": dict(self._error_counts),
             "breaker_states": breaker_states,
         }
@@ -212,6 +213,13 @@ class HealthTracker:
         retired = state.get("retired", {})
         for model_id, timestamp in retired.items():
             self._retired[model_id] = timestamp
+
+        # Restore suspended models (prune expired suspensions on load)
+        suspended = state.get("suspended", {})
+        now = time.time()
+        for model_id, timestamp in suspended.items():
+            if now - timestamp < self._suspend_ttl_s:
+                self._suspended[model_id] = timestamp
 
         # Restore error counts
         error_counts = state.get("error_counts", {})

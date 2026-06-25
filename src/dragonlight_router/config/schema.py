@@ -80,8 +80,11 @@ class RouterConfig(BaseModel):
     providers: list[ProviderSchema] = Field(default_factory=list)
     # HAZ-011: Bearer token for admin endpoints (retire, reinstate, catalog/refresh).
     # When set, admin endpoints require Authorization: Bearer <token>.
-    # When empty/None, admin endpoints are open (backward compatible).
+    # When empty/None, admin endpoints are blocked unless admin_open is True.
     admin_api_key: str | None = None
+    # SEC-006: Explicit opt-in for unauthenticated admin access.
+    # Must be True to allow admin endpoints without admin_api_key.
+    admin_open: bool = False
     # IBR: Intent classification subsystem (opt-in, disabled by default).
     intent_classification: IntentClassificationConfig = Field(
         default_factory=IntentClassificationConfig,

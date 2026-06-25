@@ -107,10 +107,22 @@ class _StubBackend:
 class TestAdminAuthRetire:
     """HAZ-011: Retire endpoint authentication."""
 
-    def test_retire_no_admin_key_configured_allows_access(self, tmp_path: Path):
-        """[HAZ-011 AC-1] Without admin_api_key, retire works without auth."""
+    def test_retire_no_admin_key_configured_returns_403(self, tmp_path: Path):
+        """[SEC-006] Without admin_api_key and admin_open=False, retire returns 403."""
         config_path = _setup_test_env_with_admin_key(tmp_path, admin_key=None)
         app = create_app(config_path=config_path)
+        engine = app.state.engine
+        stub = _StubBackend(_config=_make_backend_config("test-backend"))
+        engine._registry.register(stub)
+        client = TestClient(app)
+        response = client.post("/v1/retire", json={"backend": "test-backend"})
+        assert response.status_code == 403
+        assert "not configured" in response.json()["error"]
+
+    def test_retire_no_admin_key_admin_open_allows_access(self, tmp_path: Path):
+        """[SEC-006] Without admin_api_key but admin_open=True, retire works."""
+        config_path = _setup_test_env_with_admin_key(tmp_path, admin_key=None)
+        app = create_app(config_path=config_path, admin_open=True)
         engine = app.state.engine
         stub = _StubBackend(_config=_make_backend_config("test-backend"))
         engine._registry.register(stub)
@@ -173,10 +185,21 @@ class TestAdminAuthRetire:
 class TestAdminAuthReinstate:
     """HAZ-011: Reinstate endpoint authentication."""
 
-    def test_reinstate_no_admin_key_allows_access(self, tmp_path: Path):
-        """[HAZ-011 AC-1] Without admin_api_key, reinstate works without auth."""
+    def test_reinstate_no_admin_key_returns_403(self, tmp_path: Path):
+        """[SEC-006] Without admin_api_key and admin_open=False, reinstate returns 403."""
         config_path = _setup_test_env_with_admin_key(tmp_path, admin_key=None)
         app = create_app(config_path=config_path)
+        engine = app.state.engine
+        stub = _StubBackend(_config=_make_backend_config("test-backend"))
+        engine._registry.register(stub)
+        client = TestClient(app)
+        response = client.post("/v1/reinstate", json={"backend": "test-backend"})
+        assert response.status_code == 403
+
+    def test_reinstate_no_admin_key_admin_open_allows_access(self, tmp_path: Path):
+        """[SEC-006] Without admin_api_key but admin_open=True, reinstate works."""
+        config_path = _setup_test_env_with_admin_key(tmp_path, admin_key=None)
+        app = create_app(config_path=config_path, admin_open=True)
         engine = app.state.engine
         stub = _StubBackend(_config=_make_backend_config("test-backend"))
         engine._registry.register(stub)
@@ -228,15 +251,23 @@ class TestAdminAuthReinstate:
 class TestAdminAuthCatalogRefresh:
     """HAZ-011: Catalog refresh endpoint authentication."""
 
-    def test_catalog_refresh_no_admin_key_allows_access(self, tmp_path: Path):
-        """[HAZ-011 AC-1] Without admin_api_key, catalog/refresh works without auth."""
+    def test_catalog_refresh_no_admin_key_returns_403(self, tmp_path: Path):
+        """[SEC-006] Without admin_api_key and admin_open=False, catalog/refresh returns 403."""
+        config_path = _setup_test_env_with_admin_key(tmp_path, admin_key=None)
+        app = create_app(config_path=config_path)
+        client = TestClient(app)
+        response = client.post("/v1/catalog/refresh")
+        assert response.status_code == 403
+
+    def test_catalog_refresh_no_admin_key_admin_open_allows_access(self, tmp_path: Path):
+        """[SEC-006] Without admin_api_key but admin_open=True, catalog/refresh works."""
         from unittest.mock import AsyncMock, patch
 
         from dragonlight_router.core.types import CatalogEntry
         from dragonlight_router.result import Ok
 
         config_path = _setup_test_env_with_admin_key(tmp_path, admin_key=None)
-        app = create_app(config_path=config_path)
+        app = create_app(config_path=config_path, admin_open=True)
 
         mock_refresher = AsyncMock()
         mock_refresher.refresh.return_value = Ok(

@@ -10,6 +10,7 @@ Spec reference: intent-based-router-v0.1.0-spec.md section 3.2, Method 2.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import threading
 from datetime import UTC, datetime
@@ -57,6 +58,8 @@ class FeedbackStore:
         self._lock = threading.Lock()
         self._conn = self._open_connection()
         self._ensure_schema()
+        # SEC: Restrict database file permissions to owner-only (0600).
+        os.chmod(self._db_path, 0o600)
 
     def _open_connection(self) -> sqlite3.Connection:
         """Open a SQLite connection with WAL mode for safe concurrency."""

@@ -56,6 +56,37 @@ from dragonlight_router.selection.spectrograph import SpectrographProfileLoader
 
 logger = structlog.get_logger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# SEC: Error sanitization — prevent provider internals from leaking to clients
+# ---------------------------------------------------------------------------
+
+
+def _sanitize_dispatch_error(exc: BaseException) -> tuple[str, str]:
+    """Map a provider exception to an opaque error code and message.
+
+    Returns (error_code, sanitized_message) suitable for HTTP response payloads.
+    The raw exception should still be logged via structlog for debugging, but
+    must never be included in response payloads sent to HTTP clients because
+    provider error messages can contain internal URLs, auth header patterns,
+    or model identifiers not meant for external consumption.
+    """
+    if isinstance(exc, ConnectionError):
+        return "PROVIDER_UNAVAILABLE", "Provider connection failed"
+    if isinstance(exc, TimeoutError):
+        return "PROVIDER_TIMEOUT", "Provider request timed out"
+    if isinstance(exc, ValueError):
+        return "DISPATCH_INVALID", "Invalid dispatch parameters"
+    if isinstance(exc, TypeError):
+        return "DISPATCH_TYPE_ERROR", "Dispatch type mismatch"
+    if isinstance(exc, OSError):
+        return "PROVIDER_IO_ERROR", "Provider I/O error"
+    if isinstance(exc, RuntimeError):
+        return "DISPATCH_FAILED", "Provider request failed"
+
+    return "DISPATCH_FAILED", f"Dispatch failed ({type(exc).__name__})"
+
+
 # Penalty multiplier applied to scores of DEGRADED backends (0.5 = halve the score).
 _DEGRADED_SCORE_PENALTY = 0.5
 
@@ -728,6 +759,7 @@ async def _pinned_dispatch_full(
     except (RuntimeError, ValueError, ConnectionError, OSError, TypeError) as exc:
         latency_ms = (time.monotonic() - t0) * 1000.0
         _record_adapter_failure(exc, backend_config, ctx)
+        error_code, sanitized_msg = _sanitize_dispatch_error(exc)
         logger.info(
             "pinned_dispatch_failed",
             model=order.model,
@@ -741,7 +773,7 @@ async def _pinned_dispatch_full(
             DispatchFailure(  # type: ignore[arg-type]
                 message=f"pinned model dispatch failed: {order.model}",
                 attempted_backends=[backend_config.name],
-                error_details={"error_type": type(exc).__name__, "error_message": str(exc)},
+                error_details={"error_code": error_code, "error_message": sanitized_msg},
             )
         )
 
@@ -874,6 +906,7 @@ async def _pinned_dispatch_stream(
     except (RuntimeError, ValueError, ConnectionError, OSError, TypeError) as exc:
         latency_ms = (time.monotonic() - t0) * 1000.0
         _record_adapter_failure(exc, backend_config, ctx)
+        _error_code, sanitized_msg = _sanitize_dispatch_error(exc)
         logger.info(
             "pinned_dispatch_failed",
             model=order.model,
@@ -885,7 +918,7 @@ async def _pinned_dispatch_stream(
         )
         yield StreamChunk(
             event_type="error",
-            error_message=f"pinned model dispatch failed: {order.model}",
+            error_message=f"pinned model dispatch failed: {sanitized_msg}",
             dispatch_mode="pinned",
         )
         return
@@ -1344,17 +1377,24 @@ async def _handle_fallback_chain(
             logger.debug("dispatch successful", backend_used=result.value.backend_used)
             return result
 
+    if last_error is not None:
+        error_code, sanitized_msg = _sanitize_dispatch_error(last_error)
+    else:
+        error_code, sanitized_msg = "DISPATCH_FAILED", "Unknown error"
     exhaustion_msg = (
         f"All {len(fallback_chain)} backends exhausted. "
-        f"Fallback chain: {' → '.join(fallback_chain)}. "
-        f"Last error: {last_error}"
+        f"Fallback chain: {' → '.join(fallback_chain)}."
     )
-    logger.error("dispatch exhausted all backends", fallback_chain=fallback_chain)
+    logger.error(
+        "dispatch exhausted all backends",
+        fallback_chain=fallback_chain,
+        last_error=str(last_error),
+    )
     return Err(
         DispatchFailure(  # type: ignore[arg-type]
             message=exhaustion_msg,
             attempted_backends=list(fallback_chain),
-            error_details={"error_type": type(last_error).__name__ if last_error else "unknown"},
+            error_details={"error_code": error_code, "error_message": sanitized_msg},
         )
     )
 

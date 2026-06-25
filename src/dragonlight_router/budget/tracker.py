@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import os
 import sqlite3
 import time
 from collections import defaultdict, deque
@@ -107,6 +108,8 @@ class BudgetTracker:
             conn.commit()
         finally:
             conn.close()
+        # SEC: Restrict database file permissions to owner-only (0600).
+        os.chmod(self._db_path, 0o600)
         logger.info("budget_tracker_sqlite_initialized", db_path=str(self._db_path))
 
     def _connect(self) -> sqlite3.Connection:

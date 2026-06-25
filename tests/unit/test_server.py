@@ -47,6 +47,7 @@ def _setup_test_env(tmp_path: Path) -> Path:
         "catalog_ttl_hours": 24,
         "default_top_n": 12,
         "max_consecutive_same_provider": 2,
+        "admin_open": True,  # SEC-006: allow admin endpoints in test env
         "providers": [
             {
                 "name": "groq",

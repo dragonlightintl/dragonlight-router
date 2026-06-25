@@ -237,27 +237,33 @@ class TestAdminAuthRateLimiting:
 class TestAdminKeyWarning:
     """SEC-006: Warning logged when admin_api_key is not configured."""
 
-    def test_warning_logged_when_no_admin_key(self, tmp_path):
-        """create_app logs admin_endpoints_unprotected when no key is set."""
+    def test_locked_logged_when_no_admin_key(self, tmp_path):
+        """create_app logs admin_endpoints_locked when no key is set and admin_open=False."""
         config_path = _make_config(tmp_path, admin_api_key=None)
         with patch("dragonlight_router.server.app.structlog.get_logger") as mock_get:
             mock_logger = mock_get.return_value
             create_app(config_path=config_path)
-            # Check that warning was called with the expected event
-            mock_logger.warning.assert_any_call(
-                "admin_endpoints_unprotected",
-                detail="No admin_api_key configured — admin endpoints are open to all callers.",
+            # Check that info was called with the expected event
+            mock_logger.info.assert_any_call(
+                "admin_endpoints_locked",
+                detail=(
+                    "No admin_api_key configured — admin endpoints"
+                    " will return 403. Set admin_api_key or"
+                    " admin_open=True to enable."
+                ),
             )
 
     def test_no_warning_when_admin_key_set(self, tmp_path):
-        """create_app does NOT log the warning when admin_api_key is configured."""
+        """create_app does NOT log the locked/open message when admin_api_key is configured."""
         config_path = _make_config(tmp_path, admin_api_key="my-secret")
         with patch("dragonlight_router.server.app.structlog.get_logger") as mock_get:
             mock_logger = mock_get.return_value
             create_app(config_path=config_path)
-            # Ensure no admin_endpoints_unprotected warning was emitted
+            # Ensure no admin_endpoints_locked or admin_endpoints_open was emitted
+            for call in mock_logger.info.call_args_list:
+                assert call.args[0] not in ("admin_endpoints_locked", "admin_endpoints_open")
             for call in mock_logger.warning.call_args_list:
-                assert call.args[0] != "admin_endpoints_unprotected"
+                assert call.args[0] not in ("admin_endpoints_locked", "admin_endpoints_open")
 
 
 # ---------------------------------------------------------------------------

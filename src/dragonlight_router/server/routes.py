@@ -188,9 +188,20 @@ def _check_admin_auth(request: Request) -> JSONResponse | None:
     engine: RouterEngine = request.app.state.engine
     admin_key = engine._config.admin_api_key
 
-    # No admin key configured — open access (backward compatible)
+    # SEC-006: Fail-closed — when no admin key is configured, block access
+    # unless admin_open is explicitly set to True.
     if not admin_key:
-        return None
+        if engine._config.admin_open:
+            return None
+        logger.warning(
+            "admin_endpoint_blocked_no_key",
+            path=request.url.path,
+            detail="admin_api_key not configured and admin_open is False",
+        )
+        return _format_error_response(
+            "Admin access not configured. Set admin_api_key or admin_open in config.",
+            403,
+        )
 
     auth_header = request.headers.get("authorization", "")
     if not auth_header.startswith("Bearer "):

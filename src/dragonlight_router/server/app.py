@@ -94,10 +94,23 @@ def create_app(config_path: Path | None = None, **overrides: Any) -> Starlette:
 
     # SEC-006: Warn at startup if admin API key is not configured.
     if not engine._config.admin_api_key:
-        _lifespan_logger.warning(
-            "admin_endpoints_unprotected",
-            detail="No admin_api_key configured — admin endpoints are open to all callers.",
-        )
+        if engine._config.admin_open:
+            _lifespan_logger.warning(
+                "admin_endpoints_open",
+                detail=(
+                    "No admin_api_key configured and admin_open=True"
+                    " — admin endpoints are open to all callers."
+                ),
+            )
+        else:
+            _lifespan_logger.info(
+                "admin_endpoints_locked",
+                detail=(
+                    "No admin_api_key configured — admin endpoints"
+                    " will return 403. Set admin_api_key or"
+                    " admin_open=True to enable."
+                ),
+            )
 
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncGenerator[None, None]:

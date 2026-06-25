@@ -1043,7 +1043,7 @@ class RouterEngine:
         }
         role = _INTENT_TO_ROLE.get(intent_category, "coding")
 
-        ranked_ids = self.select_models(role, top_n=25)
+        ranked_ids = self.select_models(role, top_n=100)
 
         # Apply exclusion filter
         excluded = set(exclude_models) if exclude_models else set()

@@ -261,6 +261,7 @@ def test_select_final_candidate_empty_raises():
 def test_select_final_candidate_weighted_distribution():
     """Weighted random selection favours the higher-scored candidate."""
     import random as _random
+    from unittest.mock import patch
 
     from dragonlight_router.selection.lbr import select_final_candidate
 
@@ -271,11 +272,13 @@ def test_select_final_candidate_weighted_distribution():
         ScoredCandidate(config=config_low, score=10.0),
     ]
 
-    _random.seed(42)
-    counts: dict[str, int] = {"high": 0, "low": 0}
-    for _ in range(1000):
-        result = select_final_candidate(candidates)
-        counts[result.name] += 1
+    # Use a seeded Random instance to make the test deterministic
+    seeded_rng = _random.Random(42)
+    with patch("dragonlight_router.selection.lbr._srng", seeded_rng):
+        counts: dict[str, int] = {"high": 0, "low": 0}
+        for _ in range(1000):
+            result = select_final_candidate(candidates)
+            counts[result.name] += 1
 
     # Score 90 vs 10 => high should be selected ~90% of the time
     assert counts["high"] > 700, f"Expected >700, got {counts['high']}"
@@ -285,17 +288,19 @@ def test_select_final_candidate_weighted_distribution():
 def test_select_final_candidate_equal_scores():
     """Equal-scored candidates all receive selections over many runs."""
     import random as _random
+    from unittest.mock import patch
 
     from dragonlight_router.selection.lbr import select_final_candidate
 
     configs = [_make_backend_config(name=f"c{i}", provider=f"prov{i}") for i in range(3)]
     candidates = [ScoredCandidate(config=c, score=50.0) for c in configs]
 
-    _random.seed(42)
-    counts: dict[str, int] = {c.name: 0 for c in configs}
-    for _ in range(1000):
-        result = select_final_candidate(candidates)
-        counts[result.name] += 1
+    seeded_rng = _random.Random(42)
+    with patch("dragonlight_router.selection.lbr._srng", seeded_rng):
+        counts: dict[str, int] = {c.name: 0 for c in configs}
+        for _ in range(1000):
+            result = select_final_candidate(candidates)
+            counts[result.name] += 1
 
     for name, count in counts.items():
         assert count > 100, f"{name} selected only {count} times; expected >100 with equal weights"
@@ -304,6 +309,7 @@ def test_select_final_candidate_equal_scores():
 def test_select_final_candidate_zero_score_handled():
     """Candidates with score 0 are still selectable thanks to the epsilon floor."""
     import random as _random
+    from unittest.mock import patch
 
     from dragonlight_router.selection.lbr import select_final_candidate
 
@@ -314,11 +320,13 @@ def test_select_final_candidate_zero_score_handled():
         ScoredCandidate(config=config_zero, score=0.0),
     ]
 
-    _random.seed(42)
-    counts: dict[str, int] = {"normal": 0, "zero": 0}
-    for _ in range(1000):
-        result = select_final_candidate(candidates)
-        counts[result.name] += 1
+    # Use a seeded Random instance to make the test deterministic
+    seeded_rng = _random.Random(42)
+    with patch("dragonlight_router.selection.lbr._srng", seeded_rng):
+        counts: dict[str, int] = {"normal": 0, "zero": 0}
+        for _ in range(1000):
+            result = select_final_candidate(candidates)
+            counts[result.name] += 1
 
     # Zero-score candidate should still be selected at least a few times
     assert counts["zero"] > 0, "Zero-score candidate should be selectable via epsilon floor"

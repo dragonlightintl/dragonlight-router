@@ -13,10 +13,12 @@ staggered, reducing the risk of correlated flapping.
 
 from __future__ import annotations
 
-import random
+import secrets
 import time
 from enum import Enum, unique
 from typing import Any
+
+_srng = secrets.SystemRandom()
 
 
 @unique
@@ -81,7 +83,7 @@ class CircuitBreaker:
         HAZ-009 mitigation: adds random offset so multiple breakers
         tripped at the same time don't all recover simultaneously.
         """
-        jitter = random.uniform(0, self._jitter_factor * self._cooldown_s)
+        jitter = _srng.uniform(0, self._jitter_factor * self._cooldown_s)
         result = self._cooldown_s + jitter
         assert result >= self._cooldown_s, "jittered cooldown must be >= base cooldown"
         return result

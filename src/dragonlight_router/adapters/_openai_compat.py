@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import random
+import secrets
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -26,6 +26,8 @@ from dragonlight_router.core.types import (
 )
 
 logger = structlog.get_logger()
+
+_srng = secrets.SystemRandom()
 
 
 class OpenAICompatibleBackend(GenerativeBackend):
@@ -146,7 +148,7 @@ class OpenAICompatibleBackend(GenerativeBackend):
         """
         assert attempt >= 0, "attempt must be non-negative"
         exp_delay = min(self._base_delay_s * (2**attempt), self._max_delay_s)
-        jitter = random.uniform(0, self._jitter_factor * exp_delay)
+        jitter = _srng.uniform(0, self._jitter_factor * exp_delay)
         delay: float = exp_delay + jitter
         assert delay >= 0, "computed delay must be non-negative"
         return delay

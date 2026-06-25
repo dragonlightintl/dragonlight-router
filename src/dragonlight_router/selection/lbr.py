@@ -5,7 +5,7 @@ Filters model candidates based on rate-limit budget availability.
 
 from __future__ import annotations
 
-import random
+import secrets
 
 import structlog
 
@@ -19,6 +19,8 @@ from dragonlight_router.core.types import (
 from dragonlight_router.result import Ok
 
 logger = structlog.get_logger(__name__)
+
+_srng = secrets.SystemRandom()
 
 
 def _hard_capacity_gate(
@@ -204,7 +206,7 @@ def select_final_candidate(candidates: list[ScoredCandidate]) -> BackendConfig:
         return candidates[0].config
 
     weights = [max(c.score, _SCORE_FLOOR) for c in candidates]
-    selected = random.choices(candidates, weights=weights, k=1)[0]
+    selected = _srng.choices(candidates, weights=weights, k=1)[0]
 
     logger.debug(
         "weighted_random_selection",

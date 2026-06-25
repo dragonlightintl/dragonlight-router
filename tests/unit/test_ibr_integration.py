@@ -253,8 +253,12 @@ class TestIBRDisabledPath:
         weights = _resolve_cbr_weights(None, ctx)
         assert weights.spectrograph_match == 0.15
         total = (
-            weights.cost + weights.latency + weights.priority
-            + weights.queue + weights.health + weights.spectrograph_match
+            weights.cost
+            + weights.latency
+            + weights.priority
+            + weights.queue
+            + weights.health
+            + weights.spectrograph_match
         )
         assert abs(total - 1.0) < 1e-9
 

@@ -510,23 +510,27 @@ _HIGH_STAKES_WEIGHTS = ScoringWeightsConfig(
 )
 
 # Categories classified as low-stakes — fast, cheap models preferred.
-_LOW_STAKES_INTENTS: frozenset[str] = frozenset({
-    "test_generation",
-    "test_property",
-    "audit",
-    "data_analysis",
-    "summarization",
-})
+_LOW_STAKES_INTENTS: frozenset[str] = frozenset(
+    {
+        "test_generation",
+        "test_property",
+        "audit",
+        "data_analysis",
+        "summarization",
+    }
+)
 
 # Categories classified as high-stakes — capability and precision preferred.
-_HIGH_STAKES_INTENTS: frozenset[str] = frozenset({
-    "implementation",
-    "implementation_complex",
-    "coherence_merge",
-    "complex_reasoning",
-    "strategic_planning",
-    "architecture",
-})
+_HIGH_STAKES_INTENTS: frozenset[str] = frozenset(
+    {
+        "implementation",
+        "implementation_complex",
+        "coherence_merge",
+        "complex_reasoning",
+        "strategic_planning",
+        "architecture",
+    }
+)
 
 
 def intent_weights_for_category(intent_category: str) -> ScoringWeightsConfig:

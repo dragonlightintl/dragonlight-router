@@ -954,8 +954,7 @@ def _prune_unreachable_models(
     unreachable = [
         mid
         for mid in model_total
-        if model_total[mid] >= 5
-        and model_errors[mid] / model_total[mid] >= _UNREACHABLE_THRESHOLD
+        if model_total[mid] >= 5 and model_errors[mid] / model_total[mid] >= _UNREACHABLE_THRESHOLD
     ]
 
     if not unreachable:

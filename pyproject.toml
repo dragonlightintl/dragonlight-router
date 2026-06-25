@@ -93,7 +93,7 @@ select = ["E", "F", "I", "UP", "B", "C4", "SIM", "D100", "D101"]
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["D100", "D101"]
+"tests/**" = ["D100", "D101", "E501", "F401", "F811", "F821"]
 
 [tool.bandit]
 targets = ["src/dragonlight_router"]

@@ -10,8 +10,8 @@ import pytest
 from dragonlight_router.selection.scoring import (
     ScoringWeights,
     ScoringWeightsConfig,
-    _NormalizedScores,
     _apply_weights,
+    _NormalizedScores,
     compute_budget_score,
     compute_composite_score,
     compute_health_score,
@@ -168,8 +168,12 @@ class TestScoringWeightsEnum:
         assert adjusted.latency == pytest.approx(0.10)
         assert adjusted.spectrograph_match == pytest.approx(0.05)
         total = (
-            adjusted.cost + adjusted.latency + adjusted.priority
-            + adjusted.queue + adjusted.health + adjusted.spectrograph_match
+            adjusted.cost
+            + adjusted.latency
+            + adjusted.priority
+            + adjusted.queue
+            + adjusted.health
+            + adjusted.spectrograph_match
         )
         assert abs(total - 1.0) < 1e-9
 

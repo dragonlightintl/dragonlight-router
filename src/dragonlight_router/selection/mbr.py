@@ -118,7 +118,7 @@ def _resolve_tiers_to_try(
 
     tiers = [requested_tier]
     if requested_index < len(TIER_ORDER) - 1:
-        tiers.extend(TIER_ORDER[requested_index + 1:])
+        tiers.extend(TIER_ORDER[requested_index + 1 :])
 
     assert len(tiers) >= 1, "must have at least one tier to try"
     return Ok(tiers)

@@ -536,7 +536,8 @@ class BudgetTracker:
         conn = self._connect()
         try:
             row = conn.execute(
-                "SELECT COALESCE(SUM(tokens_used), 0) FROM request_log WHERE provider = ? AND timestamp > ?",
+                "SELECT COALESCE(SUM(tokens_used), 0)"
+                " FROM request_log WHERE provider = ? AND timestamp > ?",
                 (provider_name, cutoff),
             ).fetchone()
             return row[0] if row else 0
@@ -562,7 +563,8 @@ class BudgetTracker:
         conn = self._connect()
         try:
             row = conn.execute(
-                "SELECT COALESCE(SUM(tokens_used), 0) FROM request_log WHERE provider = ? AND timestamp >= ?",
+                "SELECT COALESCE(SUM(tokens_used), 0)"
+                " FROM request_log WHERE provider = ? AND timestamp >= ?",
                 (provider_name, start_of_day),
             ).fetchone()
             return row[0] if row else 0
@@ -635,7 +637,8 @@ class BudgetTracker:
         # TPM check
         if provider.tpm_limit is not None and provider.tpm_limit > 0:
             row = conn.execute(
-                "SELECT COALESCE(SUM(tokens_used), 0) FROM request_log WHERE provider = ? AND timestamp > ?",
+                "SELECT COALESCE(SUM(tokens_used), 0)"
+                " FROM request_log WHERE provider = ? AND timestamp > ?",
                 (provider_name, cutoff_minute),
             ).fetchone()
             tpm_used = row[0] if row else 0
@@ -646,7 +649,8 @@ class BudgetTracker:
         if provider.daily_token_cap is not None and provider.daily_token_cap > 0:
             start_of_day = self._start_of_day_utc()
             row = conn.execute(
-                "SELECT COALESCE(SUM(tokens_used), 0) FROM request_log WHERE provider = ? AND timestamp >= ?",
+                "SELECT COALESCE(SUM(tokens_used), 0)"
+                " FROM request_log WHERE provider = ? AND timestamp >= ?",
                 (provider_name, start_of_day),
             ).fetchone()
             daily_tokens = row[0] if row else 0

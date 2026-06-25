@@ -783,8 +783,8 @@ class TestPinnedDispatchPreflightErr:
             )
         )
 
-        cascade_mod = "dragonlight_router.dispatch.cascade"
-        with patch(f"{cascade_mod}._pinned_preflight", return_value=preflight_err):
+        pinned_mod = "dragonlight_router.dispatch.pinned"
+        with patch(f"{pinned_mod}._pinned_preflight", return_value=preflight_err):
             result = await _pinned_dispatch_full(order, ctx)
 
         assert result.is_err()

@@ -19,7 +19,7 @@ from __future__ import annotations
 from unittest.mock import Mock
 
 import pytest
-from hypothesis import assume, given, settings
+from hypothesis import assume, example, given, settings
 from hypothesis import strategies as st
 
 from dragonlight_router.budget.tracker import BudgetTracker
@@ -55,124 +55,22 @@ from dragonlight_router.selection.spectrograph import (
     compute_spectrograph_scores,
     should_apply_spectrograph_match,
 )
+from tests.strategies import (
+    backend_config_strategy,
+    classified_intent_strategy,
+    model_score_strategy,
+    model_spectrograph_profile_strategy,
+    provider_config_strategy,
+    spectrograph_score_strategy,
+)
 
 pytestmark = [pytest.mark.unit, pytest.mark.property]
 
 
 # ---------------------------------------------------------------------------
-# Strategies
+# Strategies — imported from tests.strategies; see tests/strategies/core.py
+# and tests/strategies/intent.py for domain strategy definitions.
 # ---------------------------------------------------------------------------
-
-
-def provider_config_strategy(
-    rpm_range: tuple[int, int] = (1, 1000),
-    rpd_range: tuple[int, int] = (1, 10000),
-) -> st.SearchStrategy[ProviderConfig]:
-    """Strategy for generating ProviderConfig instances."""
-    return st.builds(
-        ProviderConfig,
-        name=st.text(
-            alphabet=st.characters(whitelist_categories=("Ll",)),
-            min_size=1,
-            max_size=10,
-        ),
-        base_url=st.just("http://localhost"),
-        catalog_url=st.none(),
-        env_key=st.none(),
-        model_prefix=st.text(
-            alphabet=st.characters(whitelist_categories=("Ll",)),
-            min_size=1,
-            max_size=5,
-        ),
-        rpm_limit=st.integers(min_value=rpm_range[0], max_value=rpm_range[1]),
-        rpd_limit=st.one_of(
-            st.none(),
-            st.integers(min_value=rpd_range[0], max_value=rpd_range[1]),
-        ),
-        tpm_limit=st.one_of(
-            st.none(),
-            st.integers(min_value=0, max_value=10000),
-        ),
-        daily_token_cap=st.one_of(
-            st.none(),
-            st.integers(min_value=0, max_value=100000),
-        ),
-    )
-
-
-def model_score_strategy(
-    providers: list[str] | None = None,
-) -> st.SearchStrategy[ModelScore]:
-    """Strategy for generating ModelScore instances."""
-    provider_st = (
-        st.sampled_from(providers)
-        if providers
-        else st.sampled_from(["groq", "nvidia", "anthropic", "openai", "local"])
-    )
-    return st.builds(
-        ModelScore,
-        model_id=st.text(
-            alphabet=st.characters(whitelist_categories=("Ll", "Nd")),
-            min_size=1,
-            max_size=20,
-        ),
-        provider=provider_st,
-        rank=st.integers(min_value=0, max_value=100),
-        budget_score=st.floats(min_value=0.0, max_value=100.0),
-        health_score=st.floats(min_value=0.0, max_value=100.0),
-        composite=st.floats(min_value=0.0, max_value=100.0),
-    )
-
-
-def backend_config_strategy(
-    tier: BackendTier | None = None,
-    provider: str | None = None,
-) -> st.SearchStrategy[BackendConfig]:
-    """Strategy for generating BackendConfig instances."""
-    tier_st = st.just(tier) if tier else st.sampled_from(list(BackendTier))
-    provider_st = (
-        st.just(provider)
-        if provider
-        else st.sampled_from(["groq", "nvidia", "anthropic", "openai"])
-    )
-    return st.builds(
-        BackendConfig,
-        name=st.text(
-            alphabet=st.characters(whitelist_categories=("Ll", "Nd")),
-            min_size=1,
-            max_size=20,
-        ),
-        provider=provider_st,
-        model=st.text(
-            alphabet=st.characters(whitelist_categories=("Ll", "Nd")),
-            min_size=1,
-            max_size=20,
-        ),
-        tier=tier_st,
-        base_url=st.just("http://localhost"),
-        env_key=st.none(),
-        capabilities=st.builds(
-            BackendCapabilities,
-            max_context_tokens=st.integers(min_value=1024, max_value=256000),
-            supports_tool_use=st.booleans(),
-            supports_streaming=st.booleans(),
-            supports_json_mode=st.booleans(),
-            supports_system_prompts=st.booleans(),
-        ),
-        cost=st.builds(
-            BackendCostProfile,
-            input_per_mtok=st.floats(min_value=0.0, max_value=100.0),
-            output_per_mtok=st.floats(min_value=0.0, max_value=100.0),
-        ),
-        rate_limits=st.builds(
-            BackendRateLimits,
-            rpm=st.integers(min_value=1, max_value=1000),
-            rpd=st.integers(min_value=1, max_value=100000),
-            tpm=st.integers(min_value=1, max_value=1000000),
-            daily_token_cap=st.integers(min_value=0, max_value=10000000),
-        ),
-        priority=st.integers(min_value=0, max_value=100),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +89,9 @@ class TestScoringInvariants:
         budget_score=st.floats(min_value=0.0, max_value=100.0),
         health_score=st.floats(min_value=0.0, max_value=100.0),
     )
+    @example(rank=0, budget_score=0.0, health_score=0.0)  # all-zero boundary
+    @example(rank=100, budget_score=100.0, health_score=100.0)  # all-max boundary
+    @example(rank=0, budget_score=100.0, health_score=0.0)  # mixed extremes
     def test_composite_score_bounded(self, rank, budget_score, health_score):
         """[TM-007 AC-1] Property: compute_composite_score always returns value in [0.0, 100.0]."""
         result = compute_composite_score(rank, budget_score, health_score)
@@ -221,6 +122,8 @@ class TestScoringInvariants:
         rpm_remaining=st.integers(min_value=0, max_value=1000),
         rpm_limit=st.integers(min_value=1, max_value=1000),
     )
+    @example(rpm_remaining=0, rpm_limit=1)  # zero remaining — fully exhausted
+    @example(rpm_remaining=1, rpm_limit=1)  # exactly at limit
     def test_budget_score_bounded(self, rpm_remaining, rpm_limit):
         """[TM-007 AC-3] Property: Invariant. compute_budget_score returns value in [0.0, 100.0]."""
         assume(rpm_remaining <= rpm_limit)
@@ -246,6 +149,8 @@ class TestScoringInvariants:
         error_count=st.integers(min_value=0, max_value=100),
         last_success_age=st.floats(min_value=0.0, max_value=86400.0),
     )
+    @example(error_count=0, last_success_age=0.0)  # zero errors, zero age, still circuit open
+    @example(error_count=100, last_success_age=86400.0)  # max errors + max age
     def test_health_score_circuit_open_always_zero(self, error_count, last_success_age):
         """[TM-007 AC-4] Property: Circuit open always yields zero health score."""
         result = compute_health_score(
@@ -1001,54 +906,7 @@ class TestCascadeDispatchInvariant:
 # IBR-TEST-02: Intent Based Router property tests
 # ---------------------------------------------------------------------------
 
-# --- IBR strategies ---
-
-
-def _ibr_spectrograph_score_strategy() -> st.SearchStrategy[SpectrographScore]:
-    """Strategy for generating SpectrographScore instances."""
-    return st.builds(
-        SpectrographScore,
-        score=st.floats(min_value=0.0, max_value=1.0),
-        confidence=st.floats(min_value=0.0, max_value=1.0),
-        sample_count=st.integers(min_value=0, max_value=1000),
-    )
-
-
-def _ibr_classified_intent_strategy() -> st.SearchStrategy[ClassifiedIntent]:
-    """Strategy for generating valid ClassifiedIntent instances."""
-    return st.builds(
-        ClassifiedIntent,
-        task_type=st.sampled_from(sorted(IBR_TASK_TYPES)),
-        domain=st.sampled_from(sorted(IBR_DOMAINS)),
-        quality_speed=st.sampled_from(sorted(IBR_QUALITY_SPEED)),
-        confidence=st.floats(min_value=0.0, max_value=1.0),
-        latency_ms=st.floats(min_value=0.0, max_value=200.0),
-        from_cache=st.booleans(),
-    )
-
-
-def _ibr_model_spectrograph_profile_strategy(
-    model_id: str = "test-model",
-) -> st.SearchStrategy[ModelSpectrographProfile]:
-    """Strategy for generating ModelSpectrographProfile with scores for all dimensions."""
-    task_scores_st = st.fixed_dictionaries(
-        {tt: _ibr_spectrograph_score_strategy() for tt in sorted(IBR_TASK_TYPES)},
-    )
-    domain_scores_st = st.fixed_dictionaries(
-        {d: _ibr_spectrograph_score_strategy() for d in sorted(IBR_DOMAINS)},
-    )
-    qs_scores_st = st.fixed_dictionaries(
-        {qs: _ibr_spectrograph_score_strategy() for qs in sorted(IBR_QUALITY_SPEED)},
-    )
-    return st.builds(
-        ModelSpectrographProfile,
-        model_id=st.just(model_id),
-        version=st.just(1),
-        updated_at=st.just("2026-01-01T00:00:00Z"),
-        task_scores=task_scores_st,
-        domain_scores=domain_scores_st,
-        qs_scores=qs_scores_st,
-    )
+# --- IBR strategies — delegated to tests.strategies ---
 
 
 def valid_scoring_weights_with_flavor() -> st.SearchStrategy[ScoringWeightsConfig]:
@@ -1118,8 +976,8 @@ class TestIBRFlavorMatchInvariant:
         assert 0.0 <= result <= 1.0
 
     @given(
-        intent=_ibr_classified_intent_strategy(),
-        profile=_ibr_model_spectrograph_profile_strategy(),
+        intent=classified_intent_strategy(),
+        profile=model_spectrograph_profile_strategy(),
     )
     def test_spectrograph_match_bounded_for_arbitrary_profiles(
         self,

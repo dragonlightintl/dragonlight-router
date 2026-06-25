@@ -3,11 +3,21 @@
 These fixtures provide sensible defaults for the core frozen dataclasses
 used throughout the routing system. Existing tests that construct their
 own objects directly are unaffected -- these are purely additive.
+
+Hypothesis profiles are registered here so that all property-based tests
+pick them up automatically via ``HYPOTHESIS_PROFILE`` env var:
+  - local  (default): 50 examples — fast iteration
+  - ci:     200 examples, suppress too_slow — CI pipelines
+  - nightly: 1000 examples — thorough overnight runs
+  - debug:  10 examples, verbose — quick failure reproduction
 """
 
 from __future__ import annotations
 
+import os
+
 import pytest
+from hypothesis import HealthCheck, Verbosity, settings
 
 from dragonlight_router.budget.tracker import BudgetTracker
 from dragonlight_router.core.types import (
@@ -20,6 +30,24 @@ from dragonlight_router.core.types import (
     ProviderConfig,
 )
 from dragonlight_router.server.routes import _reset_admin_auth_failures
+
+# ---------------------------------------------------------------------------
+# Hypothesis profiles
+# ---------------------------------------------------------------------------
+
+settings.register_profile("local", max_examples=50)
+settings.register_profile(
+    "ci",
+    max_examples=200,
+    suppress_health_check=[HealthCheck.too_slow],
+)
+settings.register_profile("nightly", max_examples=1000)
+settings.register_profile(
+    "debug",
+    max_examples=10,
+    verbosity=Verbosity.verbose,
+)
+settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "local"))
 
 # ---------------------------------------------------------------------------
 # BackendConfig

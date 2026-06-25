@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 import yaml
-from hypothesis import assume, given, settings
+from hypothesis import assume, example, given
 from hypothesis import strategies as st
 
 from dragonlight_router.config.loader import load_config
@@ -57,7 +57,6 @@ class TestConfigLoadingFuzz:
     """Fuzz YAML config values -- random strings, negative numbers, missing keys."""
 
     @given(st.text(min_size=0, max_size=200))
-    @settings(max_examples=50)
     def test_load_config_random_yaml_content_no_crash(self, content: str) -> None:
         """Writing arbitrary text as YAML config must not crash load_config.
 
@@ -81,7 +80,6 @@ class TestConfigLoadingFuzz:
         catalog_ttl=st.integers(min_value=-1000, max_value=1000),
         top_n=st.integers(min_value=-100, max_value=1000),
     )
-    @settings(max_examples=50)
     def test_load_config_random_field_values(
         self,
         state_dir: str,
@@ -110,7 +108,6 @@ class TestConfigLoadingFuzz:
         base_url=st.text(min_size=0, max_size=300),
         rpm=st.integers(min_value=-100, max_value=10000),
     )
-    @settings(max_examples=50)
     def test_load_config_random_provider_url(self, base_url: str, rpm: int) -> None:
         """Random provider URLs must not crash config loading."""
         data: dict[str, Any] = {
@@ -135,7 +132,6 @@ class TestConfigLoadingFuzz:
             path.unlink(missing_ok=True)
 
     @given(st.sampled_from(["", "{}", "providers: []", "---\n"]))
-    @settings(max_examples=50)
     def test_load_config_edge_case_yaml(self, content: str) -> None:
         """Edge-case YAML content must load or return Err, never crash."""
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
@@ -160,7 +156,8 @@ class TestPromptSanitizationFuzz:
     """Fuzz _sanitize_prompt with arbitrary unicode, control chars, long strings."""
 
     @given(st.text(min_size=0, max_size=500))
-    @settings(max_examples=50)
+    @example(text="")  # empty string edge case
+    @example(text="\x00\x01\x02")  # null and control bytes
     def test_sanitize_prompt_arbitrary_unicode(self, text: str) -> None:
         """Arbitrary unicode text must not crash and must return a string."""
         result = _sanitize_prompt(text)
@@ -175,7 +172,6 @@ class TestPromptSanitizationFuzz:
             max_size=200,
         )
     )
-    @settings(max_examples=50)
     def test_sanitize_prompt_control_chars_stripped(self, text: str) -> None:
         """Control characters (except \\n, \\r, \\t) must be stripped."""
         result = _sanitize_prompt(text)
@@ -184,7 +180,6 @@ class TestPromptSanitizationFuzz:
         assert "\x00" not in result
 
     @given(st.text(min_size=1, max_size=100))
-    @settings(max_examples=50)
     def test_sanitize_prompt_truncation(self, seed: str) -> None:
         """Strings exceeding MAX_STRING_LENGTH must be truncated."""
         # Build a string longer than 100K by repeating the seed
@@ -194,7 +189,6 @@ class TestPromptSanitizationFuzz:
         assert len(result) <= 100_000
 
     @given(st.binary(min_size=0, max_size=300))
-    @settings(max_examples=50)
     def test_sanitize_prompt_null_bytes_in_decoded(self, raw: bytes) -> None:
         """Decoded bytes with embedded nulls must not crash sanitization."""
         try:
@@ -206,7 +200,6 @@ class TestPromptSanitizationFuzz:
         assert "\x00" not in result
 
     @given(st.text(min_size=0, max_size=500))
-    @settings(max_examples=50)
     def test_sanitize_prompt_idempotent(self, text: str) -> None:
         """Sanitizing an already-sanitized string must be a no-op."""
         once = _sanitize_prompt(text)
@@ -223,7 +216,6 @@ class TestLLMResponseValidationFuzz:
     """Fuzz _validate_llm_response with random strings, nulls, empties."""
 
     @given(st.text(min_size=0, max_size=1000))
-    @settings(max_examples=50)
     def test_validate_response_arbitrary_strings(self, content: str) -> None:
         """Arbitrary string input must not crash, must return string without null bytes."""
         result = _validate_llm_response(content)
@@ -231,7 +223,6 @@ class TestLLMResponseValidationFuzz:
         assert "\x00" not in result
 
     @given(st.text(min_size=1, max_size=100))
-    @settings(max_examples=50)
     def test_validate_response_truncation(self, seed: str) -> None:
         """Strings exceeding MAX_RESPONSE_LENGTH must be truncated."""
         content = seed * (500_001 // len(seed) + 1)
@@ -240,7 +231,6 @@ class TestLLMResponseValidationFuzz:
         assert len(result) <= 500_000
 
     @given(st.from_type(type).flatmap(lambda t: st.from_type(t)))
-    @settings(max_examples=50)
     def test_validate_response_non_string_types(self, value: Any) -> None:
         """Non-string types must not crash, returning empty string."""
         result = _validate_llm_response(value)  # type: ignore[arg-type]
@@ -265,7 +255,6 @@ class TestResultMonadFuzz:
             st.lists(st.integers(), max_size=5),
         )
     )
-    @settings(max_examples=50)
     def test_ok_round_trip(self, value: Any) -> None:
         """Ok(value).unwrap() always returns the original value."""
         result = Ok(value)
@@ -281,7 +270,6 @@ class TestResultMonadFuzz:
             st.none(),
         )
     )
-    @settings(max_examples=50)
     def test_err_round_trip(self, error: Any) -> None:
         """Err(error).unwrap_err() always returns the original error."""
         result = Err(error)
@@ -293,7 +281,6 @@ class TestResultMonadFuzz:
         value=st.integers(),
         error=st.text(min_size=0, max_size=50),
     )
-    @settings(max_examples=50)
     def test_unwrap_wrong_variant_raises(self, value: int, error: str) -> None:
         """Calling unwrap_err on Ok or unwrap on Err must raise AssertionError."""
         with pytest.raises(AssertionError):
@@ -305,7 +292,6 @@ class TestResultMonadFuzz:
         value=st.integers(),
         error=st.text(min_size=1, max_size=50),
     )
-    @settings(max_examples=50)
     def test_helper_ok_and_err_factories(self, value: int, error: str) -> None:
         """ok() and err() helpers create valid Ok/Err with correct predicates."""
         r_ok = ok(value)
@@ -348,7 +334,6 @@ class TestComplexityScoreFuzz:
             ]
         ),
     )
-    @settings(max_examples=50)
     def test_complexity_always_returns_valid_estimate(
         self,
         msg: str,
@@ -378,7 +363,6 @@ class TestComplexityScoreFuzz:
         msg=st.text(min_size=0, max_size=200),
         ctx_tokens=st.integers(min_value=0, max_value=100_000),
     )
-    @settings(max_examples=50)
     def test_complexity_deterministic(self, msg: str, ctx_tokens: int) -> None:
         """Same input must produce same output."""
         order = DispatchOrder(
@@ -409,7 +393,6 @@ class TestContextFilterFuzz:
         required=st.sampled_from(list(TrustTier)),
         n=st.integers(min_value=0, max_value=20),
     )
-    @settings(max_examples=50)
     def test_filter_by_trust_tier_invariants(
         self,
         tier: TrustTier,
@@ -436,7 +419,6 @@ class TestContextFilterFuzz:
             max_size=10,
         ),
     )
-    @settings(max_examples=50)
     def test_filter_context_for_provider_no_crash(
         self,
         provider_tier: ProviderTrustTier,
@@ -464,7 +446,6 @@ class TestScoringFuzz:
         budget=st.floats(min_value=0.0, max_value=100.0),
         health=st.floats(min_value=0.0, max_value=100.0),
     )
-    @settings(max_examples=50)
     def test_composite_score_always_bounded(
         self,
         rank: int,
@@ -481,7 +462,6 @@ class TestScoringFuzz:
         rpd_remaining=st.one_of(st.none(), st.integers(min_value=0, max_value=10000)),
         rpd_limit=st.one_of(st.none(), st.integers(min_value=1, max_value=10000)),
     )
-    @settings(max_examples=50)
     def test_budget_score_bounded(
         self,
         rpm_remaining: int,
@@ -505,7 +485,6 @@ class TestScoringFuzz:
         circuit_open=st.booleans(),
         age=st.floats(min_value=0.0, max_value=1_000_000.0),
     )
-    @settings(max_examples=50)
     def test_health_score_bounded(
         self,
         error_count: int,
@@ -525,7 +504,6 @@ class TestScoringFuzz:
         queue_depth=st.integers(min_value=0, max_value=10000),
         max_queue=st.integers(min_value=1, max_value=10000),
     )
-    @settings(max_examples=50)
     def test_all_normalizers_bounded(
         self,
         rank: int,
@@ -548,7 +526,6 @@ class TestScoringFuzz:
         error_count=st.integers(min_value=0, max_value=100),
         age=st.floats(min_value=0.0, max_value=86400.0),
     )
-    @settings(max_examples=50)
     def test_health_circuit_open_always_zero(
         self,
         error_count: int,

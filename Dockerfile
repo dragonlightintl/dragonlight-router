@@ -17,18 +17,14 @@ FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-# Install build dependencies — use hash-verified lockfile when present
+# Install build dependencies — hash-verified lockfile is mandatory (SEC-SUPPLY-001)
 COPY pyproject.toml .
-COPY requirements-hashed.txt* ./
+COPY requirements-hashed.txt ./
 COPY src/ src/
 COPY config/ config/
 
-RUN if [ -f requirements-hashed.txt ]; then \
-        pip install --no-cache-dir --require-hashes -r requirements-hashed.txt && \
-        pip install --no-cache-dir --no-deps ".[all]"; \
-    else \
-        pip install --no-cache-dir ".[all]"; \
-    fi
+RUN pip install --no-cache-dir --require-hashes -r requirements-hashed.txt && \
+    pip install --no-cache-dir --no-deps ".[all]"
 
 # --- Runtime stage ---
 FROM python:3.11-slim AS runtime

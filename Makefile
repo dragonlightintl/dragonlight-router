@@ -1,4 +1,4 @@
-.PHONY: help install dev test test-cov test-unit test-integration test-contract test-property test-smoke test-acceptance lint format format-check typecheck security dep-audit docs docs-serve run docker-build docker-run clean all
+.PHONY: help install dev test test-cov test-unit test-integration test-contract test-property test-smoke test-acceptance lint format format-check typecheck security dep-audit lock verify-hashes docs docs-serve run docker-build docker-run clean all
 
 PYTHON ?= python3
 PORT   ?= 8100
@@ -55,6 +55,12 @@ security: ## Run bandit security scanner
 
 dep-audit: ## Audit dependencies for known vulnerabilities
 	$(PYTHON) -m pip_audit
+
+lock: ## Regenerate hash-pinned requirements-hashed.txt (SEC-SUPPLY-001)
+	pip-compile --generate-hashes --output-file=requirements-hashed.txt pyproject.toml
+
+verify-hashes: ## Verify installed packages match hash-pinned requirements
+	$(PYTHON) -m pip install --require-hashes --no-deps -r requirements-hashed.txt
 
 docs: ## Build documentation site
 	$(PYTHON) -m mkdocs build --strict

@@ -32,6 +32,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Verify dependency hashes
+        run: pip install --require-hashes --no-deps -r requirements-hashed.txt
       - run: pip install -e ".[all,dev]"
       - run: mypy src/dragonlight_router/
 
@@ -60,10 +62,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - name: Verify dependency hashes
-        if: hashFiles('requirements-hashed.txt') != ''
-        run: pip install --require-hashes -r requirements-hashed.txt
-      - name: Install dependencies
+      - name: Install hash-verified core dependencies
+        run: pip install --require-hashes --no-deps -r requirements-hashed.txt
+      - name: Install package with all extras
         run: pip install -e ".[all,dev]"
       - name: Run tests
         run: pytest --cov=dragonlight_router --cov-report=term-missing --cov-report=xml --cov-fail-under=100
@@ -85,6 +86,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Verify core dependency hashes
+        run: pip install --require-hashes --no-deps -r requirements-hashed.txt
       - run: pip install -e ".[all]"
       - name: Import check
         run: |

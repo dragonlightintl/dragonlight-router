@@ -99,11 +99,5 @@ convention = "google"
 targets = ["src/dragonlight_router"]
 skips = ["B101", "B603"]
 
-# TODO: SEC-SUPPLY-001 — Add --require-hashes to pip install workflow.
-# Per dragonlight-security-implementation-standard.md §3, all production
-# dependencies should be hash-pinned to prevent supply chain attacks.
-# Implement via: pip-compile --generate-hashes -> requirements.lock
-# and pip install --require-hashes -r requirements.lock in CI/CD.
-
 [tool.setuptools.packages.find]
 where = ["src"]

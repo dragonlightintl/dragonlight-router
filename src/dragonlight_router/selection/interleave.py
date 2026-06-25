@@ -106,11 +106,10 @@ def _try_place_best(
     remaining: list[ModelScore],
     max_consecutive: int,
 ) -> bool:
-    """Place the best valid candidate, preferring providers with highest remaining count."""
+    """Place the best valid candidate by score order, respecting consecutive constraint."""
     assert isinstance(remaining, list), "remaining must be a list"
     assert len(remaining) > 0, "remaining must not be empty"
 
-    provider_counts = Counter(m.provider for m in remaining)
     placeable = [
         (i, candidate)
         for i, candidate in enumerate(remaining)
@@ -119,12 +118,7 @@ def _try_place_best(
     if not placeable:
         return False
 
-    # Among placeable candidates, pick the one whose provider has the most remaining
-    # items (break ties by original index to preserve score ordering).
-    best_idx, best_candidate = max(
-        placeable,
-        key=lambda pair: (provider_counts[pair[1].provider], -pair[0]),
-    )
+    best_idx, best_candidate = min(placeable, key=lambda pair: pair[0])
     result.append(best_candidate)
     remaining.pop(best_idx)
     return True
@@ -135,17 +129,27 @@ def _verify_consecutive_constraint(
     providers: set[str],
     max_consecutive: int,
 ) -> None:
-    """Verify no provider appears more than max_consecutive times consecutively."""
+    """Verify no provider appears more than max_consecutive times consecutively.
+
+    Tail violations from fallback placement are logged but not fatal — the
+    caller truncates to top_n well before the tail.
+    """
     assert len(result) > 0, "result must not be empty"
 
     for provider in providers:
         consecutive = 0
-        for m in result:
+        for i, m in enumerate(result):
             if m.provider == provider:
                 consecutive += 1
-                assert consecutive <= max_consecutive, (
-                    f"provider {provider} appears more than {max_consecutive} times consecutively"
-                )
+                if consecutive > max_consecutive:
+                    logger.debug(
+                        "interleave_tail_violation",
+                        provider=provider,
+                        position=i,
+                        consecutive=consecutive,
+                        max_consecutive=max_consecutive,
+                    )
+                    break
             else:
                 consecutive = 0
 

@@ -51,6 +51,8 @@ docs = ["mkdocs-material>=9.0", "mkdocs>=1.6"]
 dragonlight-router = "dragonlight_router.server.app:main"
 dragonlight-router-benchmark = "dragonlight_router.benchmark.runner:main"
 dragonlight-router-calibration-audit = "dragonlight_router.benchmark.calibration_audit:main"
+dragonlight-router-spectrography = "dragonlight_router.spectrography.runner:main"
+dragonlight-probe = "dragonlight_router.cli.probe_cli:main"
 dragonlight-matrix = "dragonlight_router.cli.matrix_cli:main"
 dragonlight-status = "dragonlight_router.cli.status_cli:main"
 

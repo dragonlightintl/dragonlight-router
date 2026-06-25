@@ -974,6 +974,58 @@ def _prune_unreachable_models(
         logger.warning("unreachable_prune_failed", error=str(exc))
 
 
+def _store_to_sqlite(
+    state: RunState,
+    cfg: _SpectrographyConfig,
+    profiles: dict[str, ModelSpectrographProfile],
+) -> None:
+    """Persist probe results and profiles to SQLite (WAL mode).
+
+    Non-fatal: logs warnings on failure but does not abort the run.
+    The YAML/JSON reports are the primary output; SQLite is supplementary
+    durable storage for IBR profile lookup and audit queries.
+    """
+    try:
+        from dragonlight_router.spectrography.storage import SpectrographyStore
+
+        db_path = _CONFIG_DIR / "spectrography.db"
+        store = SpectrographyStore(db_path)
+        store.open()
+
+        try:
+            store.record_run_start(
+                run_id=state.run_id,
+                judge_model=cfg.judge_model,
+                model_count=len(set(r.model_id for r in state.results)),
+                probe_count=len(state.results),
+            )
+
+            if state.results:
+                store.store_probe_results_batch(state.results, state.run_id)
+
+            if profiles:
+                store.store_profiles_batch(profiles, state.run_id)
+
+            status = "partial" if state.shutdown_requested else "complete"
+            store.record_run_complete(
+                run_id=state.run_id,
+                error_count=state.total_errors,
+                status=status,
+            )
+
+            logger.info(
+                "sqlite_store_complete",
+                run_id=state.run_id,
+                db_path=str(db_path),
+                profiles_stored=len(profiles),
+                results_stored=len(state.results),
+            )
+        finally:
+            store.close()
+    except (ImportError, OSError, Exception) as exc:
+        logger.warning("sqlite_store_failed", error=str(exc))
+
+
 def _generate_spectrography_reports(
     setup: _SpectrographySetup,
     cfg: _SpectrographyConfig,
@@ -1016,6 +1068,9 @@ def _generate_spectrography_reports(
 
     if cfg.write_profiles:
         _write_config_profiles(profiles, state.run_id)
+
+    # Persist to SQLite (WAL mode) for durable storage and IBR lookup
+    _store_to_sqlite(state, cfg, profiles)
 
     _prune_unreachable_models(state, cfg)
 

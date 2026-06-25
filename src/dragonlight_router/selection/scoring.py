@@ -270,13 +270,14 @@ def normalize_health_score(health_score: float) -> float:
     return normalized
 
 
-# DEVIATION CS-PARAM-001: score_candidate takes 5 params — dataclass grouping would break API.
+# DEVIATION CS-PARAM-001: score_candidate takes 6 params — dataclass grouping would break API.
 def score_candidate(
     config: BackendConfig,
     order: DispatchOrder,
     weights: ScoringWeightsConfig,
     budget_tracker: BudgetTracker,
     health_tracker: HealthTracker | None,
+    spectrograph_match: float = 0.0,
 ) -> float:
     """Score a single candidate using canonical ScoringWeights.
 
@@ -286,15 +287,19 @@ def score_candidate(
         weights: Scoring weights to apply
         budget_tracker: Budget tracker for budget/latency scores
         health_tracker: Health tracker for health/priority scores
+        spectrograph_match: Spectrograph match score in [0.0, 1.0] from IBR stage
 
     Returns:
         Composite score in [0.0, 1.0]
     """
     assert isinstance(config, BackendConfig), "config must be BackendConfig"
     assert isinstance(weights, ScoringWeightsConfig), "weights must be ScoringWeightsConfig"
+    assert 0.0 <= spectrograph_match <= 1.0, (
+        f"spectrograph_match must be in [0.0, 1.0], got {spectrograph_match}"
+    )
 
     raw = _extract_raw_scores(config, budget_tracker, health_tracker)
-    normalized = _normalize_all_dimensions(raw)
+    normalized = _normalize_all_dimensions(raw, spectrograph_match=spectrograph_match)
     composite = _apply_weights(normalized, weights)
 
     assert 0.0 <= composite <= 1.0, f"Composite score out of bounds: {composite}"
@@ -323,6 +328,7 @@ class _NormalizedScores:
     priority: float
     queue: float
     health: float
+    spectrograph_match: float = 0.0
 
 
 def _extract_raw_scores(
@@ -374,10 +380,15 @@ def _normalize_cost_score(cost_score: float) -> float:
     return normalized
 
 
-def _normalize_all_dimensions(raw: _RawScores) -> _NormalizedScores:
+def _normalize_all_dimensions(
+    raw: _RawScores, spectrograph_match: float = 0.0
+) -> _NormalizedScores:
     """Normalize all raw scores to [0.0, 1.0]."""
     assert isinstance(raw, _RawScores), "raw must be _RawScores"
     assert raw.budget >= 0, "budget score must be non-negative"
+    assert 0.0 <= spectrograph_match <= 1.0, (
+        f"spectrograph_match must be in [0.0, 1.0], got {spectrograph_match}"
+    )
 
     return _NormalizedScores(
         rank=_normalize_cost_score(raw.rank),
@@ -386,6 +397,7 @@ def _normalize_all_dimensions(raw: _RawScores) -> _NormalizedScores:
         priority=normalize_priority_score(int(raw.priority)),
         queue=normalize_queue_score(int(100 - raw.budget)),
         health=normalize_health_score(raw.health),
+        spectrograph_match=spectrograph_match,
     )
 
 
@@ -399,6 +411,7 @@ def _apply_weights(normalized: _NormalizedScores, weights: ScoringWeightsConfig)
         + normalized.priority * weights.priority
         + normalized.queue * weights.queue
         + normalized.health * weights.health
+        + normalized.spectrograph_match * weights.spectrograph_match
     )
 
     assert 0.0 <= composite <= 1.0, f"Composite out of bounds: {composite}"

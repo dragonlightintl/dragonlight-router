@@ -365,17 +365,15 @@ def _score_and_rank_candidates(
 
     scored_candidates: list[ScoredCandidate] = []
     for candidate in candidates:
+        spectrograph_match = spectrograph_scores.get(candidate.name, 0.0)
         score = score_candidate(
             config=candidate,
             order=order,
             weights=weights,
             budget_tracker=ctx.budget_tracker,
             health_tracker=ctx.health_tracker,
+            spectrograph_match=spectrograph_match,
         )
-        # Add spectrograph_match contribution when IBR is active
-        spectrograph_match = spectrograph_scores.get(candidate.name, 0.0)
-        score = score + spectrograph_match * weights.spectrograph_match
-        score = min(1.0, max(0.0, score))
         score = _apply_degraded_penalty(score, candidate, ctx.registry)
         scored_candidates.append(ScoredCandidate(config=candidate, score=score))
 

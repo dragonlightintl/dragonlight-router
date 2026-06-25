@@ -10,6 +10,8 @@ import pytest
 from dragonlight_router.selection.scoring import (
     ScoringWeights,
     ScoringWeightsConfig,
+    _NormalizedScores,
+    _apply_weights,
     compute_budget_score,
     compute_composite_score,
     compute_health_score,
@@ -207,3 +209,93 @@ class TestScoreCandidateWithHealthTracker:
         )
         assert 0.0 <= result <= 1.0
         health_tracker.score.assert_called_once()
+
+
+class TestApplyWeightsSpectrographMatch:
+    """Verify _apply_weights includes spectrograph_match in the composite score."""
+
+    def test_spectrograph_match_included_in_composite(self):
+        """[TM-007 AC-7] _apply_weights includes spectrograph_match * weight in the sum."""
+        normalized = _NormalizedScores(
+            rank=0.0,
+            budget=0.0,
+            latency=0.0,
+            priority=0.0,
+            queue=0.0,
+            health=0.0,
+            spectrograph_match=1.0,
+        )
+        weights = ScoringWeightsConfig()  # spectrograph_match=0.15
+        result = _apply_weights(normalized, weights)
+        assert result == pytest.approx(0.15)
+
+    def test_spectrograph_match_weight_contribution(self):
+        """[TM-007 AC-7] spectrograph_match=1.0 with weight=0.15 contributes exactly 0.15."""
+        normalized = _NormalizedScores(
+            rank=0.5,
+            budget=0.5,
+            latency=0.5,
+            priority=0.5,
+            queue=0.5,
+            health=0.5,
+            spectrograph_match=1.0,
+        )
+        weights = ScoringWeightsConfig()
+        result = _apply_weights(normalized, weights)
+        # All other dimensions at 0.5 contribute: 0.5 * (0.20+0.25+0.20+0.10+0.10) = 0.5 * 0.85 = 0.425
+        # spectrograph_match at 1.0 contributes: 1.0 * 0.15 = 0.15
+        expected = 0.5 * 0.85 + 1.0 * 0.15
+        assert result == pytest.approx(expected)
+
+    def test_all_dimensions_perfect_reaches_one(self):
+        """[TM-007 AC-7] All dimensions at 1.0 with default weights produces composite of 1.0."""
+        normalized = _NormalizedScores(
+            rank=1.0,
+            budget=1.0,
+            latency=1.0,
+            priority=1.0,
+            queue=1.0,
+            health=1.0,
+            spectrograph_match=1.0,
+        )
+        weights = ScoringWeightsConfig()
+        result = _apply_weights(normalized, weights)
+        assert result == pytest.approx(1.0)
+
+    def test_zero_spectrograph_match_no_contribution(self):
+        """[TM-007 AC-7] spectrograph_match=0.0 contributes nothing to composite."""
+        normalized = _NormalizedScores(
+            rank=1.0,
+            budget=1.0,
+            latency=1.0,
+            priority=1.0,
+            queue=1.0,
+            health=1.0,
+            spectrograph_match=0.0,
+        )
+        weights = ScoringWeightsConfig()
+        result = _apply_weights(normalized, weights)
+        # Without spectrograph_match: sum of other weights = 0.85
+        assert result == pytest.approx(0.85)
+
+    def test_spectrograph_match_with_custom_weight(self):
+        """[TM-007 AC-7] spectrograph_match uses the weight from ScoringWeightsConfig."""
+        normalized = _NormalizedScores(
+            rank=0.0,
+            budget=0.0,
+            latency=0.0,
+            priority=0.0,
+            queue=0.0,
+            health=0.0,
+            spectrograph_match=0.8,
+        )
+        weights = ScoringWeightsConfig(
+            cost=0.10,
+            latency=0.10,
+            priority=0.10,
+            queue=0.10,
+            health=0.10,
+            spectrograph_match=0.50,
+        )
+        result = _apply_weights(normalized, weights)
+        assert result == pytest.approx(0.8 * 0.50)

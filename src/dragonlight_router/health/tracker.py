@@ -43,6 +43,8 @@ class HealthTracker:
         self._avg_latency: dict[str, float] = {}
         self._latency_alpha: float = 0.2
         self._retired: dict[str, float] = {}
+        self._suspended: dict[str, float] = {}
+        self._suspend_ttl_s: float = 300.0
 
     def score(self, model_id: str) -> Result[float, ModelNotFoundError]:
         """Health score (0-100) for a model.
@@ -114,21 +116,40 @@ class HealthTracker:
         assert http_status is None or isinstance(http_status, int), (
             f"http_status must be None or int, got {type(http_status)}"
         )
-        if http_status in (403, 404):
+        if http_status == 404:
             self._retire_model(model_id, http_status=http_status)
             return
+        if http_status == 403:
+            self._suspend_model(model_id)
         self._error_counts[model_id] = self._error_counts.get(model_id, 0) + 1
         self._breakers[model_id].record_error()
 
     def _retire_model(self, model_id: str, *, http_status: int = 404) -> None:
-        """Evict a model from the active catalog as a retirement event."""
+        """Evict a model permanently (404 — model does not exist)."""
         self._retired[model_id] = time.time()
         reason = f"{http_status}_at_inference"
         logger.info("model_retired", model_id=model_id, reason=reason)
 
+    def _suspend_model(self, model_id: str) -> None:
+        """Temporarily suspend a model (403 — may be transient auth/budget)."""
+        self._suspended[model_id] = time.time()
+        logger.info(
+            "model_suspended",
+            model_id=model_id,
+            ttl_s=self._suspend_ttl_s,
+            reason="403_at_inference",
+        )
+
     def is_retired(self, model_id: str) -> bool:
-        """Return True if the model has been retired (404 eviction)."""
-        return model_id in self._retired
+        """Return True if permanently retired or temporarily suspended."""
+        if model_id in self._retired:
+            return True
+        if model_id in self._suspended:
+            elapsed = time.time() - self._suspended[model_id]
+            if elapsed < self._suspend_ttl_s:
+                return True
+            del self._suspended[model_id]
+        return False
 
     def reinstate_model(self, model_id: str) -> None:
         """Restore a retired model to active status."""

@@ -70,6 +70,10 @@ class HealthTracker:
         self._retired: dict[str, float] = {}
         self._suspended: dict[str, float] = {}
         self._suspend_ttl_s: float = 300.0
+        self._provider_403_counts: dict[str, int] = defaultdict(int)
+        self._suspended_providers: dict[str, float] = {}
+        self._provider_suspend_threshold: int = 2
+        self._provider_suspend_ttl_s: float = 3600.0
 
     def score(self, model_id: str) -> Result[float, ModelNotFoundError]:
         """Health score (0-100) for a model.
@@ -167,14 +171,31 @@ class HealthTracker:
         logger.info("model_retired", model_id=model_id, reason=reason)
 
     def _suspend_model(self, model_id: str) -> None:
-        """Temporarily suspend a model (403 — may be transient auth/budget)."""
+        """Temporarily suspend a model (403 — may be transient auth/budget).
+
+        Also tracks per-provider 403 counts. When a provider accumulates
+        enough 403s, the entire provider is suspended to avoid burning
+        cascade slots on budget-exhausted providers.
+        """
         self._suspended[model_id] = time.time()
+        provider = model_id.split("/", 1)[0] if "/" in model_id else model_id
+        self._provider_403_counts[provider] += 1
         logger.info(
             "model_suspended",
             model_id=model_id,
+            provider=provider,
+            provider_403_count=self._provider_403_counts[provider],
             ttl_s=self._suspend_ttl_s,
             reason="403_at_inference",
         )
+        if self._provider_403_counts[provider] >= self._provider_suspend_threshold:
+            self._suspended_providers[provider] = time.time()
+            logger.warning(
+                "provider_suspended",
+                provider=provider,
+                count=self._provider_403_counts[provider],
+                ttl_s=self._provider_suspend_ttl_s,
+            )
 
     def _is_retired_or_suspended(self, model_id: str) -> bool:
         """Check both in-memory and DB for retirement/suspension status.
@@ -192,6 +213,14 @@ class HealthTracker:
             if elapsed < self._suspend_ttl_s:
                 return True
             del self._suspended[model_id]
+        # Provider-level suspension (budget exhaustion)
+        provider = model_id.split("/", 1)[0] if "/" in model_id else model_id
+        if provider in self._suspended_providers:
+            elapsed = time.time() - self._suspended_providers[provider]
+            if elapsed < self._provider_suspend_ttl_s:
+                return True
+            del self._suspended_providers[provider]
+            self._provider_403_counts[provider] = 0
         # DB fallback — catches retirements from other processes
         if self._db is not None:
             return self._db.is_unavailable(model_id)

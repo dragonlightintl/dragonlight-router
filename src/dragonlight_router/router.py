@@ -236,6 +236,20 @@ class RouterEngine:
         config_path: Path | None = None,
         **overrides: Any,
     ) -> None:
+        """Initialize the RouterEngine and wire up all subsystems.
+
+        Loads configuration from YAML (or defaults), initializes budget tracking,
+        health tracking, catalog cache, role matrix, backend registry, and the
+        optional IBR intent classification subsystem.
+
+        Args:
+            config_path: Path to a ``router.yaml`` configuration file. When ``None``,
+                the loader searches the default location (``config/router.yaml``) or
+                the path specified by the ``DRAGONLIGHT_ROUTER_CONFIG`` env var.
+            **overrides: Arbitrary keyword arguments merged into the loaded
+                ``RouterConfig``.  Keys must match ``RouterConfig`` field names
+                (e.g. ``state_dir``, ``default_top_n``).
+        """
         assert config_path is None or isinstance(config_path, Path), (
             "config_path must be a Path or None"
         )
@@ -1154,7 +1168,21 @@ def get_router(
     config_path: str | Path | None = None,
     **overrides: Any,
 ) -> RouterEngine:
-    """Thread-safe singleton. Zero-config works out of the box with canonical defaults."""
+    """Return the shared RouterEngine singleton, creating it on first call.
+
+    Thread-safe via double-checked locking. Subsequent calls ignore arguments
+    and return the existing instance. Call ``reset_router()`` to discard the
+    singleton (test isolation only).
+
+    Args:
+        config_path: Path to ``router.yaml``. Accepts ``str`` or ``Path``.
+            When ``None``, uses the default config resolution (see
+            ``RouterEngine.__init__``).
+        **overrides: Keyword overrides forwarded to ``RouterEngine.__init__``.
+
+    Returns:
+        The shared ``RouterEngine`` instance.
+    """
     global _router_instance
     if _router_instance is not None:
         return _router_instance

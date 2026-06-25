@@ -61,9 +61,7 @@ markdown_extensions:
 
 plugins:
   - search
-  # TODO: Add mkdocstrings for auto-generated API docs from docstrings.
-  # Requires: pip install mkdocstrings[python]
-  # - mkdocstrings:
-  #     handlers:
-  #       python:
-  #         paths: [src]
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]

@@ -64,6 +64,46 @@ Each entry in the `providers` list accepts:
 | `rate_limits.rpd` | int/null | no | Requests per day limit |
 | `rate_limits.tpm` | int/null | no | Tokens per minute limit |
 
+### Intent classification (IBR)
+
+The Intent Based Router (IBR) subsystem classifies incoming requests by task type, domain, and quality-speed tradeoff, then uses model spectrograph profiles to bias candidate scoring toward models that excel at the detected intent. When disabled (the default), the pipeline behaves identically to v0.3.0.
+
+```yaml
+intent_classification:
+  enabled: false
+  timeout_ms: 100
+  cache_ttl_s: 300
+  cache_max_entries: 5000
+  confidence_threshold: 0.6
+  profile_confidence_threshold: 0.3
+  spectrograph_match_weight: 0.15
+  spectrograph_match_weight_governor: 0.05
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | bool | `false` | Enable IBR intent classification. When `false`, the cascade operates without intent-aware scoring |
+| `timeout_ms` | int | `100` | Maximum wall-clock time (ms) for the classification call. Requests exceeding this fall back to unclassified dispatch |
+| `cache_ttl_s` | int | `300` | Seconds before a cached classification result expires |
+| `cache_max_entries` | int | `5000` | Maximum number of classification results held in the LRU cache |
+| `confidence_threshold` | float | `0.6` | Minimum classifier confidence (0.0-1.0) required to use the classification result. Below this, the request is treated as unclassified |
+| `profile_confidence_threshold` | float | `0.3` | Minimum spectrograph profile confidence (0.0-1.0) required to apply a model's profile score. Profiles below this threshold contribute zero signal |
+| `spectrograph_match_weight` | float | `0.15` | Weight of the spectrograph match score in the composite candidate score (0.0-1.0) |
+| `spectrograph_match_weight_governor` | float | `0.05` | Maximum per-cycle adjustment to the spectrograph match weight during adaptive tuning |
+
+### Pinned dispatch
+
+Pinned dispatch allows a caller to bypass the cascade pipeline and route directly to a specific backend by setting `DispatchOrder.model` to a registered backend name (e.g. `"anthropic/claude-sonnet-4-20250514"`). This section controls operational guardrails for that bypass.
+
+```yaml
+pinned_dispatch:
+  honor_health: true
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `honor_health` | bool | `true` | When `true`, pinned dispatch respects backend health status (circuit-open and retired backends are rejected). When `false`, the pinned model is used regardless of health state |
+
 ## Role matrix
 
 The role-to-model mapping lives at `{state_dir}/model_role_matrix.json`. The router hot-reloads this file on change — no restart required.

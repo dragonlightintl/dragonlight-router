@@ -36,6 +36,10 @@ from dragonlight_router.server.middleware import (
     SecurityHeadersMiddleware,
     get_cors_config,
 )
+from dragonlight_router.server.openai_proxy import (
+    chat_completions_handler,
+    models_handler,
+)
 from dragonlight_router.server.routes import (
     catalog_handler,
     catalog_refresh_handler,
@@ -167,6 +171,8 @@ def create_app(config_path: Path | None = None, **overrides: Any) -> Starlette:
             flavor_profile_upsert_handler,
             methods=["POST"],
         ),
+        Route("/v1/chat/completions", chat_completions_handler, methods=["POST"]),
+        Route("/v1/models", models_handler, methods=["GET"]),
         Route("/metrics", metrics_handler, methods=["GET"]),
         Route("/openapi.json", openapi_handler, methods=["GET"]),
     ]

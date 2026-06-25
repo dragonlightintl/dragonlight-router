@@ -106,23 +106,25 @@ class HealthTracker:
     ) -> None:
         """Record a failed request — may trip circuit breaker or retire model.
 
-        HTTP 404 at inference time triggers immediate retirement (eviction
-        from active catalog). All other errors follow normal circuit breaker path.
+        HTTP 404 (not found) and 403 (forbidden/unauthorized) at inference
+        time trigger immediate retirement (eviction from active catalog).
+        All other errors follow normal circuit breaker path.
         """
         assert isinstance(model_id, str) and model_id, "model_id must be non-empty string"
         assert http_status is None or isinstance(http_status, int), (
             f"http_status must be None or int, got {type(http_status)}"
         )
-        if http_status == 404:
-            self._retire_model(model_id)
+        if http_status in (403, 404):
+            self._retire_model(model_id, http_status=http_status)
             return
         self._error_counts[model_id] = self._error_counts.get(model_id, 0) + 1
         self._breakers[model_id].record_error()
 
-    def _retire_model(self, model_id: str) -> None:
+    def _retire_model(self, model_id: str, *, http_status: int = 404) -> None:
         """Evict a model from the active catalog as a retirement event."""
         self._retired[model_id] = time.time()
-        logger.info("model_retired", model_id=model_id, reason="404_at_inference")
+        reason = f"{http_status}_at_inference"
+        logger.info("model_retired", model_id=model_id, reason=reason)
 
     def is_retired(self, model_id: str) -> bool:
         """Return True if the model has been retired (404 eviction)."""

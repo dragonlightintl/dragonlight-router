@@ -187,6 +187,64 @@ class TestReinstatement:
         assert ht.is_available("never-retired") is True
 
 
+class TestRetirement403:
+    def test_record_error_403_retires_model(self):
+        """[TM-008] record_error with http_status=403 retires the model."""
+        ht = HealthTracker()
+        ht.record_error("m1", http_status=403)
+        assert ht.is_retired("m1") is True
+
+    def test_score_403_retired_model_returns_zero(self):
+        """[TM-008] 403-retired model score is 0."""
+        ht = HealthTracker()
+        ht.record_error("m1", http_status=403)
+        result = ht.score("m1")
+        assert isinstance(result, Ok)
+        assert result.value == pytest.approx(0.0)
+
+    def test_403_retired_model_not_available(self):
+        """[TM-008] 403-retired model is not available."""
+        ht = HealthTracker()
+        ht.record_error("m1", http_status=403)
+        assert ht.is_available("m1") is False
+
+    def test_403_retired_model_in_retired_list(self):
+        """[TM-008] 403-retired model appears in get_retired_models."""
+        ht = HealthTracker()
+        ht.record_error("m1", http_status=403)
+        retired = ht.get_retired_models()
+        assert "m1" in retired
+
+    def test_403_does_not_increment_error_count(self):
+        """[TM-008] 403 retires immediately without incrementing error count."""
+        ht = HealthTracker()
+        ht.record_error("m1", http_status=403)
+        assert ht.get_error_count("m1") == 0
+
+    def test_reinstate_after_403_works(self):
+        """[TM-008] 403-retired model can be reinstated."""
+        ht = HealthTracker()
+        ht.record_error("m1", http_status=403)
+        assert ht.is_available("m1") is False
+        ht.reinstate_model("m1")
+        assert ht.is_available("m1") is True
+
+    def test_mixed_403_and_404_both_retire(self):
+        """[TM-008] Both 403 and 404 trigger retirement for different models."""
+        ht = HealthTracker()
+        ht.record_error("m1", http_status=403)
+        ht.record_error("m2", http_status=404)
+        assert ht.is_retired("m1") is True
+        assert ht.is_retired("m2") is True
+
+    def test_other_4xx_do_not_retire(self):
+        """[TM-008] Other HTTP 4xx codes (e.g. 429) do NOT trigger retirement."""
+        ht = HealthTracker()
+        ht.record_error("m1", http_status=429)
+        assert ht.is_retired("m1") is False
+        assert ht.get_error_count("m1") == 1
+
+
 class TestScoreEdgeCases:
     def test_score_three_plus_errors_returns_30(self):
         """[TM-008 AC-9] score() returns 30 when error_count >= 3 but circuit is still closed.

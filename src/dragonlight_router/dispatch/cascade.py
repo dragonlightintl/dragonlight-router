@@ -521,9 +521,26 @@ async def _run_cascade(
     if isinstance(mbr_result, Err):
         return mbr_result
 
+    # Filter out models retired by the health tracker (404/403 at inference).
+    # MBR checks registry state but not the health tracker's retirement list,
+    # so retired models can slip through MBR on subsequent dispatches.
+    non_retired = [
+        c for c in mbr_result.value if not ctx.health_tracker.is_retired(c.model)
+    ]
+    if not non_retired:
+        return Err(
+            MBRNoCandidatesError("No candidates remain after filtering retired models")
+        )
+    logger.debug(
+        "retired_model_filter",
+        before=len(mbr_result.value),
+        after=len(non_retired),
+        retired=[c.name for c in mbr_result.value if ctx.health_tracker.is_retired(c.model)],
+    )
+
     # HAZ-001: Enforce caller-specified trust floor before cost/rate scoring
     trust_filtered = _filter_by_trust_floor(
-        mbr_result.value,
+        non_retired,
         order.context_trust_tier,
     )
     if not trust_filtered:
@@ -944,6 +961,18 @@ async def _handle_fallback_chain(
     last_error: RuntimeError | ValueError | ConnectionError | OSError | TypeError | None = None
 
     for backend_config in eligible:
+        # Skip candidates retired mid-cascade (e.g. a prior candidate in this
+        # dispatch returned 404/403, triggering retirement — subsequent
+        # candidates with the same model should be skipped).
+        if ctx.health_tracker.is_retired(backend_config.model):
+            logger.debug(
+                "skipping_retired_model_in_fallback",
+                backend=backend_config.name,
+                model=backend_config.model,
+            )
+            fallback_chain.append(backend_config.name)
+            continue
+
         logger.debug(
             "attempting generation",
             backend=backend_config.name,
@@ -965,6 +994,20 @@ async def _handle_fallback_chain(
             continue
 
         if isinstance(result, Ok):
+            # Minimum output token check (non-streaming only): if the model
+            # returned fewer tokens than the threshold, treat as insufficient
+            # output and continue the fallback chain to the next candidate.
+            min_tokens = order.min_output_tokens
+            if min_tokens > 0 and result.value.tokens_out < min_tokens:
+                logger.warning(
+                    "insufficient_output_tokens",
+                    backend=backend_config.name,
+                    output_tokens=result.value.tokens_out,
+                    min_output_tokens=min_tokens,
+                )
+                fallback_chain.append(backend_config.name)
+                continue
+
             logger.debug("dispatch successful", backend_used=result.value.backend_used)
             return result
 
@@ -1261,6 +1304,16 @@ async def _stream_with_fallback(
     fallback_chain: list[str] = []
 
     for backend_config in eligible:
+        # Skip candidates retired mid-cascade (404/403 from prior candidate).
+        if ctx.health_tracker.is_retired(backend_config.model):
+            logger.debug(
+                "skipping_retired_model_in_stream_fallback",
+                backend=backend_config.name,
+                model=backend_config.model,
+            )
+            fallback_chain.append(backend_config.name)
+            continue
+
         try:
             async for chunk in _try_streaming_dispatch(
                 backend_config,

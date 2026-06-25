@@ -196,6 +196,11 @@ class DispatchOrder:
     # format: {"role": "...", "content": "...", ...} including tool/assistant
     # messages with tool_calls and tool_call_id.
     messages: tuple[dict, ...] | None = None
+    # Minimum output token threshold for non-streaming dispatch. If a model
+    # returns fewer tokens than this, treat it as insufficient output and
+    # continue to the next candidate in the fallback chain. Set to 0 to
+    # disable the check. Only applies to non-streaming dispatch.
+    min_output_tokens: int = 50
 
 
 # ---------------------------------------------------------------------------

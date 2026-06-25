@@ -38,6 +38,13 @@ pytestmark = pytest.mark.unit
 # ---------------------------------------------------------------------------
 
 
+def _make_health_tracker_mock(**kwargs) -> MagicMock:
+    """Create a MagicMock health tracker with is_retired defaulting to False."""
+    ht = MagicMock(**kwargs)
+    ht.is_retired.return_value = False
+    return ht
+
+
 def _make_order(**kwargs) -> DispatchOrder:
     defaults = {
         "intent_category": "test",
@@ -55,7 +62,10 @@ def _make_order(**kwargs) -> DispatchOrder:
 def _make_ctx(registry=None, budget_tracker=None, health_tracker=None, config=None):
     registry = registry or MagicMock(spec=BackendRegistry)
     budget_tracker = budget_tracker or MagicMock()
-    health_tracker = health_tracker or MagicMock()
+    if health_tracker is None:
+        health_tracker = _make_health_tracker_mock()
+        # Default: no models are retired so cascade retirement filter passes all.
+        health_tracker.is_retired.return_value = False
     config = config if config is not None else {}
     return DispatchContext(
         registry=registry,
@@ -81,7 +91,7 @@ class TestRunCbrStageCostGovernor:
         budget_tracker.monthly_spend_usd.return_value = 2000.0
         budget_tracker.score.return_value = Ok(90.0)
 
-        health_tracker = MagicMock()
+        health_tracker = _make_health_tracker_mock()
         health_tracker.score.return_value = Ok(80.0)
 
         registry = MagicMock(spec=BackendRegistry)
@@ -206,7 +216,7 @@ class TestRoute:
         order = _make_order()
         registry = MagicMock(spec=BackendRegistry)
         budget_tracker = MagicMock()
-        health_tracker = MagicMock()
+        health_tracker = _make_health_tracker_mock()
         config = {}
 
         cascade_mod = "dragonlight_router.dispatch.cascade"
@@ -229,7 +239,7 @@ class TestRoute:
         order = _make_order()
         registry = MagicMock(spec=BackendRegistry)
         budget_tracker = MagicMock()
-        health_tracker = MagicMock()
+        health_tracker = _make_health_tracker_mock()
         config = {}
 
         from dragonlight_router.core.errors import BudgetExceededError
@@ -254,7 +264,7 @@ class TestRoute:
         order = _make_order()
         registry = MagicMock(spec=BackendRegistry)
         budget_tracker = MagicMock()
-        health_tracker = MagicMock()
+        health_tracker = _make_health_tracker_mock()
         config = {}
 
         cascade_mod = "dragonlight_router.dispatch.cascade"
@@ -492,7 +502,7 @@ class TestTryStreamingDispatch:
         """[TM-004 AC-5] _try_streaming_dispatch records success in health and budget trackers."""
         backend = make_backend_config(name="b1", provider="prov", model="test-model")
         order = _make_order()
-        health_tracker = MagicMock()
+        health_tracker = _make_health_tracker_mock()
         budget_tracker = MagicMock()
         ctx = _make_ctx(health_tracker=health_tracker, budget_tracker=budget_tracker)
         adapter = _make_mock_adapter(["response"])
@@ -529,7 +539,7 @@ class TestDispatchStream:
         order = _make_order()
         registry = MagicMock(spec=BackendRegistry)
         budget_tracker = MagicMock()
-        health_tracker = MagicMock()
+        health_tracker = _make_health_tracker_mock()
         adapter = _make_mock_adapter(["Hi", " there"])
 
         cascade_mod = "dragonlight_router.dispatch.cascade"
@@ -561,7 +571,7 @@ class TestDispatchStream:
         order = _make_order()
         registry = MagicMock(spec=BackendRegistry)
         budget_tracker = MagicMock()
-        health_tracker = MagicMock()
+        health_tracker = _make_health_tracker_mock()
 
         from dragonlight_router.core.errors import BudgetExceededError
 
@@ -590,7 +600,7 @@ class TestDispatchStream:
         order = _make_order()
         registry = MagicMock(spec=BackendRegistry)
         budget_tracker = MagicMock()
-        health_tracker = MagicMock()
+        health_tracker = _make_health_tracker_mock()
 
         failing_adapter = _make_failing_adapter(RuntimeError("timeout"))
         success_adapter = _make_mock_adapter(["fallback response"])
@@ -638,7 +648,7 @@ class TestDispatchStream:
         order = _make_order()
         registry = MagicMock(spec=BackendRegistry)
         budget_tracker = MagicMock()
-        health_tracker = MagicMock()
+        health_tracker = _make_health_tracker_mock()
 
         failing_adapter = _make_failing_adapter(RuntimeError("boom"))
 
@@ -893,7 +903,7 @@ class TestDispatchCacheHit:
 
         registry = MagicMock(spec=BackendRegistry)
         budget_tracker = MagicMock()
-        health_tracker = MagicMock()
+        health_tracker = _make_health_tracker_mock()
 
         result = await dispatch(
             order,
@@ -907,3 +917,212 @@ class TestDispatchCacheHit:
         assert result.value.content == "cached answer"
         assert result.value.backend_used == "cached-backend"
         _reset_cache()
+
+
+# ---------------------------------------------------------------------------
+# Minimum output token threshold — insufficient output triggers fallback
+# ---------------------------------------------------------------------------
+
+
+class TestMinOutputTokens:
+    @pytest.mark.asyncio
+    async def test_insufficient_output_continues_fallback(self, make_backend_config):
+        """Low output tokens from first backend triggers fallback to next candidate."""
+        from dragonlight_router.dispatch.cascade import _handle_fallback_chain
+
+        b1 = make_backend_config(name="b1", provider="prov1")
+        b2 = make_backend_config(name="b2", provider="prov2")
+        order = _make_order(min_output_tokens=50)
+        ctx = _make_ctx()
+
+        # First adapter returns only 5 output tokens (below threshold)
+        low_response = MagicMock()
+        low_response.content = "Hi"
+        low_response.backend_used = "b1"
+        low_response.tokens_out = 5
+
+        good_response = MagicMock()
+        good_response.content = "A proper response with enough tokens"
+        good_response.backend_used = "b2"
+        good_response.tokens_out = 100
+
+        call_count = 0
+
+        async def _mock_dispatch(bc, base_ctx, o, c, chain):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return Ok(low_response)
+            return Ok(good_response)
+
+        cascade_mod = "dragonlight_router.dispatch.cascade"
+        with patch(f"{cascade_mod}._try_adapter_dispatch", side_effect=_mock_dispatch):
+            result = await _handle_fallback_chain([b1, b2], {"task": "hi"}, order, ctx)
+
+        assert result.is_ok()
+        assert result.value.backend_used == "b2"
+
+    @pytest.mark.asyncio
+    async def test_sufficient_output_returns_immediately(self, make_backend_config):
+        """Output tokens meeting threshold returns without fallback."""
+        from dragonlight_router.dispatch.cascade import _handle_fallback_chain
+
+        b1 = make_backend_config(name="b1", provider="prov1")
+        b2 = make_backend_config(name="b2", provider="prov2")
+        order = _make_order(min_output_tokens=50)
+        ctx = _make_ctx()
+
+        response = MagicMock()
+        response.content = "A proper response"
+        response.backend_used = "b1"
+        response.tokens_out = 200
+
+        async def _mock_dispatch(bc, base_ctx, o, c, chain):
+            return Ok(response)
+
+        cascade_mod = "dragonlight_router.dispatch.cascade"
+        with patch(f"{cascade_mod}._try_adapter_dispatch", side_effect=_mock_dispatch):
+            result = await _handle_fallback_chain([b1, b2], {"task": "hi"}, order, ctx)
+
+        assert result.is_ok()
+        assert result.value.backend_used == "b1"
+
+    @pytest.mark.asyncio
+    async def test_zero_threshold_disables_check(self, make_backend_config):
+        """min_output_tokens=0 disables the minimum output check."""
+        from dragonlight_router.dispatch.cascade import _handle_fallback_chain
+
+        b1 = make_backend_config(name="b1", provider="prov1")
+        order = _make_order(min_output_tokens=0)
+        ctx = _make_ctx()
+
+        response = MagicMock()
+        response.content = "x"
+        response.backend_used = "b1"
+        response.tokens_out = 1
+
+        async def _mock_dispatch(bc, base_ctx, o, c, chain):
+            return Ok(response)
+
+        cascade_mod = "dragonlight_router.dispatch.cascade"
+        with patch(f"{cascade_mod}._try_adapter_dispatch", side_effect=_mock_dispatch):
+            result = await _handle_fallback_chain([b1], {"task": "hi"}, order, ctx)
+
+        assert result.is_ok()
+        assert result.value.tokens_out == 1
+
+    @pytest.mark.asyncio
+    async def test_all_backends_insufficient_output_returns_exhaustion(self, make_backend_config):
+        """All backends returning insufficient output exhausts fallback chain."""
+        from dragonlight_router.dispatch.cascade import _handle_fallback_chain
+
+        b1 = make_backend_config(name="b1", provider="prov1")
+        b2 = make_backend_config(name="b2", provider="prov2")
+        order = _make_order(min_output_tokens=50)
+        ctx = _make_ctx()
+
+        low_response = MagicMock()
+        low_response.content = "tiny"
+        low_response.backend_used = "b1"
+        low_response.tokens_out = 3
+
+        async def _mock_dispatch(bc, base_ctx, o, c, chain):
+            return Ok(low_response)
+
+        cascade_mod = "dragonlight_router.dispatch.cascade"
+        with patch(f"{cascade_mod}._try_adapter_dispatch", side_effect=_mock_dispatch):
+            result = await _handle_fallback_chain([b1, b2], {"task": "hi"}, order, ctx)
+
+        assert result.is_err()
+
+
+# ---------------------------------------------------------------------------
+# Retired model filtering in cascade and fallback chain
+# ---------------------------------------------------------------------------
+
+
+class TestRetiredModelFiltering:
+    @pytest.mark.asyncio
+    async def test_cascade_filters_retired_models(self, make_backend_config):
+        """_run_cascade excludes models retired by the health tracker."""
+        from dragonlight_router.health.tracker import HealthTracker
+
+        b1 = make_backend_config(name="b1", provider="prov1", model="model-a")
+        b2 = make_backend_config(name="b2", provider="prov2", model="model-b")
+        order = _make_order()
+
+        health_tracker = HealthTracker()
+        # Retire model-a via 404
+        health_tracker.record_error("model-a", http_status=404)
+
+        ctx = _make_ctx(health_tracker=health_tracker)
+
+        cascade_mod = "dragonlight_router.dispatch.cascade"
+        with (
+            patch(f"{cascade_mod}._run_mbr_stage", return_value=Ok([b1, b2])),
+            patch(f"{cascade_mod}._run_ibr_stage", new_callable=AsyncMock, return_value=None),
+            patch(f"{cascade_mod}._run_cbr_stage") as mock_cbr,
+            patch(f"{cascade_mod}._run_lbr_stage") as mock_lbr,
+        ):
+            mock_cbr.return_value = Ok([ScoredCandidate(config=b2, score=0.8)])
+            mock_lbr.return_value = Ok([ScoredCandidate(config=b2, score=0.8)])
+            result = await _run_cascade(order, ctx)
+
+        assert result.is_ok()
+        # CBR should only have received model-b (model-a was retired)
+        cbr_candidates = mock_cbr.call_args[0][1]  # second positional arg
+        assert len(cbr_candidates) == 1
+        assert cbr_candidates[0].model == "model-b"
+
+    @pytest.mark.asyncio
+    async def test_cascade_returns_err_when_all_retired(self, make_backend_config):
+        """_run_cascade returns Err when all MBR candidates are retired."""
+        from dragonlight_router.health.tracker import HealthTracker
+
+        b1 = make_backend_config(name="b1", provider="prov1", model="model-a")
+        order = _make_order()
+
+        health_tracker = HealthTracker()
+        health_tracker.record_error("model-a", http_status=404)
+
+        ctx = _make_ctx(health_tracker=health_tracker)
+
+        with patch(
+            "dragonlight_router.dispatch.cascade._run_mbr_stage",
+            return_value=Ok([b1]),
+        ):
+            result = await _run_cascade(order, ctx)
+
+        assert result.is_err()
+        assert "retired" in str(result.error).lower()
+
+    @pytest.mark.asyncio
+    async def test_fallback_chain_skips_retired_model(self, make_backend_config):
+        """_handle_fallback_chain skips candidates retired mid-cascade."""
+        from dragonlight_router.health.tracker import HealthTracker
+        from dragonlight_router.dispatch.cascade import _handle_fallback_chain
+
+        b1 = make_backend_config(name="b1", provider="prov1", model="model-a")
+        b2 = make_backend_config(name="b2", provider="prov2", model="model-b")
+        order = _make_order(min_output_tokens=0)
+
+        health_tracker = HealthTracker()
+        # model-a is retired before fallback chain starts
+        health_tracker.record_error("model-a", http_status=403)
+
+        ctx = _make_ctx(health_tracker=health_tracker)
+
+        response = MagicMock()
+        response.content = "good output"
+        response.backend_used = "b2"
+        response.tokens_out = 100
+
+        async def _mock_dispatch(bc, base_ctx, o, c, chain):
+            return Ok(response)
+
+        cascade_mod = "dragonlight_router.dispatch.cascade"
+        with patch(f"{cascade_mod}._try_adapter_dispatch", side_effect=_mock_dispatch):
+            result = await _handle_fallback_chain([b1, b2], {"task": "hi"}, order, ctx)
+
+        assert result.is_ok()
+        assert result.value.backend_used == "b2"

@@ -410,6 +410,24 @@ class ScoredCandidate:
 
 
 @dataclass(frozen=True)
+class ModelCandidate:
+    """Connection-ready model candidate returned by select_for_task().
+
+    Contains everything the factory needs to construct a pydantic-ai Model
+    object without knowing provider-specific wiring details. API keys are
+    referenced by env var name (never the raw secret).
+    """
+
+    model_id: str
+    provider: str
+    base_url: str
+    api_key_env: str
+    protocol: str  # "openai" | "anthropic"
+    health_score: float
+    composite_score: float
+
+
+@dataclass(frozen=True)
 class CatalogEntry:
     """One model from a provider's catalog."""
 

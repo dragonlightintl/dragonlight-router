@@ -3,6 +3,7 @@
 from .core.types import (
     DispatchOrder,
     EngineResponse,
+    ModelCandidate,
     RequestOutcome,
     StreamChunk,
 )
@@ -18,6 +19,7 @@ __all__ = [
     # Consumer types
     "DispatchOrder",
     "EngineResponse",
+    "ModelCandidate",
     "RequestOutcome",
     "StreamChunk",
     # Result types

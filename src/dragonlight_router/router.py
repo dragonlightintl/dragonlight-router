@@ -38,6 +38,7 @@ from dragonlight_router.core.types import (
     DispatchOrder,
     EngineResponse,
     LatencySLO,
+    ModelCandidate,
     ModelScore,
     ProviderConfig,
     RequestOutcome,
@@ -47,6 +48,7 @@ from dragonlight_router.dispatch.cascade import dispatch as cascade_dispatch
 from dragonlight_router.dispatch.cascade import dispatch_stream as cascade_dispatch_stream
 from dragonlight_router.health.check_loop import HealthCheckLoop
 from dragonlight_router.health.tracker import HealthTracker
+from dragonlight_router.rate.limiter import RateLimiter
 from dragonlight_router.result import Ok, Result
 from dragonlight_router.roles.matrix import RoleMatrix
 from dragonlight_router.selection.feedback import FeedbackStore
@@ -304,8 +306,21 @@ class RouterEngine:
         assert isinstance(config, RouterConfig), "config must be a RouterConfig instance"
         return config
 
+    # Default RPM limits for providers that don't specify rpm_limit
+    # in their config. Used by _extract_provider_limits() when building
+    # the RateLimiter's provider_limits dict.
+    _DEFAULT_PROVIDER_RPM: dict[str, int | None] = {
+        "nvidia_nim": 60,
+        "groq": 28,
+        "openrouter": 200,
+        "cerebras": 30,
+        "mistral": 60,
+        "gemini": 60,
+        "ollama": None,  # local, no limit
+    }
+
     def _init_subsystems(self) -> None:
-        """Wire up budget, health, catalog, matrix, and registry subsystems."""
+        """Wire up budget, health, catalog, matrix, rate limiter, and registry subsystems."""
         state_dir = self._config.state_dir
         provider_configs = [
             ProviderConfig(
@@ -328,6 +343,10 @@ class RouterEngine:
         self._health = HealthTracker(
             db_path=state_dir / "health.db",
         )
+        self._rate_limiter = RateLimiter(
+            db_path=state_dir / "rate_limits.db",
+            provider_limits=self._extract_provider_limits(),
+        )
         self._catalog = CatalogCache(
             cache_path=state_dir / "provider_catalog.json",
             ttl_hours=self._config.catalog_ttl_hours,
@@ -336,6 +355,34 @@ class RouterEngine:
         self._matrix = RoleMatrix(matrix_path=state_dir / "model_role_matrix.json")
         self._registry = BackendRegistry()
         self._provider_configs = {p.name: p for p in provider_configs}
+
+    def _extract_provider_limits(self) -> dict[str, int]:
+        """Extract RPM limits from provider configs for the RateLimiter.
+
+        Uses the rpm field from each provider's rate_limits config. Falls
+        back to _DEFAULT_PROVIDER_RPM for providers that have no rpm set.
+        Providers with None limits (e.g. ollama) are excluded from the
+        result, meaning no rate limiting is applied for them.
+
+        Returns:
+            Dict of provider_name -> RPM limit (only providers with limits).
+        """
+        limits: dict[str, int] = {}
+        for p in self._config.providers:
+            rpm = p.rate_limits.rpm
+            if rpm is not None and rpm > 0:
+                limits[p.name] = rpm
+            else:
+                # Fall back to hardcoded defaults
+                default = self._DEFAULT_PROVIDER_RPM.get(p.name)
+                if default is not None:
+                    limits[p.name] = default
+        return limits
+
+    @property
+    def rate_limiter(self) -> RateLimiter:
+        """The cross-process rate limiter for provider RPM coordination."""
+        return self._rate_limiter
 
     def _restore_health_state(self) -> None:
         """HAZ-003/HAZ-012 mitigation: Restore persisted health state at startup.
@@ -907,6 +954,136 @@ class RouterEngine:
         )
         # Return top_n model IDs
         return [m.model_id for m in interleaved[:top_n]]
+
+    # Protocol mapping: adapter key -> wire protocol used by pydantic-ai.
+    # All OpenAI-compatible providers use "openai"; Anthropic uses "anthropic".
+    _ADAPTER_PROTOCOL: dict[str, str] = {
+        "nvidia": "openai",
+        "groq": "openai",
+        "openrouter": "openai",
+        "cerebras": "openai",
+        "google": "openai",
+        "mistral": "openai",
+        "local": "openai",
+        "openai": "openai",
+        "cohere": "openai",
+        "together": "openai",
+        "anthropic": "anthropic",
+    }
+
+    def select_for_task(
+        self,
+        *,
+        intent_category: str,
+        complexity: str = "standard",
+        stakes: str = "mid",
+        requires_tool_use: bool = True,
+        context_tokens: int = 0,
+        exclude_models: list[str] | None = None,
+    ) -> list[ModelCandidate]:
+        """Select ranked model candidates for a factory task.
+
+        Uses the full selection pipeline: health check, budget check,
+        CBR/IBR/MBR scoring, cascade ordering. Returns connection configs
+        so the factory can construct pydantic-ai Model objects.
+
+        Args:
+            intent_category: Task type — "test_generation", "implementation", etc.
+            complexity: Ticket complexity — "trivial", "standard", "complex", "formal".
+            stakes: Risk level — "low", "mid", "high".
+            requires_tool_use: Whether the task needs function calling.
+            context_tokens: Estimated input token count.
+            exclude_models: Model IDs to skip (e.g. already-failed models).
+
+        Returns:
+            Ordered list of ModelCandidate with connection config for each.
+        """
+        assert isinstance(intent_category, str) and intent_category, (
+            "intent_category must be a non-empty string"
+        )
+        assert complexity in ("trivial", "standard", "complex", "formal"), (
+            f"complexity must be one of trivial/standard/complex/formal, got {complexity}"
+        )
+
+        # Map intent_category to a role for the existing matrix lookup.
+        _INTENT_TO_ROLE: dict[str, str] = {
+            "test_generation": "testing",
+            "test_property": "testing",
+            "implementation": "coding",
+            "coding": "coding",
+            "coherence_merge": "coding",
+            "audit": "testing",
+            "reasoning": "reasoning",
+        }
+        role = _INTENT_TO_ROLE.get(intent_category, "coding")
+
+        # Use the existing select_models pipeline for ranked model IDs.
+        ranked_ids = self.select_models(role, top_n=12)
+
+        # Apply exclusion filter
+        excluded = set(exclude_models) if exclude_models else set()
+        if requires_tool_use:
+            # Also exclude models that don't support tool use
+            non_tool = set()
+            for model_id in ranked_ids:
+                backend, _state = self._registry.get(model_id)
+                if backend is not None and not backend.config.capabilities.supports_tool_use:
+                    non_tool.add(model_id)
+            excluded |= non_tool
+
+        filtered_ids = [m for m in ranked_ids if m not in excluded]
+
+        # Build ModelCandidate objects with connection config from provider configs
+        candidates: list[ModelCandidate] = []
+        for model_id in filtered_ids:
+            # Resolve provider config
+            matched_provider = None
+            for p in self._config.providers:
+                if model_id.startswith(p.model_prefix):
+                    matched_provider = p
+                    break
+            if matched_provider is None:
+                continue
+
+            adapter_key = self._PROVIDER_ADAPTER_KEY.get(matched_provider.name)
+            if adapter_key is None:
+                continue
+
+            protocol = self._ADAPTER_PROTOCOL.get(adapter_key, "openai")
+
+            # Get health and composite scores from the scoring pipeline
+            health_result = self._health.score(model_id)
+            health_score = health_result.value if isinstance(health_result, Ok) else 100.0
+            budget_result = self._budget.score(matched_provider.name)
+            budget_score = budget_result.value if isinstance(budget_result, Ok) else 100.0
+
+            # Get rank from matrix
+            matrix_candidates = self._matrix.get_ranked_models(role)
+            rank = 0
+            for mid, r in matrix_candidates:
+                if mid == model_id:
+                    rank = r
+                    break
+
+            composite = compute_composite_score(
+                rank=rank,
+                budget_score=budget_score,
+                health_score=health_score,
+            )
+
+            candidates.append(
+                ModelCandidate(
+                    model_id=model_id,
+                    provider=matched_provider.name,
+                    base_url=matched_provider.base_url,
+                    api_key_env=matched_provider.env_key or "",
+                    protocol=protocol,
+                    health_score=health_score,
+                    composite_score=composite,
+                )
+            )
+
+        return candidates
 
     def record_request(self, outcome: RequestOutcome) -> None:
         assert isinstance(outcome, RequestOutcome), "outcome must be a RequestOutcome"

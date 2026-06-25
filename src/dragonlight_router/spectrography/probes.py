@@ -285,7 +285,7 @@ _EDGE_CASE_PROBES: list[SpectrographyProbe] = [
             "SELECT u.name, u.email, o.total\n"
             "FROM users u\n"
             "JOIN orders o ON o.user_id = u.id\n"
-            "WHERE u.name = '" + "' OR '1'='1" + "'\n"
+            "WHERE u.name = '" + "' OR '1'='1" + "'\n"  # nosec B608 — intentional SQL injection example in LLM probe, not a real query
             "ORDER BY o.total DESC\n"
             "LIMIT 10;"
         ),

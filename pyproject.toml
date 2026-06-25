@@ -97,7 +97,7 @@ convention = "google"
 
 [tool.bandit]
 targets = ["src/dragonlight_router"]
-skips = ["B101", "B603"]
+skips = ["B101"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

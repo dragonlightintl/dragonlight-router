@@ -45,14 +45,14 @@ Auditors: DIAN CECHT (Security), FIRINNE (Ground Truth), GOIBNIU (Engineering St
 | ENG-07 | GOIBNIU | LOW | No pre-commit hooks (.pre-commit-config.yaml) | DONE (8bbc2cf) |
 | ENG-08 | GOIBNIU | LOW | No [tool.ruff] section in pyproject.toml | DONE (8bbc2cf, already existed + updated) |
 | SEC-H1 | DIAN CECHT | HIGH | `random` module used in LBR selection — replace with `secrets` | DONE (4197da9) |
-| SEC-H2 | DIAN CECHT | HIGH | Supply chain hash pinning not implemented (SEC-SUPPLY-001) | PENDING |
+| SEC-H2 | DIAN CECHT | HIGH | Supply chain hash pinning not implemented (SEC-SUPPLY-001) | DONE (8bc0d42) |
 | SEC-M4 | DIAN CECHT | MEDIUM | model_role_matrix.json loaded without schema validation | DONE (8bbc2cf) |
-| SEC-L1 | DIAN CECHT | LOW | No Bandit skip justification for B603 | PENDING |
-| SEC-L3 | DIAN CECHT | LOW | CORS defaults allow all headers when enabled | PENDING |
-| CLI-01 | LUGH | RECOMMENDED | No CLI for health/budget/status inspection without server | PENDING |
-| CLI-02 | LUGH | RECOMMENDED | No CLI documentation page in MkDocs | PENDING |
-| DOC-05 | LUGH | RECOMMENDED | Spectrography user guide missing | DONE (docs/spectrography.md) |
-| PUB-05 | LUGH | BLOCKING | No PyPI Trusted Publishing release workflow (OSS-050) | PENDING |
+| SEC-L1 | DIAN CECHT | LOW | No Bandit skip justification for B603 | DONE (7cd6aa9, skip removed — no subprocess usage) |
+| SEC-L3 | DIAN CECHT | LOW | CORS defaults allow all headers when enabled | DONE (c09756b) |
+| CLI-01 | LUGH | RECOMMENDED | No CLI for health/budget/status inspection without server | DONE (9434b5a) |
+| CLI-02 | LUGH | RECOMMENDED | No CLI documentation page in MkDocs | DONE (9434b5a, docs/cli.md) |
+| DOC-05 | LUGH | RECOMMENDED | Spectrography user guide missing | DONE (e624dab, docs/spectrography.md) |
+| PUB-05 | LUGH | BLOCKING | No PyPI Trusted Publishing release workflow (OSS-050) | DONE (1a6bb37) |
 | PUB-06 | LUGH | RECOMMENDED | Version declared in two places (pyproject.toml + __init__.py) | NOTED |
 
 ### WAVE 3 (future)

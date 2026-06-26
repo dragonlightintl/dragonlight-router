@@ -347,12 +347,12 @@ class OpenAICompatibleBackend(GenerativeBackend):
         last_exc: Exception | None = None
         for attempt in range(self._max_retries):
             try:
-                async with self._make_client(timeout=60.0) as client:
+                async with self._make_client(timeout=180.0) as client:
                     response = await client.post(
                         url,
                         headers=headers,
                         json=payload,
-                        timeout=60.0,
+                        timeout=180.0,
                     )
                     response.raise_for_status()
                     return self._extract_non_stream_full_message(response.json())

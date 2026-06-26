@@ -871,6 +871,39 @@ async def _try_adapter_dispatch(
         tokens_in, tokens_out = _estimate_and_log_tokens(messages, content, backend_config.name)
         cost_usd = _compute_cost_usd(tokens_in, tokens_out, backend_config.cost)
 
+        # Validate tool-use response: if tools were requested but the model
+        # returned no tool_calls, treat as a dispatch failure so the cascade
+        # falls back to the next model.  Exception: finish_reason="stop"
+        # is legitimate (model chose to respond with text at end of a
+        # tool-use conversation).  finish_reason="length" is always a
+        # failure (truncated response).
+        if finish_reason == "length":
+            logger.warning(
+                "tool_use_truncated",
+                provider=backend_config.provider,
+                model=backend_config.model,
+                finish_reason=finish_reason,
+            )
+            return Err(RuntimeError(
+                f"Tool-use response truncated (finish_reason='length') "
+                f"from {backend_config.provider}/{backend_config.model}"
+            ))
+
+        if not tool_calls_resp and (finish_reason != "stop" or tokens_out <= 2):
+            logger.warning(
+                "tool_use_no_tool_calls",
+                provider=backend_config.provider,
+                model=backend_config.model,
+                finish_reason=finish_reason,
+                has_content=bool(content),
+                tokens_out=tokens_out,
+            )
+            return Err(RuntimeError(
+                f"Tool-use requested but model returned no tool_calls "
+                f"(finish_reason={finish_reason!r}) "
+                f"from {backend_config.provider}/{backend_config.model}"
+            ))
+
         _record_dispatch_success(
             backend_config,
             ctx,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import types
@@ -857,12 +858,15 @@ async def _try_adapter_dispatch(
     # Tool-use path: non-streaming, returns full message with tool_calls
     if order.tools and hasattr(adapter, "generate_with_tools"):
         tools_list = list(order.tools)
-        result_msg = await adapter.generate_with_tools(
-            messages,
-            max_tokens=4096,
-            temperature=0.7,
-            tools=tools_list,
-            tool_choice=order.tool_choice,
+        result_msg = await asyncio.wait_for(
+            adapter.generate_with_tools(
+                messages,
+                max_tokens=4096,
+                temperature=0.7,
+                tools=tools_list,
+                tool_choice=order.tool_choice,
+            ),
+            timeout=300.0,
         )
         latency_ms = (time.monotonic() - t0) * 1000.0
         content = result_msg.get("content", "") or ""
@@ -1112,7 +1116,7 @@ async def _handle_fallback_chain(
                 ctx,
                 fallback_chain,
             )
-        except (RuntimeError, ValueError, ConnectionError, OSError, TypeError) as exc:
+        except (RuntimeError, ValueError, ConnectionError, OSError, TimeoutError, TypeError) as exc:
             last_error = exc
             fallback_chain.append(backend_config.name)
             _record_adapter_failure(exc, backend_config, ctx)
@@ -1455,7 +1459,7 @@ async def _stream_with_fallback(
             ):
                 yield chunk
             return  # Success — metadata chunk already yielded
-        except (RuntimeError, ValueError, ConnectionError, OSError, TypeError) as exc:
+        except (RuntimeError, ValueError, ConnectionError, OSError, TimeoutError, TypeError) as exc:
             fallback_chain.append(backend_config.name)
             _record_adapter_failure(exc, backend_config, ctx)
             logger.warning(
